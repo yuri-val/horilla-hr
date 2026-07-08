@@ -1,11 +1,11 @@
-{% load static i18n %}
+{% load static i18n crumbfilters %}
 <ul class="breadcrumb ms-4">
     {% for breadcrumb in breadcrumbs %}
         <li>
             {% if breadcrumb.found %}
-                <a href="{{ breadcrumb.url }}">{{ breadcrumb.name }}</a>
+                <a href="{{ breadcrumb.url }}">{{ breadcrumb.name|crumb_label }}</a>
             {% else %}
-                <a href="#">{{ breadcrumb.name }}</a>
+                <a href="#">{{ breadcrumb.name|crumb_label }}</a>
             {% endif %}
         </li>
     {% endfor %}
