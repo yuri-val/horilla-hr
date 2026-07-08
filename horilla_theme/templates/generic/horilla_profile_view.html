@@ -166,7 +166,7 @@
                                     data-tab="{{tab.title}}"
                                     class="{% if forloop.counter == 1 and not active_target %} active {% endif %}"
                                 >
-                                    {{tab.title}}
+                                    {% trans tab.title %}
                                 </button>
                                 <span
                                     hx-get="{{tab.url|format:instance}}"
