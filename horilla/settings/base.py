@@ -205,6 +205,7 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "django.template.context_processors.i18n",
                 # Horilla dynamic context processors
                 "horilla.config.get_MENUS",
                 "base.context_processors.get_companies",
@@ -251,6 +252,7 @@ LANGUAGES = (
     ("zh-hans", "Simplified Chinese"),
     ("zh-hant", "Traditional Chinese"),
     ("it", "Italian"),
+    ("uk", "Українська"),
 )
 
 LOCALE_PATHS = [join(BASE_DIR, "horilla", "locale")]
