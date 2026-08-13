@@ -298,7 +298,7 @@ SIDEBARS = [
     "pms",
     "offboarding",
     "asset",
-    "helpdesk",
+    # "helpdesk",  # hidden from navigation — unused at SCG (app stays installed)
     "project",
     "report",
 ]
