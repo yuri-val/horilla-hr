@@ -1,13 +1,18 @@
+import re
 import uuid
 from urllib.parse import urlparse
 
 from django.apps import apps
+from django.conf import settings
 from django.shortcuts import redirect
 from django.urls import Resolver404, path, resolve, reverse
 
 from base.context_processors import white_labelling_company
 from employee.models import Employee
 from horilla.urls import urlpatterns
+
+# Final path segment that looks like a file, e.g. "uk.png", "app.min.js.map".
+_FILE_SEGMENT = re.compile(r"\.[A-Za-z0-9]{1,5}$")
 
 
 def is_valid_uuid(uuid_string):
@@ -16,6 +21,22 @@ def is_valid_uuid(uuid_string):
         return True
     except ValueError:
         return False
+
+
+def is_asset_request(request):
+    """
+    True for static/media or file URLs — these are not navigable pages.
+
+    A missing asset (e.g. a language flag with no image) 404s, and the 404
+    page still renders this processor, which would otherwise push
+    "static / images / ui / uk.png" into the breadcrumb trail.
+    """
+    path_info = request.path
+    for prefix in (settings.STATIC_URL, settings.MEDIA_URL):
+        if prefix and path_info.startswith(prefix):
+            return True
+    last_segment = path_info.rstrip("/").rsplit("/", 1)[-1]
+    return bool(_FILE_SEGMENT.search(last_segment))
 
 
 def _split_path(self, path=None):
@@ -192,6 +213,19 @@ def breadcrumbs(request):
         request.session["breadcrumbs"] = [
             {"url": base_url, "name": company, "found": True}
         ]
+
+    # Drop asset entries a previous release may have stored in the session.
+    cleaned = [
+        crumb
+        for crumb in request.session["breadcrumbs"]
+        if not _FILE_SEGMENT.search(crumb.get("name", ""))
+    ]
+    if len(cleaned) != len(request.session["breadcrumbs"]):
+        request.session["breadcrumbs"] = cleaned
+
+    # An asset request must never extend the trail (see is_asset_request).
+    if is_asset_request(request):
+        return {"breadcrumbs": request.session["breadcrumbs"]}
 
     try:
         breadcrumbs = request.session["breadcrumbs"]
