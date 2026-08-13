@@ -346,7 +346,11 @@ class RecruitmentCreationForm(BaseModelForm):
         is_published = self.cleaned_data.get("is_published")
         if is_published and not open_positions:
             raise forms.ValidationError(
-                _("Job position is required if the recruitment is publishing.")
+                {
+                    "open_positions": _(
+                        "Job position is required if the recruitment is publishing."
+                    )
+                }
             )
         if (
             self.cleaned_data.get("publish_in_linkedin")
