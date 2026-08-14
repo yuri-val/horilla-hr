@@ -947,18 +947,30 @@ $(document).on("click", function (event) {
 });
 
 $(document).on("htmx:afterSwap", function () {
-    if ($("[data-summernote]").length > 0) {
-        $("[data-summernote]").summernote({
+    $("[data-summernote]").each(function () {
+        var $source = $(this);
+        // htmx:afterSwap fires on every swap, so skip editors already built.
+        if ($source.next(".note-editor").length) {
+            return;
+        }
+        // Summernote hides the source field. The browser cannot focus a hidden
+        // control to report a constraint violation, so a `required` one blocks
+        // submit with no visible reason ("An invalid form control ... is not
+        // focusable"). Leave the check to the server, which renders it inline.
+        this.removeAttribute("required");
+        $source.summernote({
             height: 300,
             codeviewFilter: false,
             codeviewIframeFilter: false,
             callbacks: {
                 onChange: function (contents) {
-                    $('[name="body"]').val(contents);
+                    // Write back to the edited field itself — the previous
+                    // selector targeted [name="body"] whatever was edited.
+                    $source.val(contents);
                 },
             },
         });
-    }
+    });
 });
 function offboardingUpdateStage($element) {
     submitButton = $element.closest("form").find("input[type=submit]")
