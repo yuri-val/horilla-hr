@@ -229,7 +229,7 @@ def attendance_department_breakdown(request):
     from attendance.models import Attendance
     from employee.models import Employee
 
-    _, to_date = _parse_period(request)
+    _from_date, to_date = _parse_period(request)
     today = _latest_attendance_date(to_date)
     departments = []
 
@@ -271,7 +271,7 @@ def attendance_late_early_data(request):
     """Late come and early out breakdown by department for the selected date (to_date)."""
     from attendance.models import AttendanceLateComeEarlyOut
 
-    _, to_date = _parse_period(request)
+    _from_date, to_date = _parse_period(request)
     today = _latest_attendance_date(to_date)
     late_data = []
     early_data = []
@@ -452,7 +452,7 @@ def attendance_absenteeism_trend(request):
     from attendance.models import Attendance
     from employee.models import Employee
 
-    _, to_date = _parse_period(request)
+    _from_date, to_date = _parse_period(request)
     today = to_date
     months = []
 
@@ -819,7 +819,7 @@ def attendance_overview(request):
     from attendance.models import Attendance, AttendanceLateComeEarlyOut
     from base.models import Department
 
-    _, to_date = _parse_period(request)
+    _from_date, to_date = _parse_period(request)
     target_date = _latest_attendance_date(to_date)
 
     labels = []
