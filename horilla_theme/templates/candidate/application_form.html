@@ -279,8 +279,14 @@
     </div>
 
 
-    {# country.js localises its option labels via gettext(); this page is standalone
-       and does not extend index.html, so the catalog has to be pulled in here #}
+    {# This page is standalone (it does not extend index.html), so every dependency
+       has to be listed here. jQuery comes first: the inline block below inlines the
+       whole Select2 library and then uses $(...) throughout, so without it the block
+       died on "jQuery is not defined" and the resume prefill, required-label styling
+       and matching-resume autofill never ran. #}
+    <script src="{% static '/jquery/jquery.min.js' %}"></script>
+    {# country.js localises its option labels via gettext(); the catalog is not
+       inherited from index.html either #}
     <script src="{% url 'javascript-catalog' %}"></script>
     <script src="{% static '/index/country.js' %}"></script>
     <script>
