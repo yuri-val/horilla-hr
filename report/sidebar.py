@@ -13,7 +13,7 @@ SUBMENUS = []
 if apps.is_installed("recruitment"):
     SUBMENUS.append(
         {
-            "menu": "Recruitment",
+            "menu": _("Recruitment"),
             "redirect": reverse_lazy("recruitment-report"),
             "accessibility": "report.sidebar.recruitment_accessibility",
         }
@@ -22,7 +22,7 @@ if apps.is_installed("recruitment"):
 if apps.is_installed("employee"):
     SUBMENUS.append(
         {
-            "menu": "Employee",
+            "menu": _("Employee"),
             "redirect": reverse_lazy("employee-report"),
             "accessibility": "report.sidebar.employee_accessibility",
         }
@@ -31,7 +31,7 @@ if apps.is_installed("employee"):
 if apps.is_installed("attendance"):
     SUBMENUS.append(
         {
-            "menu": "Attendance",
+            "menu": _("Attendance"),
             "redirect": reverse_lazy("attendance-report"),
             "accessibility": "report.sidebar.attendance_accessibility",
         }
@@ -40,7 +40,7 @@ if apps.is_installed("attendance"):
 if apps.is_installed("leave"):
     SUBMENUS.append(
         {
-            "menu": "Leave",
+            "menu": _("Leave"),
             "redirect": reverse_lazy("leave-report"),
             "accessibility": "report.sidebar.leave_accessibility",
         }
@@ -49,7 +49,7 @@ if apps.is_installed("leave"):
 if apps.is_installed("payroll"):
     SUBMENUS.append(
         {
-            "menu": "Payroll",
+            "menu": _("Payroll"),
             "redirect": reverse_lazy("payroll-report"),
             "accessibility": "report.sidebar.payroll_accessibility",
         }
@@ -58,7 +58,7 @@ if apps.is_installed("payroll"):
 if apps.is_installed("asset"):
     SUBMENUS.append(
         {
-            "menu": "Asset",
+            "menu": _("Asset"),
             "redirect": reverse_lazy("asset-report"),
             "accessibility": "report.sidebar.asset_accessibility",
         }
@@ -67,7 +67,7 @@ if apps.is_installed("asset"):
 if apps.is_installed("pms"):
     SUBMENUS.append(
         {
-            "menu": "Performance",
+            "menu": _("Performance"),
             "redirect": reverse_lazy("pms-report"),
             "accessibility": "report.sidebar.pms_accessibility",
         }
