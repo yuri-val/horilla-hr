@@ -1,24 +1,24 @@
-{% load static i18n %}
+{% load static i18n crumbfilters %}
 <ul class="breadcrumb ms-4">
     {% for breadcrumb in breadcrumbs %}
         {% if forloop.last %}
             <li>
                 {% if breadcrumb.clickable and breadcrumb.found %}
-                    <a href="{{breadcrumb.url}}">{% trans breadcrumb.name %}</a>
+                    <a href="{{breadcrumb.url}}">{{ breadcrumb.name|crumb_label }}</a>
                 {% elif not breadcrumb.clickable %}
-                    <span>{% trans breadcrumb.name %}</span>
+                    <span>{{ breadcrumb.name|crumb_label }}</span>
                 {% else %}
-                    <a href="#">{% trans breadcrumb.name %}</a>
+                    <a href="#">{{ breadcrumb.name|crumb_label }}</a>
                 {% endif %}
             </li>
         {% else %}
             <li>
                 {% if breadcrumb.clickable and breadcrumb.found %}
-                    <a href="{{breadcrumb.url}}">{% trans breadcrumb.name %}</a>
+                    <a href="{{breadcrumb.url}}">{{ breadcrumb.name|crumb_label }}</a>
                 {% elif not breadcrumb.clickable %}
-                    <span>{% trans breadcrumb.name %}</span>
+                    <span>{{ breadcrumb.name|crumb_label }}</span>
                 {% else %}
-                    <a href="#">{% trans breadcrumb.name %}</a>
+                    <a href="#">{{ breadcrumb.name|crumb_label }}</a>
                 {% endif %}
             </li>
         {% endif %}
