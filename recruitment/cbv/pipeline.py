@@ -6,12 +6,14 @@ from typing import Any
 
 from django.contrib import messages
 from django.core.cache import cache as CACHE
+from django.db.models import Q
 from django.urls import reverse, reverse_lazy
 from django.utils.decorators import method_decorator
 from django.utils.http import urlencode
 from django.utils.translation import gettext_lazy as _
 
 from horilla.decorators import hx_request_required
+from horilla_views import models as horilla_views_models
 from horilla_views.cbv_methods import login_required
 from horilla_views.generic.cbv.kanban import HorillaKanbanView
 from horilla_views.generic.cbv.views import (
@@ -61,10 +63,11 @@ class RecruitmentTabView(HorillaTabView):
         view_type = self.request.GET.get("view")
         if not view_type and self.request.user and self.request.user.is_authenticated:
             active_view = (
-                models.ActiveView.objects.filter(created_by=self.request.user)
+                horilla_views_models.ActiveView.objects.filter(
+                    created_by=self.request.user
+                )
                 .filter(
-                    models.Q(path=self.request.path)
-                    | models.Q(path=reverse("cbv-pipeline"))
+                    Q(path=self.request.path) | Q(path=reverse("cbv-pipeline"))
                 )
                 .first()
             )
