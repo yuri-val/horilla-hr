@@ -29,12 +29,51 @@ Examples:
 # this file alone.
 # ---------------------------------------------------------------------------
 
+from django.utils.translation import gettext_lazy as _
+
 from .base import INSTALLED_APPS, SIDEBARS
 
 INSTALLED_APPS += ["scg_overrides"]
 
 # Modules dropped from the sidebar.
-#   helpdesk - never adopted at SCG.
-for _hidden_module in ("helpdesk",):
+#   helpdesk   - never adopted at SCG.
+#   attendance - check-in/check-out is switched off for the company
+#                (AttendanceGeneralSetting.enable_check_in is False), so every
+#                screen in the module could only ever come up empty.
+for _hidden_module in ("helpdesk", "attendance"):
     if _hidden_module in SIDEBARS:
         SIDEBARS.remove(_hidden_module)
+
+# Submenus reworked, keyed by app and matched on the English menu label (the
+# gettext msgid), which scg_overrides reads with translations disabled so the
+# match never depends on the active language. `None` hides the entry; a dict
+# re-points it. A label upstream renames stops matching, which makes the entry
+# reappear and logs a warning — it never changes silently.
+#
+# "Policies & Discipline" is re-pointed rather than hidden: HR wants the
+# policies but not the disciplinary tabs, and the standalone policies page has
+# the same content without them. Trimming the tabs instead would mean copying
+# that template and freezing our copy against upstream.
+SCG_SUBMENU_OVERRIDES = {
+    "employee": {
+        "Requests": None,
+        "Work Schedules": None,
+        "Policies & Discipline": {"menu": _("Policies"), "redirect": "view-policies"},
+    },
+    # Attendance reports can only ever be empty with check-in/out switched off.
+    "report": {"Attendance": None},
+}
+
+# Model methods re-pointed at another method of the same model.
+#
+# HR asked to drop the "(badge id)" that trails every employee name. The list
+# column, its default set, the card title and the card heading all resolve
+# through Employee.employee_name_with_badge_id, so aliasing that one method
+# covers every one of them without editing a view or freezing a template.
+# Employee.__str__ deliberately keeps the badge: dropdowns, exports and the
+# admin need it to tell namesakes apart.
+SCG_MODEL_METHOD_ALIASES = {
+    "employee.Employee": {
+        "employee_name_with_badge_id": "get_full_name",
+    },
+}
