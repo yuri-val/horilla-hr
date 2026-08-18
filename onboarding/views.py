@@ -535,15 +535,22 @@ def candidates_single_view(request, id, **kwargs):
                 _("%(recruitment)s has no stage..")
                 % {"recruitment": candidate.recruitment_id},
             )
+        # OnboardingTask lost its direct recruitment_id when tasks moved under
+        # stages, so this filter raised FieldError for any recruitment that has
+        # tasks. (The view is currently not routed - its URL is commented out -
+        # but the pipeline's lazy assign_task covers live flows, and this keeps
+        # the function correct for whoever re-enables it.)
         if tasks := OnboardingTask.objects.filter(
-            recruitment_id=candidate.recruitment_id
+            stage_id__recruitment_id=candidate.recruitment_id
         ):
             for task in tasks:
                 if not CandidateTask.objects.filter(
                     candidate_id=candidate, onboarding_task_id=task
                 ).exists():
                     CandidateTask(
-                        candidate_id=candidate, onboarding_task_id=task
+                        candidate_id=candidate,
+                        stage_id=task.stage_id,
+                        onboarding_task_id=task,
                     ).save()
 
     recruitment = candidate.recruitment_id
