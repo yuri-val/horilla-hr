@@ -5,13 +5,23 @@
         <div class="oh-profile-section mt-4" style="max-width:640px">
             <div class="d-flex justify-content-between align-items-center mb-3">
                 <h2 class="oh-profile-section__title">{% trans "Add Task Blocks" %}</h2>
-                <a
-                    href="{% url 'cbv-pipeline-onboarding' %}"
-                    class="oh-btn oh-btn--light-bkg"
-                >
-                    <ion-icon name="arrow-back-outline" class="me-1"></ion-icon>
-                    {% trans "Back" %}
-                </a>
+                <div class="d-flex gap-2">
+                    {# libraries are hidden from the normal tab strip: this is the way in to edit them #}
+                    <a
+                        href="{% url 'cbv-pipeline-onboarding' %}?show_blocks=1"
+                        class="oh-btn oh-btn--light-bkg"
+                    >
+                        <ion-icon name="create-outline" class="me-1"></ion-icon>
+                        {% trans "Edit blocks" %}
+                    </a>
+                    <a
+                        href="{% url 'cbv-pipeline-onboarding' %}"
+                        class="oh-btn oh-btn--light-bkg"
+                    >
+                        <ion-icon name="arrow-back-outline" class="me-1"></ion-icon>
+                        {% trans "Back" %}
+                    </a>
+                </div>
             </div>
             <p class="mb-3" style="color:#565E6C">
                 {% trans "Standard onboarding checklists live on ordinary recruitments used as block libraries. Pick a vacancy and the blocks to append to its onboarding." %}

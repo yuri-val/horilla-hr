@@ -118,6 +118,17 @@ class RecruitmentTabView(HorillaTabView):
         recruitments = onboarding_filters.RecruitmentFilter(self.request.GET).qs.filter(
             is_active=True
         )
+        # A closed recruitment with nobody onboarding has nothing to show here:
+        # either it is finished, or it is one of the task-block libraries (see
+        # scg_overrides.onboarding_blocks), and both only crowd the tab strip
+        # next to the vacancies actually being worked. The sidebar's
+        # ?closed=false never reached this view - the page loads it over HTMX
+        # from a fixed URL - so the filter has to hold here. show_blocks=1
+        # brings them back, which is how the libraries get edited.
+        if self.request.GET.get("show_blocks") != "1":
+            recruitments = recruitments.exclude(
+                closed=True, onboarding_stage__candidate__isnull=True
+            ).distinct()
         view_type = self.request.GET.get("view", "list")
         self.tabs = []
         for rec in recruitments:

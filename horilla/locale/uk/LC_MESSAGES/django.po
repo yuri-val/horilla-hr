@@ -21674,3 +21674,6 @@ msgid_plural "Added %(stages)d stages with %(tasks)d tasks to %(vacancy)s."
 msgstr[0] "Додано %(stages)d етап із %(tasks)d задачами до %(vacancy)s."
 msgstr[1] "Додано %(stages)d етапи із %(tasks)d задачами до %(vacancy)s."
 msgstr[2] "Додано %(stages)d етапів із %(tasks)d задачами до %(vacancy)s."
+
+msgid "Edit blocks"
+msgstr "Редагувати блоки"
