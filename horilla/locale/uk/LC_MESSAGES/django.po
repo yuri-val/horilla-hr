@@ -21641,3 +21641,36 @@ msgstr "Заявок: %(applied)s з %(capacity)s"
 
 #~ msgid "Mail not send to %(candidate_name)s"
 #~ msgstr "Пошта не надсилається на %(candidate_name)s"
+
+#: scg_overrides/onboarding_blocks.py (SCG addition: onboarding task blocks)
+msgid "Add Task Blocks"
+msgstr "Додати блоки задач"
+
+msgid "Task blocks"
+msgstr "Блоки задач"
+
+msgid ""
+"Every stage that has tasks is appended, in order, to the vacancy's "
+"onboarding; empty stages are skipped."
+msgstr ""
+"Кожен етап, у якому є задачі, додається по порядку до адаптації вакансії; "
+"порожні етапи пропускаються."
+
+msgid "A vacancy cannot receive its own stages - unselect it in the blocks."
+msgstr "Вакансія не може отримати власні етапи — зніміть її вибір у блоках."
+
+msgid ""
+"Standard onboarding checklists live on ordinary recruitments used as block "
+"libraries. Pick a vacancy and the blocks to append to its onboarding."
+msgstr ""
+"Стандартні чеклісти адаптації зберігаються в окремих вакансіях-бібліотеках "
+"блоків. Оберіть вакансію та блоки, які додати до її адаптації."
+
+msgid "Add blocks"
+msgstr "Додати блоки"
+
+msgid "Added %(stages)d stage with %(tasks)d task to %(vacancy)s."
+msgid_plural "Added %(stages)d stages with %(tasks)d tasks to %(vacancy)s."
+msgstr[0] "Додано %(stages)d етап із %(tasks)d задачами до %(vacancy)s."
+msgstr[1] "Додано %(stages)d етапи із %(tasks)d задачами до %(vacancy)s."
+msgstr[2] "Додано %(stages)d етапів із %(tasks)d задачами до %(vacancy)s."
