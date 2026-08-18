@@ -88,6 +88,8 @@ urlpatterns = [
     path("jsi18n/", JavaScriptCatalog.as_view(), name="javascript-catalog"),
     path("health/", health_check),
     path("ready/", readiness_check),
+    # SCG-specific additions (kept out of product apps; see scg_overrides).
+    path("scg/", include("scg_overrides.urls")),
 ]
 
 # if settings.DEBUG:

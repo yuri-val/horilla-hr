@@ -60,6 +60,9 @@ SCG_SUBMENU_OVERRIDES = {
         "Work Schedules": None,
         "Policies & Discipline": {"menu": _("Policies"), "redirect": "view-policies"},
     },
+    # HR does not plan vacation-restriction periods, so the page could only
+    # ever show its empty state.
+    "leave": {"Restricted Leave Periods": None},
     # Attendance reports can only ever be empty with check-in/out switched off.
     "report": {"Attendance": None},
 }

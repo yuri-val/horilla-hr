@@ -146,9 +146,20 @@ def alias_model_methods():
             setattr(model, name, target)
 
 
+def install_onboarding_task_blocks():
+    """SCG addition, not an override: reusable onboarding task blocks.
+
+    The feature itself lives in scg_overrides.onboarding_blocks; this only
+    drops its entry point into the pipeline's Actions dropdown.
+    """
+    from scg_overrides.onboarding_blocks import install_nav_action
+
+    install_nav_action()
+
+
 def apply():
     """Run every override, letting none of them break startup."""
-    for step in (configure_submenus, alias_model_methods):
+    for step in (configure_submenus, alias_model_methods, install_onboarding_task_blocks):
         try:
             step()
         except Exception:

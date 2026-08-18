@@ -1,0 +1,43 @@
+{% extends "index.html" %}
+{% load i18n %}
+{% block content %}
+    <div class="oh-wrapper">
+        <div class="oh-profile-section mt-4" style="max-width:640px">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h2 class="oh-profile-section__title">{% trans "Add Task Blocks" %}</h2>
+                <a
+                    href="{% url 'cbv-pipeline-onboarding' %}"
+                    class="oh-btn oh-btn--light-bkg"
+                >
+                    <ion-icon name="arrow-back-outline" class="me-1"></ion-icon>
+                    {% trans "Back" %}
+                </a>
+            </div>
+            <p class="mb-3" style="color:#565E6C">
+                {% trans "Standard onboarding checklists live on ordinary recruitments used as block libraries. Pick a vacancy and the blocks to append to its onboarding." %}
+            </p>
+            <form method="post" class="bg-white p-4 rounded-md shadow-card">
+                {% csrf_token %}
+                {% if form.non_field_errors %}
+                    <div class="oh-alert oh-alert--animated oh-alert--danger">
+                        {{ form.non_field_errors }}
+                    </div>
+                {% endif %}
+                <div class="mb-3">
+                    <label class="oh-label" for="{{ form.target.id_for_label }}">{{ form.target.label }}</label>
+                    {{ form.target }}
+                    {{ form.target.errors }}
+                </div>
+                <div class="mb-3">
+                    <label class="oh-label">{{ form.sources.label }}</label>
+                    <div class="oh-input-group">{{ form.sources }}</div>
+                    <small style="color:#565E6C">{{ form.sources.help_text }}</small>
+                    {{ form.sources.errors }}
+                </div>
+                <button type="submit" class="oh-btn oh-btn--secondary">
+                    {% trans "Add blocks" %}
+                </button>
+            </form>
+        </div>
+    </div>
+{% endblock content %}
