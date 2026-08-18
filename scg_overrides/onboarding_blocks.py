@@ -124,6 +124,37 @@ def _copy_blocks(target, sources):
     return copied_stages, copied_tasks
 
 
+def _library_contents(form):
+    """What each offered block actually holds, for display next to the form.
+
+    The pipeline lists candidates, not tasks: a stage shows its tasks only as
+    columns beside a candidate standing in it, and the stage menu has no task
+    list at all. So without this there is no way to see what a block contains
+    before copying it - or to check afterwards what arrived.
+    """
+    libraries = []
+    for recruitment in form.fields["sources"].queryset:
+        stages = []
+        for stage in OnboardingStage.objects.filter(recruitment_id=recruitment).order_by(
+            "sequence", "id"
+        ):
+            tasks = [
+                {
+                    "title": task.task_title,
+                    "required": task.is_required,
+                    "owners": ", ".join(
+                        person.get_full_name() for person in task.employee_id.all()
+                    ),
+                }
+                for task in stage.onboarding_task.all().order_by("id")
+            ]
+            if tasks:
+                stages.append({"title": stage.stage_title, "tasks": tasks})
+        if stages:
+            libraries.append({"title": recruitment.title, "stages": stages})
+    return libraries
+
+
 @login_required
 @permission_required(perm="onboarding.add_onboardingstage")
 def task_blocks_view(request):
@@ -142,7 +173,11 @@ def task_blocks_view(request):
             % {"stages": stages, "tasks": tasks, "vacancy": target.title},
         )
         return redirect("cbv-pipeline-onboarding")
-    return render(request, "scg_overrides/task_blocks_form.html", {"form": form})
+    return render(
+        request,
+        "scg_overrides/task_blocks_form.html",
+        {"form": form, "libraries": _library_contents(form)},
+    )
 
 
 def install_nav_action():

@@ -21677,3 +21677,16 @@ msgstr[2] "Додано %(stages)d етапів із %(tasks)d задачами 
 
 msgid "Edit blocks"
 msgstr "Редагувати блоки"
+
+msgid "What each block contains"
+msgstr "Що містить кожен блок"
+
+msgid ""
+"The pipeline shows a stage's tasks only next to a candidate standing in it, "
+"so here is the full contents of every block."
+msgstr ""
+"На сторінці адаптації задачі етапу видно лише поряд із кандидатом, який у "
+"ньому стоїть, — тому ось повний склад кожного блоку."
+
+msgid "required"
+msgstr "обов'язкова"

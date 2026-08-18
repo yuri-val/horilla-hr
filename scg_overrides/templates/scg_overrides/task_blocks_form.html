@@ -49,5 +49,35 @@
                 </button>
             </form>
         </div>
+
+        {% if libraries %}
+            <div class="oh-profile-section mt-4" style="max-width:640px">
+                <h2 class="oh-profile-section__title mb-1">{% trans "What each block contains" %}</h2>
+                <p class="mb-3" style="color:#565E6C">
+                    {% trans "The pipeline shows a stage's tasks only next to a candidate standing in it, so here is the full contents of every block." %}
+                </p>
+                {% for library in libraries %}
+                    <div class="bg-white p-4 rounded-md shadow-card mb-3">
+                        <h3 class="text-md font-semibold mb-2">{{ library.title }}</h3>
+                        {% for stage in library.stages %}
+                            <p class="mb-1" style="color:#565E6C">{{ stage.title }}</p>
+                            <ul class="mb-2" style="list-style:disc;padding-left:1.25rem">
+                                {% for task in stage.tasks %}
+                                    <li class="text-sm">
+                                        {{ task.title }}
+                                        {% if task.required %}
+                                            <span class="oh-badge oh-badge--warning oh-badge--small ms-1">{% trans "required" %}</span>
+                                        {% endif %}
+                                        {% if task.owners %}
+                                            <span style="color:#8a919c"> — {{ task.owners }}</span>
+                                        {% endif %}
+                                    </li>
+                                {% endfor %}
+                            </ul>
+                        {% endfor %}
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
     </div>
 {% endblock content %}
