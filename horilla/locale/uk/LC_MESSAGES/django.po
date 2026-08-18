@@ -21690,3 +21690,18 @@ msgstr ""
 
 msgid "required"
 msgstr "обов'язкова"
+
+msgid "Add a task to this stage"
+msgstr "Додати задачу до цього етапу"
+
+msgid "No tasks yet."
+msgstr "Задач ще немає."
+
+msgid "Delete this task from the block?"
+msgstr "Видалити цю задачу з блоку?"
+
+msgid "%(task)s deleted."
+msgstr "%(task)s видалено."
+
+msgid "%(task)s is in use by candidates and was not deleted."
+msgstr "%(task)s використовується кандидатами, тому не видалено."

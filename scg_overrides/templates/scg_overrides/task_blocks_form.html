@@ -1,6 +1,8 @@
 {% extends "index.html" %}
 {% load i18n %}
 {% block content %}
+    {# brings in #genericModal and #deleteConfirmation, which the product's task forms target #}
+    {% include "generic/components.html" %}
     <div class="oh-wrapper">
         <div class="oh-profile-section mt-4" style="max-width:640px">
             <div class="d-flex justify-content-between align-items-center mb-3">
@@ -58,22 +60,69 @@
                 </p>
                 {% for library in libraries %}
                     <div class="bg-white p-4 rounded-md shadow-card mb-3">
-                        <h3 class="text-md font-semibold mb-2">{{ library.title }}</h3>
+                        <h3 class="text-md font-semibold mb-3">{{ library.title }}</h3>
                         {% for stage in library.stages %}
-                            <p class="mb-1" style="color:#565E6C">{{ stage.title }}</p>
-                            <ul class="mb-2" style="list-style:disc;padding-left:1.25rem">
-                                {% for task in stage.tasks %}
-                                    <li class="text-sm">
-                                        {{ task.title }}
-                                        {% if task.required %}
-                                            <span class="oh-badge oh-badge--warning oh-badge--small ms-1">{% trans "required" %}</span>
-                                        {% endif %}
-                                        {% if task.owners %}
-                                            <span style="color:#8a919c"> — {{ task.owners }}</span>
-                                        {% endif %}
-                                    </li>
-                                {% endfor %}
-                            </ul>
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <p class="mb-0" style="color:#565E6C">{{ stage.title }}</p>
+                                <button
+                                    hx-get="{% url 'task-creation' stage.id %}"
+                                    hx-target="#genericModalBody"
+                                    data-toggle="oh-modal-toggle"
+                                    data-target="#genericModal"
+                                    class="oh-btn oh-btn--light-bkg oh-btn--small"
+                                    title="{% trans 'Add a task to this stage' %}"
+                                >
+                                    <ion-icon name="add-outline" class="me-1"></ion-icon>
+                                    {% trans "Task" %}
+                                </button>
+                            </div>
+                            {% if stage.tasks %}
+                                <ul class="mb-3" style="list-style:none;padding-left:0">
+                                    {% for task in stage.tasks %}
+                                        <li class="text-sm d-flex justify-content-between align-items-center py-1"
+                                            style="border-bottom:1px solid #f1f1f1">
+                                            <span>
+                                                {{ task.title }}
+                                                {% if task.required %}
+                                                    <span class="oh-badge oh-badge--warning oh-badge--small ms-1">{% trans "required" %}</span>
+                                                {% endif %}
+                                                {% if task.owners %}
+                                                    <span style="color:#8a919c"> — {{ task.owners }}</span>
+                                                {% endif %}
+                                            </span>
+                                            <span class="d-flex gap-1">
+                                                <button
+                                                    hx-get="{% url 'task-update' task.id %}"
+                                                    hx-target="#genericModalBody"
+                                                    data-toggle="oh-modal-toggle"
+                                                    data-target="#genericModal"
+                                                    class="oh-btn oh-btn--light-bkg oh-btn--sq-sm"
+                                                    title="{% trans 'Edit' %}"
+                                                >
+                                                    <ion-icon name="create-outline"></ion-icon>
+                                                </button>
+                                                <form
+                                                    method="post"
+                                                    action="{% url 'scg-onboarding-task-block-delete' task.id %}"
+                                                    onsubmit="return confirm('{% trans "Delete this task from the block?" %}')"
+                                                    class="d-inline"
+                                                >
+                                                    {% csrf_token %}
+                                                    <button
+                                                        type="submit"
+                                                        class="oh-btn oh-btn--danger oh-btn--sq-sm"
+                                                        title="{% trans 'Delete' %}"
+                                                    >
+                                                        <ion-icon name="trash-outline"></ion-icon>
+                                                    </button>
+                                                </form>
+                                            </span>
+                                        </li>
+                                    {% endfor %}
+                                </ul>
+                            {% else %}
+                                <p class="text-sm mb-3" style="color:#8a919c">{% trans "No tasks yet." %}</p>
+                            {% endif %}
                         {% endfor %}
                     </div>
                 {% endfor %}

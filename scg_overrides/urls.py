@@ -10,4 +10,9 @@ urlpatterns = [
         onboarding_blocks.task_blocks_view,
         name="scg-onboarding-task-blocks",
     ),
+    path(
+        "onboarding-task-blocks/task/<int:pk>/delete/",
+        onboarding_blocks.delete_block_task,
+        name="scg-onboarding-task-block-delete",
+    ),
 ]

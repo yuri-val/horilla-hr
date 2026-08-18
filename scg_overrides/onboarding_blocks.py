@@ -125,12 +125,15 @@ def _copy_blocks(target, sources):
 
 
 def _library_contents(form):
-    """What each offered block actually holds, for display next to the form.
+    """What each offered block holds, with the controls to change it.
 
     The pipeline lists candidates, not tasks: a stage shows its tasks only as
-    columns beside a candidate standing in it, and the stage menu has no task
-    list at all. So without this there is no way to see what a block contains
-    before copying it - or to check afterwards what arrived.
+    columns beside a candidate standing in it, and the stage menu offers edit,
+    mail, delete and export but no task list. A block library has no candidates
+    by definition, so its tasks are invisible and unreachable there - this is
+    the only place they can be read and edited. The add/edit/delete controls
+    reuse the product's own task endpoints, so the forms and permissions are
+    the same ones the pipeline uses.
     """
     libraries = []
     for recruitment in form.fields["sources"].queryset:
@@ -140,6 +143,7 @@ def _library_contents(form):
         ):
             tasks = [
                 {
+                    "id": task.pk,
                     "title": task.task_title,
                     "required": task.is_required,
                     "owners": ", ".join(
@@ -148,10 +152,15 @@ def _library_contents(form):
                 }
                 for task in stage.onboarding_task.all().order_by("id")
             ]
-            if tasks:
-                stages.append({"title": stage.stage_title, "tasks": tasks})
+            # Stages are listed even when empty here: a library stage never has
+            # candidates, and the pipeline only exposes the "+ Task" button as a
+            # column of the candidate table, so an empty stage is precisely the
+            # one that cannot be filled anywhere else.
+            stages.append({"id": stage.pk, "title": stage.stage_title, "tasks": tasks})
         if stages:
-            libraries.append({"title": recruitment.title, "stages": stages})
+            libraries.append(
+                {"id": recruitment.pk, "title": recruitment.title, "stages": stages}
+            )
     return libraries
 
 
@@ -178,6 +187,41 @@ def task_blocks_view(request):
         "scg_overrides/task_blocks_form.html",
         {"form": form, "libraries": _library_contents(form)},
     )
+
+
+@login_required
+@permission_required(perm="onboarding.delete_onboardingtask")
+def delete_block_task(request, pk):
+    """Remove one task from a block library.
+
+    The product offers two delete paths and neither suits this page: the modern
+    one opens the generic delete-confirmation modal, which demands three
+    acknowledgement checkboxes meant for records with protected relations, and
+    the older one redirects to the pipeline and away from here. A library task
+    has no candidates attached by definition, so a plain confirmed POST is
+    enough - and anything that does have candidates is refused rather than
+    cascaded, which is the same rule the product's own task_delete applies.
+    """
+    task = OnboardingTask.objects.filter(pk=pk).first()
+    if task is None:
+        messages.error(request, _("Task not found."))
+        return redirect("scg-onboarding-task-blocks")
+
+    if request.method != "POST":
+        return redirect("scg-onboarding-task-blocks")
+
+    if CandidateTask.objects.filter(onboarding_task_id=task).exists():
+        messages.error(
+            request,
+            _("%(task)s is in use by candidates and was not deleted.")
+            % {"task": task.task_title},
+        )
+        return redirect("scg-onboarding-task-blocks")
+
+    title = task.task_title
+    task.delete()
+    messages.success(request, _("%(task)s deleted.") % {"task": title})
+    return redirect("scg-onboarding-task-blocks")
 
 
 def install_nav_action():
