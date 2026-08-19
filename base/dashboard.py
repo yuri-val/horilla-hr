@@ -610,6 +610,10 @@ def dashboard_gender_split(request):
                     "gender": gender_map.get(
                         item["gender"], item["gender"] or _("Not Specified")
                     ),
+                    # The display name above is translated, so it cannot be used
+                    # to look up a colour or build a filter. Ship the raw field
+                    # value alongside it for that.
+                    "key": item["gender"] or "",
                     "count": item["count"],
                 }
             )

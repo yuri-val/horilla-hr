@@ -3192,6 +3192,12 @@ def dashboard_employee(request):
             },
         ],
         "labels": labels,
+        # Stable, untranslated series keys. Dashboards used to pick slice
+        # colours and build the drill-down filter by matching the label text
+        # against "Active"/"Inactive", which only ever held in English: under
+        # any translation both series fell through to the same fallback colour
+        # and every legend click filtered to inactive.
+        "keys": ["active", "inactive"],
     }
     return JsonResponse(response)
 
