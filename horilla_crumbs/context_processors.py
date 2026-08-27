@@ -7,21 +7,14 @@ from django.conf import settings
 from django.shortcuts import redirect
 from django.urls import Resolver404, path, resolve, reverse
 from django.utils.translation import gettext as _trans
+from django.utils.translation import gettext_lazy as _
 
 from base.context_processors import white_labelling_company
 from employee.models import Employee
 from horilla.urls import urlpatterns
 
-# Final path segment that looks like a file, e.g. "uk.png", "app.min.js.map".
+# Final path segment that looks like a file, e.g. "logo.png", "app.min.js.map".
 _FILE_SEGMENT = re.compile(r"\.[A-Za-z0-9]{1,5}$")
-
-
-def is_valid_uuid(uuid_string):
-    try:
-        uuid.UUID(uuid_string, version=4)
-        return True
-    except ValueError:
-        return False
 
 
 def is_asset_request(request):
@@ -38,6 +31,14 @@ def is_asset_request(request):
             return True
     last_segment = path_info.rstrip("/").rsplit("/", 1)[-1]
     return bool(_FILE_SEGMENT.search(last_segment))
+
+
+def is_valid_uuid(uuid_string):
+    try:
+        uuid.UUID(uuid_string, version=4)
+        return True
+    except ValueError:
+        return False
 
 
 def _split_path(self, path=None):
@@ -70,10 +71,30 @@ def _resolve_menu_section(path, menus):
             if path == redirect or path.startswith(redirect):
                 if best is None or len(redirect) > len(best[1]):
                     best = (str(menu.get("menu", "")), redirect)
-    return best
+    if best is not None:
+        return best
+
+    # No submenu redirect is a prefix of this path - typical for a detail
+    # page reached from a list view rather than the list view's own URL
+    # (e.g. project's "task-view/<id>" vs. its list page "project-view").
+    # Fall back to matching on the shared leading URL segment so the page
+    # still resolves to its app's own top-level menu label instead of
+    # falling through to the raw path segment, which produces a second,
+    # differently-cased duplicate of the same section in the breadcrumb.
+    path_root = path.strip("/").split("/")[0] if path.strip("/") else ""
+    if not path_root:
+        return None
+    for menu in menus or []:
+        for submenu in menu.get("submenu", []):
+            redirect = submenu.get("redirect") or ""
+            redirect_root = redirect.strip("/").split("/")[0] if redirect else ""
+            if redirect_root and redirect_root == path_root:
+                return (str(menu.get("menu", "")), redirect)
+    return None
 
 
 BREADCRUMB_URL_NAMES = {
+    "monthly-summary": _("Monthly Summary"),
     "ess": "Employee",
     "offboarding": "Offboarding",
     "helpdesk": "Helpdesk",
@@ -117,6 +138,7 @@ sidebar_urls = [
     "work-records",
     "request-attendance-view",
     "attendance-overtime-view",
+    "monthly-summary",
     "attendance-activity-view",
     "late-come-early-out-view",
     "view-my-attendance",
@@ -443,7 +465,11 @@ def breadcrumbs(request):
 
             new_dict = {
                 "url": path,
-                "name": BREADCRUMB_URL_NAMES.get(item, item),
+                # str() resolves any gettext_lazy() entries to a plain string
+                # now, in the request's own active locale, since breadcrumbs
+                # get JSON-serialized into the session (a lazy translation
+                # proxy isn't JSON-serializable and would 500 the request).
+                "name": str(BREADCRUMB_URL_NAMES.get(item, item)),
                 "found": found,
                 "clickable": clickable,
             }

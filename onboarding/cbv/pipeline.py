@@ -7,6 +7,7 @@ import re
 
 from django.contrib import messages
 from django.core.exceptions import ObjectDoesNotExist
+from django.db.models import Count
 from django.http import HttpResponse, JsonResponse
 from django.urls import reverse, reverse_lazy
 from django.utils.decorators import method_decorator
@@ -253,6 +254,7 @@ class CandidatePipeline(Pipeline):
     filter_class = onboarding_filters.OnboardingCandidateFilter
     grouper = "onboarding_stage_id"
     selected_instances_key_name = "selectedCandidateRecords"
+    template_name = "cbv/pipeline/onboarding/stages.html"
     allowed_fields = [
         {
             "field": "onboarding_stage_id",
@@ -299,6 +301,7 @@ class CandidatePipeline(Pipeline):
 
     def get_queryset(self):
         queryset = super().get_queryset()
+        queryset = queryset.annotate(candidate_count=Count("candidate", distinct=True))
         self.queryset = queryset.order_by("sequence")
         return self.queryset
 

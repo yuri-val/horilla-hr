@@ -535,11 +535,9 @@ def candidates_single_view(request, id, **kwargs):
                 _("%(recruitment)s has no stage..")
                 % {"recruitment": candidate.recruitment_id},
             )
-        # OnboardingTask lost its direct recruitment_id when tasks moved under
-        # stages, so this filter raised FieldError for any recruitment that has
-        # tasks. (The view is currently not routed - its URL is commented out -
-        # but the pipeline's lazy assign_task covers live flows, and this keeps
-        # the function correct for whoever re-enables it.)
+        # OnboardingTask lost its own recruitment_id when tasks moved under
+        # stages, so filtering on it raises FieldError for any recruitment that
+        # has tasks. Reach the recruitment through the task's stage instead.
         if tasks := OnboardingTask.objects.filter(
             stage_id__recruitment_id=candidate.recruitment_id
         ):
@@ -867,7 +865,7 @@ def email_send(request):
 
         # Create / reset portal
         token = secrets.token_hex(15)
-        portal, _created = OnboardingPortal.objects.get_or_create(
+        portal, _createdcreated = OnboardingPortal.objects.get_or_create(
             candidate_id=candidate
         )
         portal.token = token
