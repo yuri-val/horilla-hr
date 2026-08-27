@@ -63,8 +63,10 @@ SCG_SUBMENU_OVERRIDES = {
     # HR does not plan vacation-restriction periods, so the page could only
     # ever show its empty state.
     "leave": {"Restricted Leave Periods": None},
-    # Attendance reports can only ever be empty with check-in/out switched off.
-    "report": {"Attendance": None},
+    # Upstream replaced the per-module report submenus with a Standard Reports
+    # catalog plus Explorer, so the old "Reports > Attendance" entry no longer
+    # exists to hide. Attendance stays out of navigation via SIDEBARS above;
+    # what the catalog lists inside itself is a separate question.
 }
 
 # Model methods re-pointed at another method of the same model.
