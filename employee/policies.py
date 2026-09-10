@@ -22,7 +22,6 @@ from base.methods import (
     get_key_instances,
     paginator_qry,
 )
-from base.views import paginator_qry
 from employee.filters import DisciplinaryActionFilter, PolicyFilter
 from employee.forms import DisciplinaryActionForm, PolicyForm
 from employee.models import (
@@ -62,6 +61,7 @@ def policies_discipline_view(request):
 
 
 @login_required
+@hx_request_required
 def policies_discipline_disciplinary_tab(request):
     """
     HTMX tab body for disciplinary actions under policies & discipline.
@@ -70,6 +70,7 @@ def policies_discipline_disciplinary_tab(request):
 
 
 @login_required
+@hx_request_required
 def policies_discipline_policies_tab(request):
     """
     HTMX tab body for policies under policies & discipline.
@@ -78,6 +79,7 @@ def policies_discipline_policies_tab(request):
 
 
 @login_required
+@hx_request_required
 def policies_discipline_action_type_tab(request):
     """
     HTMX tab body for disciplinary action types under policies & discipline.
@@ -132,8 +134,11 @@ def view_policy(request):
     """
     This method is used to view the policy
     """
-    instance_id = request.GET["instance_id"]
-    policy = Policy.objects.filter(id=instance_id).first()
+    instance_id = request.GET.get("instance_id")
+    policy = Policy.objects.filter(id=instance_id).first() if instance_id else None
+    if not policy:
+        messages.error(request, _("Policy not found."))
+        return HorillaRedirect(request)
     return render(
         request,
         "policies/view_policy.html",
@@ -277,22 +282,6 @@ def get_action_type_delete(action_id):
     return action.action_type
 
 
-def get_action_type(action_id):
-    """
-    This function is used to get the action type by the selection of title in the form.
-    """
-    action = Actiontype.objects.get(title=action_id["action"])
-    return action.action_type
-
-
-def get_action_type_delete(action_id):
-    """
-    This function is used to get the action type by the selection of title in the form.
-    """
-    action = Actiontype.objects.get(title=action_id)
-    return action.action_type
-
-
 @login_required
 @hx_request_required
 @permission_required("employee.add_disciplinaryaction")
@@ -381,8 +370,11 @@ def update_actions(request, action_id):
 @hx_request_required
 @permission_required("employee.change_disciplinaryaction")
 def remove_employee_disciplinary_action(request, action_id, emp_id):
-    dis_action = DisciplinaryAction.objects.get(id=action_id)
-    employee = Employee.objects.get(id=emp_id)
+    dis_action = DisciplinaryAction.objects.filter(id=action_id).first()
+    employee = Employee.objects.filter(id=emp_id).first()
+    if not dis_action or not employee:
+        messages.error(request, _("Record not found."))
+        return HorillaRedirect(request)
 
     action_type = get_action_type_delete(dis_action.action)
 
@@ -422,7 +414,10 @@ def delete_actions(request, action_id):
     request_copy.pop("instances_ids", None)
     previous_data = request_copy.urlencode()
 
-    dis = DisciplinaryAction.objects.get(id=action_id)
+    dis = DisciplinaryAction.objects.filter(id=action_id).first()
+    if not dis:
+        messages.error(request, _("Disciplinary action not found."))
+        return HorillaRedirect(request)
 
     action_type = get_action_type_delete(dis.action)
 

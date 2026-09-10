@@ -32,7 +32,7 @@
 							></a>
 							{% endif %}
 							{% if perms.base.delete_department %}
-                            <a onclick="return confirm('{% trans "Are you sure want to delete this reason?" %}')"
+                            <a onclick="return confirm('{% trans "Are you sure want to delete this reason?"|escapejs %}')"
                                 href="{% url 'delete-reject-reasons' %}?ids={{reason.id}}"
                                 class="oh-btn oh-btn--danger w-50"
                                 title="{% trans 'Remove' %}"

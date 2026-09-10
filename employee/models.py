@@ -1104,14 +1104,23 @@ class PolicyMultipleFile(HorillaModel):
     attachment = models.FileField(upload_to=upload_path)
 
     @property
+    def _attachment_name(self):
+        """Never None: an attachment row whose file failed to save has no name."""
+        return (self.attachment.name or "").lower()
+
+    @property
     def is_pdf(self):
         """Lets templates inline the document instead of linking an icon."""
-        return self.attachment.name.lower().endswith(".pdf")
+        return self._attachment_name.endswith(".pdf")
 
     @property
     def is_image(self):
-        """Images get the same inline treatment as PDFs."""
-        return self.attachment.name.lower().endswith(
+        """Images get the same inline treatment as PDFs.
+
+        SVG is deliberately absent: it is browser-executable, and inlining one
+        from this origin would be stored XSS.
+        """
+        return self._attachment_name.endswith(
             (".png", ".jpg", ".jpeg", ".gif", ".webp")
         )
 

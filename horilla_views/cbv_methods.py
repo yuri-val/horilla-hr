@@ -46,6 +46,7 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 from horilla.config import logger
+from horilla.export_safety import safe_cell
 from horilla.horilla_middlewares import _thread_locals
 from horilla.methods import handle_no_permission
 from horilla_views.templatetags.generic_template_filters import getattribute
@@ -386,11 +387,31 @@ def saved_filter_path_query(request):
     submits a "nav_url" field (the nav view's own, mode-independent path) -
     match on that too, in addition to the exact path, so a saved filter
     shows up regardless of which view mode it was saved from.
+
+    Tabs (HorillaTabView) and the List/Card/Kanban switch links also
+    propagate a "referrer" query param, meant to let a filter saved from one
+    tab/mode of a page show up on its sibling tabs/modes, which live at yet
+    other paths. An empty referrer isn't a real identifier though - most
+    saved filters are created with no referrer at all - so matching on ""
+    would pull in every such filter from every unrelated view a user
+    happens to visit. Only match a non-empty referrer, and additionally
+    require the saved filter's own path to share the current view's
+    top-level app segment, so two unrelated apps that happen to share an
+    entry point (e.g. both reached from the dashboard) can never leak into
+    each other.
     """
     path_query = models.Q(path=request.path)
     nav_url = request.GET.get("nav_url")
     if nav_url:
         path_query |= models.Q(path=nav_url)
+
+    referrer = request.GET.get("referrer", "")
+    if referrer:
+        referrer = "/" + "/".join(referrer.split("/")[3:])
+    if referrer:
+        app_prefix = "/" + request.path.strip("/").split("/")[0] + "/"
+        path_query |= models.Q(referrer=referrer, path__startswith=app_prefix)
+
     return path_query
 
 
@@ -402,12 +423,18 @@ def get_short_uuid(length: int, prefix: str = "hlv"):
     return prefix + str(uuid_str[:length]).replace("-", "")
 
 
+# Session-scoped cache entries. Written with no timeout they lived until Redis
+# evicted them, so every visitor's view state accumulated forever; the natural
+# lifetime is the session that keyed them.
+SESSION_CACHE_TIMEOUT = getattr(settings, "SESSION_COOKIE_AGE", 1209600)
+
+
 def update_initial_cache(request: object, cache: dict, view: object):
 
     if cache.get(request.session.session_key + "cbv"):
         cache.get(request.session.session_key + "cbv").update({view: {}})
         return
-    cache.set(request.session.session_key + "cbv", {view: {}})
+    cache.set(request.session.session_key + "cbv", {view: {}}, SESSION_CACHE_TIMEOUT)
     return
 
 
@@ -515,7 +542,7 @@ def update_saved_filter_cache(request, cache):
                 # "request": request,
             }
         )
-        cache.set(key, existing)
+        cache.set(key, existing, SESSION_CACHE_TIMEOUT)
         return cache
     cache.set(
         key,
@@ -524,23 +551,9 @@ def update_saved_filter_cache(request, cache):
             "query_dict": request.GET,
             # "request": request,
         },
+        SESSION_CACHE_TIMEOUT,
     )
     return cache
-
-
-def get_nested_field(model_class: models.Model, field_name: str) -> object:
-    """
-    Recursion function to execute nested field logic
-    """
-    if "__" in field_name:
-        splits = field_name.split("__", 1)
-        related_model_class = getmodelattribute(
-            model_class,
-            splits[0],
-        ).related.related_model
-        return get_nested_field(related_model_class, splits[1])
-    field = getattribute(model_class, field_name)
-    return field
 
 
 def get_field_class_map(model_class: models.Model, bulk_update_fields: list) -> dict:
@@ -766,7 +779,9 @@ def export_xlsx(json_data, columns, file_name="quick_export", extra_info=None):
                 nested_item = nested_data[i] if i < len(nested_data) else {}
                 for dyn_key in nested_info["keys"]:
                     row.append(nested_item.get(dyn_key, ""))
-            ws.append(row)
+            # Text carried through from user-entered data can execute when
+            # the workbook is opened; guard it on the way in.
+            ws.append([safe_cell(value) for value in row])
 
             for col_idx in range(1, len(row) + 1):
                 ws.cell(row=row_index, column=col_idx).border = thin_border
@@ -864,7 +879,7 @@ def generate_import_excel(
     ws.append(headers)
 
     # Apply styles to header row
-    for col_num, _ in enumerate(headers, 1):
+    for col_num, _unused in enumerate(headers, 1):
         cell = ws.cell(row=1, column=col_num)
         cell.font = bold_font
         cell.fill = header_fill
@@ -879,7 +894,7 @@ def generate_import_excel(
             str(getattribute(obj, import_mapping.get(field, field)))
             for field in import_fields
         ]
-        ws.append(row)
+        ws.append([safe_cell(value) for value in row])
     ws.freeze_panes = "A2"
     ws.freeze_panes = "B2"
     return wb

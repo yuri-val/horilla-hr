@@ -184,7 +184,6 @@ class TaskListView(HorillaListView):
     # aggregate would fan out one row per related employee, double-
     # counting tasks with more than one manager/member assigned.
     nested_group_by_fields = [
-        "title",
         "project",
         "stage",
         "status",
@@ -205,11 +204,10 @@ class TasksNavBar(HorillaNavView):
         "stage",
         "status",
     ]
-    default_group_by = "project"
+    default_group_by = "status"
 
     # Mirrors TaskListView.nested_group_by_fields
     nested_group_by_fields = [
-        "title",
         "project",
         "stage",
         "status",
@@ -221,6 +219,11 @@ class TasksNavBar(HorillaNavView):
     filter_instance = TaskAllFilter()
     search_swap_target = "#listContainer"
     filter_body_template = "cbv/tasks/task_filter.html"
+    # Modern slide-over filter panel (generic/horilla_nav.html's own
+    # {% if modern_filter %} branch) -- same treatment as every other
+    # panel this session. TaskAllFilter.ajax_fields carries the
+    # AJAX-loaded comboboxes this needs.
+    modern_filter = True
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)

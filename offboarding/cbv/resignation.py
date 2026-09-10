@@ -202,6 +202,11 @@ class ResinationLettersNav(HorillaNavView):
     filter_body_template = "cbv/resignation/filter.html"
     search_swap_target = "#listContainer"
     apply_first_filter = False
+    # Modern slide-over filter panel (generic/horilla_nav.html's own
+    # {% if modern_filter %} branch) -- same treatment as every other
+    # panel this session. LetterFilter.ajax_fields carries the
+    # AJAX-loaded comboboxes this needs.
+    modern_filter = True
 
     group_by_fields = [
         ("employee_id", _("Employee")),
@@ -299,7 +304,9 @@ class ResignationLetterDetailView(HorillaDetailedView):
         """
         context = super().get_context_data(**kwargs)
         pk = self.kwargs.get("pk")
-        letter = ResignationLetter.objects.get(id=pk)
+        letter = ResignationLetter.objects.filter(id=pk).first()
+        if not letter:
+            return context
         title = context["resignationletter"].title
         context["title"] = title
         context["letter"] = letter

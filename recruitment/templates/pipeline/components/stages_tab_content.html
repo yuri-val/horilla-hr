@@ -63,7 +63,7 @@
                             {% if perms.recruitment.delete_stage %}
                             <li class="oh-dropdown__item">
                                 <form method="post" action="{% url 'rec-stage-delete' stage.id %}"
-                                onsubmit="return confirm('{% trans "Are you sure you want to delete this stage?" %}');">
+                                onsubmit="return confirm('{% trans "Are you sure you want to delete this stage?"|escapejs %}');">
                                     {% csrf_token %}
                                     <button type="submit" class="oh-dropdown__link oh-dropdown__link--danger">
                                         {% trans "Delete" %}
@@ -83,7 +83,6 @@
         hx-get="{% url 'candidate-stage-component' %}?stage_id={{stage.id}}"
         hx-trigger="load"
         >
-        <div class="animated-background"></div>
     </div>
 </div>
 {% endfor %}

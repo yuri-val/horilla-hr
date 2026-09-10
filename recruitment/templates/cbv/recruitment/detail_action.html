@@ -18,11 +18,11 @@
     {% endif %}
     {% if perms.recruitment.delete_recruitment %}
       {% if instance.is_active %}
-        <a onclick="return confirm('{% trans "Are you sure you want to archive this recruitment?" %}');" href="{% url 'recruitment-archive' instance.id %}" class="oh-btn  oh-btn--danger w-50 " title="{% trans 'Archive' %}">
+        <a onclick="return confirm('{% trans "Are you sure you want to archive this recruitment?"|escapejs %}');" href="{% url 'recruitment-archive' instance.id %}" class="oh-btn  oh-btn--danger w-50 " title="{% trans 'Archive' %}">
           <ion-icon name="archive" ></ion-icon>{% trans "Archive" %}
         </a>
       {% else %}
-        <a onclick="return confirm('{% trans "Are you sure you want to unarchive this recruitment?" %}');" href="{% url 'recruitment-archive' instance.id %}" class="oh-btn  oh-btn--success w-50" title="{% trans 'Unarchive' %}">
+        <a onclick="return confirm('{% trans "Are you sure you want to unarchive this recruitment?"|escapejs %}');" href="{% url 'recruitment-archive' instance.id %}" class="oh-btn  oh-btn--success w-50" title="{% trans 'Unarchive' %}">
           <ion-icon name="archive" ></ion-icon> {% trans "Un-archive" %}
         </a>
       {% endif %}

@@ -1,6 +1,6 @@
 import operator
 import re
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 
 from dateutil.relativedelta import relativedelta
 from django.apps import apps
@@ -1342,6 +1342,17 @@ class AnonymousFeedback(models.Model):
 
         return render_template(
             path="cbv/360_feedback/anonymous_action.html",
+            context={"instance": self},
+        )
+
+    def anonymous_detail_action(self):
+        """
+        Action buttons for the anonymous feedback detail modal - same
+        buttons/conditions as anonymous_actions_col's row actions.
+        """
+
+        return render_template(
+            path="cbv/360_feedback/anonymous_detail_action.html",
             context={"instance": self},
         )
 

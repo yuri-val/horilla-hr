@@ -14,8 +14,6 @@
         }
     </style>
 
-    <div hx-get="{% url 'nav-asset-request-allocation' %}?{{ request.GET.urlencode }}" hx-trigger="load"></div>
-
     {% include "generic/components.html" %}
 
     <div
@@ -35,7 +33,12 @@
     >
     </div>
 
-    <div class="oh-wrapper" id="listContainer">
+    <div
+        class="oh-wrapper"
+        id="listContainer"
+        hx-get="{% url 'tab-asset-request-allocation' %}"
+        hx-trigger="load"
+    >
         <div class="animated-background"></div>
     </div>
 

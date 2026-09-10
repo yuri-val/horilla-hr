@@ -20,17 +20,17 @@ class AssetListView(HorillaListView):
     filter_class = AssetFilter
     template_name = "cbv/asset/asset_list_with_count.html"
     columns = [
+        (_("Tracking Id"), "asset_tracking_id"),
         (_("Asset Name"), "asset_name_display"),
         (_("Status"), "asset_status_col"),
-        "asset_tracking_id",
         "asset_lot_number_id",
     ]
-    show_filter_tags = False
+    show_filter_tags = True
     bulk_select_option = True
     quick_export = True
     action_method = "action_column"
     header_attrs = {
-        "asset_name": "style='width:200px !important;'",
+        "asset_tracking_id": "style='width:160px !important;'",
         "action": "style='width:130px !important;'",
     }
 
@@ -67,11 +67,28 @@ class AssetListView(HorillaListView):
         return context
 
     def get_queryset(self, queryset=None, filtered=False, *args, **kwargs):
-        return (
+        qs = (
             super()
             .get_queryset(queryset, filtered, *args, **kwargs)
             .filter(asset_category_id=self.kwargs["cat_id"])
         )
+
+        # Fallback for a deep link into this category's asset list (see
+        # asset_category_view) - only applies when the current request
+        # didn't already specify its own date filter. Read (not popped)
+        # since HorillaListView calls get_queryset() more than once per
+        # request; asset_category_view clears it on the next plain visit
+        # instead, so it doesn't linger indefinitely.
+        if not self.request.GET.get(
+            "asset_purchase_date_from"
+        ) and not self.request.GET.get("asset_purchase_date_till"):
+            deep_link = self.request.session.get("asset_purchase_date_deep_link")
+            if deep_link:
+                if deep_link.get("from"):
+                    qs = qs.filter(asset_purchase_date__gte=deep_link["from"])
+                if deep_link.get("till"):
+                    qs = qs.filter(asset_purchase_date__lte=deep_link["till"])
+        return qs
 
     row_attrs = """
         hx-get='{asset_detail}?instance_ids={ordered_ids}'
@@ -92,7 +109,7 @@ class AssetInformationView(HorillaDetailedView):
     header = False
     action_method = "detail_view_action"
     body = [
-        "asset_tracking_id",
+        "asset_name_display",
         "asset_purchase_date",
         "asset_purchase_cost",
         (_("Status"), "asset_status_col"),
@@ -102,11 +119,16 @@ class AssetInformationView(HorillaDetailedView):
 
     def get_context_data(self, **kwargs: Any):
         """
-        Return context data with the title set to the contract's name.
+        Return context data with the title set to the asset's tracking id --
+        the tracking id is the unique identifier for the physical asset;
+        asset_name is often shared across many units and is shown in the
+        body instead.
         """
 
         context = super().get_context_data(**kwargs)
-        context["title"] = context["asset"].asset_name_display()
+        if not self.instance:
+            return context
+        context["title"] = context["asset"].asset_tracking_id
 
         body = list(self.body)
         if self.instance.asset_status == "In use":

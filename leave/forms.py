@@ -826,13 +826,15 @@ class LeaveAllocationBulkForm(BaseModelForm):
 
     def clean(self):
         """
-        self.instance.employee_id = Employee.objects.filter(id__in=employee_ids).first()
+        Validate that at least one employee was picked.
+
+        employee_id is a multi-select posted as repeated values, so the
+        ModelForm's own single-value validation for the field is dropped
+        (self.errors.pop) and the list is checked here instead.
         """
         cleaned_data = super().clean()
         employee_ids = self.data.getlist("employee_id")
         self.errors.pop("employee_id", None)
-
-    def save(self, commit=True):
         if not employee_ids:
             raise ValidationError({"employee_id": _("Employee not chosen")})
         return cleaned_data
@@ -1255,10 +1257,11 @@ if apps.is_installed("attendance"):
         def clean(self):
             cleaned_data = super().clean()
             attendance_id = cleaned_data.get("attendance_id")
-            if attendance_id is None or len(attendance_id) < 1:
-                raise forms.ValidationError(
-                    {"attendance_id": _("This field is required.")}
-                )
+            if not attendance_id:
+                # attendance_id is required=True, so the field-level
+                # validation already reported "This field is required." -
+                # raising it again here would duplicate that error.
+                return cleaned_data
             employee = cleaned_data.get("employee_id")
             attendance_repeat = False
             instance_id = None

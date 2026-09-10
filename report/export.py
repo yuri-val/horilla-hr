@@ -11,12 +11,17 @@ from __future__ import annotations
 
 import csv
 import io
+import logging
 import re
 from datetime import date, datetime
 from typing import Any, Optional
 
 from django.http import HttpResponse
 from django.utils import timezone
+
+from horilla.export_safety import FORMULA_TRIGGERS, neutralize_formula
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Style tokens — Horilla primary (coral / #E54F38)
@@ -62,6 +67,25 @@ def _period_label(period: dict) -> str:
     return start or end or "—"
 
 
+def _local_stamp(value=None, fmt: str = "%Y-%m-%d %H:%M") -> str:
+    """Format a timestamp in the project timezone.
+
+    The Excel footer and cover used naive timezone.now() while the PDF used
+    timezone.localtime(), so the same report exported twice carried two
+    different times -- UTC on one document, local on the other. Everything
+    goes through here now.
+    """
+    moment = value or timezone.now()
+    if not hasattr(moment, "strftime"):
+        return str(moment)
+    try:
+        if timezone.is_aware(moment):
+            moment = timezone.localtime(moment)
+    except (ValueError, TypeError):
+        pass
+    return moment.strftime(fmt)
+
+
 def _company_from_meta(meta: Optional[dict]) -> dict[str, Any]:
     meta = meta or {}
     company = meta.get("company") or {}
@@ -93,6 +117,18 @@ def _company_from_meta(meta: Optional[dict]) -> dict[str, Any]:
     }
 
 
+# The guard lives in horilla.export_safety so the repo's other spreadsheet
+# writers share one definition instead of each growing its own copy (or, as
+# was the case, going without). Re-exported under the old private names so
+# existing call sites in this module keep reading naturally.
+_FORMULA_TRIGGERS = FORMULA_TRIGGERS
+
+
+def _neutralize_formula(text: str) -> str:
+    """Stop a spreadsheet treating exported text as a formula."""
+    return neutralize_formula(text)
+
+
 def _coerce_cell(value: Any) -> Any:
     """Normalize cell values for Excel (numbers stay numeric when possible)."""
     if value is None:
@@ -107,23 +143,32 @@ def _coerce_cell(value: Any) -> Any:
         text = value.strip()
         if not text:
             return ""
+        # Numeric-looking text resolves to a real number below, so it never
+        # reaches the sheet as a string and needs no formula guard -- only the
+        # genuine text fall-throughs do.
         if re.fullmatch(r"-?\d+(\.\d+)?%", text):
             try:
                 return float(text[:-1]) / 100.0
             except ValueError:
-                return text
+                return _neutralize_formula(text)
         if re.fullmatch(r"-?\d+", text):
+            # A zero-padded run of digits is an identifier, not a quantity --
+            # badge ids, employee codes, phone numbers. int() would eat the
+            # padding ("00042" -> 42) and silently corrupt it, so keep the
+            # text verbatim. Single "0" is a real number and stays one.
+            if len(text.lstrip("-")) > 1 and text.lstrip("-").startswith("0"):
+                return _neutralize_formula(text)
             try:
                 return int(text)
             except ValueError:
-                return text
+                return _neutralize_formula(text)
         if re.fullmatch(r"-?\d+\.\d+", text):
             try:
                 return float(text)
             except ValueError:
-                return text
-        return text
-    return str(value)
+                return _neutralize_formula(text)
+        return _neutralize_formula(text)
+    return _neutralize_formula(str(value))
 
 
 def _looks_percent_header(header: str) -> bool:
@@ -238,12 +283,36 @@ def _format_table_cell(raw: Any, header: str, symbol: str, position: str) -> str
 # ---------------------------------------------------------------------------
 # CSV
 # ---------------------------------------------------------------------------
+class _SafeCsvWriter:
+    """csv.writer that neutralizes spreadsheet formulas in every cell."""
+
+    def __init__(self, writer):
+        self._writer = writer
+
+    @staticmethod
+    def _clean(cell):
+        if isinstance(cell, str):
+            return _neutralize_formula(cell)
+        return cell
+
+    def writerow(self, row):
+        self._writer.writerow([self._clean(c) for c in row])
+
+    def writerows(self, rows):
+        for row in rows:
+            self.writerow(row)
+
+
 def export_csv(
     payload: dict[str, Any], filename: str = "report.csv", meta: Optional[dict] = None
 ) -> HttpResponse:
     """Export with company letterhead + KPIs + table (explorer-compatible)."""
     buffer = io.StringIO()
-    writer = csv.writer(buffer)
+    # Wrap the writer rather than guarding each writerow call -- there are a
+    # dozen of them and a missed one is a silent hole. The literal "===" and
+    # header rows this module writes itself are unaffected: they do not start
+    # with a trigger character.
+    writer = _SafeCsvWriter(csv.writer(buffer))
     meta = meta or {}
     company = _company_from_meta(meta)
     title = payload.get("title") or "Report"
@@ -262,8 +331,7 @@ def export_csv(
     writer.writerow(
         [
             "Generated",
-            timezone.now().strftime("%Y-%m-%d %H:%M:%S %Z")
-            or timezone.now().isoformat(),
+            _local_stamp(fmt="%Y-%m-%d %H:%M:%S %Z"),
         ]
     )
     if meta.get("user"):
@@ -288,7 +356,12 @@ def export_csv(
         writer.writerow(headers)
         writer.writerows(rows)
 
-    response = HttpResponse(buffer.getvalue(), content_type="text/csv")
+    # UTF-8 BOM: without it Excel on Windows reads the file as the local
+    # ANSI codepage and mangles every non-ASCII name in the export.
+    response = HttpResponse(
+        buffer.getvalue().encode("utf-8-sig"),
+        content_type="text/csv; charset=utf-8",
+    )
     response["Content-Disposition"] = f'attachment; filename="{filename}"'
     return response
 
@@ -334,6 +407,38 @@ def _styles():
         "center": Alignment(horizontal="center", vertical="center", wrap_text=True),
         "right": Alignment(horizontal="right", vertical="center"),
     }
+
+
+def _apply_print_setup(ws, meta: Optional[dict] = None, landscape: bool = False):
+    """Page setup + footer for a printed sheet.
+
+    No sheet carried a header or footer, so a printed spreadsheet lost every
+    trace of where it came from -- no page numbers, no confidentiality mark,
+    no generated-at -- while the PDF beside it carried all three. paperSize
+    was never set either, so the sheet printed to whatever the local driver
+    defaulted to.
+    """
+    from django.utils.translation import gettext as _
+    from openpyxl.worksheet.properties import PageSetupProperties
+
+    meta = meta or {}
+    ws.page_setup.orientation = "landscape" if landscape else "portrait"
+    ws.page_setup.paperSize = ws.PAPERSIZE_A4
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 0
+    ws.sheet_properties.pageSetUpPr = PageSetupProperties(fitToPage=True)
+
+    product = meta.get("product_name") or "Horilla HR"
+    generated = _local_stamp()
+    ws.oddFooter.left.text = f"{product}"
+    ws.oddFooter.left.size = 8
+    ws.oddFooter.left.color = "808080"
+    ws.oddFooter.center.text = str(_("Confidential - for internal use only"))
+    ws.oddFooter.center.size = 8
+    ws.oddFooter.center.color = "808080"
+    ws.oddFooter.right.text = "&P / &N  ·  " + generated
+    ws.oddFooter.right.size = 8
+    ws.oddFooter.right.color = "808080"
 
 
 def _set_col_widths(ws, widths: dict[str, float]):
@@ -466,18 +571,13 @@ def _write_cover(wb, payload: dict[str, Any], meta: Optional[dict] = None):
     ws = wb.active
     ws.title = "Cover"
     ws.sheet_view.showGridLines = False
-    ws.page_setup.orientation = "portrait"
-    ws.page_setup.fitToPage = True
+    _apply_print_setup(ws, meta)
 
     meta = meta or {}
     company = _company_from_meta(meta)
     title = str(payload.get("title") or "Standard Report")
     period = payload.get("period") or {}
-    generated = meta.get("generated_at") or timezone.now()
-    if hasattr(generated, "strftime"):
-        generated_str = generated.strftime("%d %b %Y, %H:%M")
-    else:
-        generated_str = str(generated)
+    generated_str = _local_stamp(meta.get("generated_at"), fmt="%d %b %Y, %H:%M")
 
     row = _write_letterhead(ws, company, styles, meta, col_span=6)
 
@@ -507,11 +607,19 @@ def _write_cover(wb, payload: dict[str, Any], meta: Optional[dict] = None):
         ("Generated by", meta.get("user") or "—"),
         ("Report ID", payload.get("slug") or meta.get("slug") or "—"),
     ]
+    declared = period.get("label") or ""
+    period_text = _period_label(period)
+    if declared and (period.get("preset") or "") not in ("", "custom"):
+        period_text = f"{declared}  ·  {period_text}"
     right_details = [
         ("Company", company.get("name") or "All companies"),
-        ("Period", _period_label(period)),
+        ("Period", period_text),
         ("Domain", domain_label or "—"),
     ]
+    # Reports that analyse a fixed window rather than the selected one carry
+    # the reason; it belongs on the cover beside the period it qualifies.
+    if payload.get("period_note"):
+        right_details.append(("Period basis", payload["period_note"]))
 
     start_details = row
     for idx, (label, value) in enumerate(left_details):
@@ -735,10 +843,21 @@ def _write_data_sheet(wb, payload: dict[str, Any], meta: Optional[dict] = None):
     row += 1
 
     ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=col_count)
+    # A metric that caps its own list while its KPI counts every match has
+    # to say so here too, or the sheet looks like the complete set.
+    table_meta = payload.get("table") or {}
+    rows_text = f"Rows: {len(rows)}"
+    if table_meta.get("truncated"):
+        total = int(table_meta.get("total_rows") or 0)
+        rows_text = (
+            f"Rows: {len(rows)} of {total} (sample)"
+            if total > len(rows)
+            else f"Rows: {len(rows)} (partial list)"
+        )
     meta_cell = ws.cell(
         row=row,
         column=1,
-        value=f"Period: {_period_label(period)}    ·    Rows: {len(rows)}",
+        value=f"Period: {_period_label(period)}    ·    {rows_text}",
     )
     meta_cell.font = styles["subtitle_font"]
     for col in range(1, col_count + 1):
@@ -779,6 +898,14 @@ def _write_data_sheet(wb, payload: dict[str, Any], meta: Optional[dict] = None):
         alt = r_idx % 2 == 1
         for c_idx, raw in enumerate(data_row):
             header = headers[c_idx] if c_idx < len(headers) else ""
+            # A source string that already carries a "%" was divided by 100 in
+            # _coerce_cell, so it is a true fraction and must not be scaled
+            # again -- the >1 re-divide below can't tell 1.5 (="150%") from a
+            # literal 150 meant as a percentage. Same guard the PDF path
+            # applies in _format_table_cell.
+            raw_is_percent = bool(
+                isinstance(raw, str) and re.fullmatch(r"-?\d+(\.\d+)?%", raw.strip())
+            )
             value = _coerce_cell(raw)
             cell = ws.cell(row=excel_row, column=c_idx + 1, value=value)
             cell.font = styles["cell_font"]
@@ -787,8 +914,14 @@ def _write_data_sheet(wb, payload: dict[str, Any], meta: Optional[dict] = None):
             if alt:
                 cell.fill = styles["alt_fill"]
 
-            if isinstance(value, float) and _looks_percent_header(header):
-                if value > 1:
+            if (
+                isinstance(value, (int, float))
+                and not isinstance(value, bool)
+                and _looks_percent_header(header)
+            ):
+                # Excel's percent format multiplies by 100 on display, so the
+                # stored value has to be the fraction.
+                if not raw_is_percent and value > 1:
                     cell.value = value / 100.0
                 cell.number_format = "0.0%"
                 cell.alignment = styles["right"]
@@ -839,10 +972,7 @@ def _write_data_sheet(wb, payload: dict[str, Any], meta: Optional[dict] = None):
     ws.freeze_panes = f"A{header_row + 1}"
     ws.sheet_properties.tabColor = COLOR_PRIMARY
 
-    ws.page_setup.orientation = "landscape" if len(headers) > 5 else "portrait"
-    ws.page_setup.fitToWidth = 1
-    ws.page_setup.fitToHeight = 0
-    ws.page_setup.fitToPage = True
+    _apply_print_setup(ws, meta, landscape=len(headers) > 5)
     ws.print_title_rows = f"{header_row}:{header_row}"
 
     _autofit(ws, start_row=header_row)
@@ -851,7 +981,18 @@ def _write_data_sheet(wb, payload: dict[str, Any], meta: Optional[dict] = None):
 
 # Same brand hues as report/chart_render.py's PALETTE (plain hex — openpyxl
 # graphicalProperties.solidFill wants strings, not reportlab Color objects).
-_CHART_PALETTE_HEX = ["E54F38", "2563EB", "15803D", "7C3AED", "0D9488", "F59E0B"]
+def _chart_palette_hex() -> list[str]:
+    """Chart colours, shared with the PDF chart renderer.
+
+    Imported lazily so this module keeps working if reportlab is absent --
+    the Excel path does not otherwise need it.
+    """
+    try:
+        from report.chart_render import PALETTE_HEX
+
+        return list(PALETTE_HEX)
+    except Exception:
+        return ["E54F38", "2563EB", "15803D", "7C3AED", "0D9488", "F59E0B"]
 
 
 def _add_native_chart(
@@ -885,7 +1026,8 @@ def _add_native_chart(
     obj.set_categories(cats_ref)
 
     for i, series in enumerate(obj.series):
-        color = _CHART_PALETTE_HEX[i % len(_CHART_PALETTE_HEX)]
+        palette = _chart_palette_hex()
+        color = palette[i % len(palette)]
         series.graphicalProperties.solidFill = color
         if chart_type == "line":
             series.graphicalProperties.line.solidFill = color
@@ -907,6 +1049,7 @@ def _write_chart_sheet(wb, payload: dict[str, Any], meta: Optional[dict] = None)
     ws = wb.create_sheet("Charts")
     ws.sheet_view.showGridLines = False
     ws.sheet_properties.tabColor = COLOR_PRIMARY
+    _apply_print_setup(ws, meta, landscape=True)
     meta = meta or {}
     company = _company_from_meta(meta)
 
@@ -1004,6 +1147,55 @@ def export_xlsx(
     return response
 
 
+# Static/media URI resolution for xhtml2pdf. The bundled Poppins face covers
+# Latin, Latin-ext, Devanagari and the rupee sign; CJK, Arabic, Hebrew and
+# Cyrillic are still not covered and need an additional font shipped before
+# they will render (verified by reading the font's cmap, not assumed).
+PDF_FONT_STATIC_PATH = "payroll/fonts/Poppins_Regular.ttf"
+
+
+def _pdf_link_callback(uri: str, rel: str):
+    """Map a template URI to an absolute filesystem path for xhtml2pdf.
+
+    Returns the URI unchanged when it is already absolute or cannot be
+    resolved -- xhtml2pdf then skips the resource rather than failing the
+    whole document, which is the right trade for a logo or a webfont.
+    """
+    import os as _os
+
+    from django.conf import settings as _settings
+    from django.contrib.staticfiles import finders as _finders
+
+    if uri.startswith(("http://", "https://", "file://", "data:")):
+        return uri
+
+    static_url = getattr(_settings, "STATIC_URL", "") or ""
+    media_url = getattr(_settings, "MEDIA_URL", "") or ""
+
+    try:
+        if static_url and uri.startswith(static_url):
+            rel_path = uri[len(static_url) :]
+            found = _finders.find(rel_path)
+            if isinstance(found, (list, tuple)):
+                found = found[0] if found else None
+            if found and _os.path.isfile(found):
+                return _os.path.realpath(found)
+            static_root = getattr(_settings, "STATIC_ROOT", None)
+            if static_root:
+                candidate = _os.path.join(static_root, rel_path)
+                if _os.path.isfile(candidate):
+                    return candidate
+        elif media_url and uri.startswith(media_url):
+            candidate = _os.path.join(
+                getattr(_settings, "MEDIA_ROOT", ""), uri[len(media_url) :]
+            )
+            if _os.path.isfile(candidate):
+                return candidate
+    except Exception:
+        logger.exception("PDF resource could not be resolved: %s", uri)
+    return uri
+
+
 def export_pdf(
     payload: dict[str, Any],
     filename: str = "report.pdf",
@@ -1033,6 +1225,14 @@ def export_pdf(
     total_rows = len(data_rows)
     truncated = total_rows > max_rows
     data_rows = data_rows[:max_rows]
+    # A metric can also cap its own list while its KPI counts every match
+    # (compliance registers do this per source). That truncation happened
+    # before the payload reached us, so honour the flag and report the real
+    # total rather than the number of rows we were handed.
+    table_meta = payload.get("table") or {}
+    if table_meta.get("truncated"):
+        truncated = True
+        total_rows = max(total_rows, int(table_meta.get("total_rows") or 0))
 
     currency_symbol, currency_position = _currency_format()
     formatted_rows = [
@@ -1072,6 +1272,13 @@ def export_pdf(
     period = payload.get("period") or {}
     compare = payload.get("compare") or {}
     period_label = _period_label(period)
+    # A report that analyses its own fixed window declares a label for it
+    # ("Rolling 6 months"); _period_label only renders the raw dates, so
+    # without this the document showed a window with no explanation of why
+    # it differs from the period that was requested.
+    declared_label = period.get("label") or ""
+    if declared_label and (period.get("preset") or "") not in ("", "custom"):
+        period_label = f"{declared_label}  ·  {period_label}"
     compare_label = ""
     if compare.get("period"):
         compare_label = (
@@ -1112,11 +1319,7 @@ def export_pdf(
     # "Attendance rate: 93.4%", not the raw "0.934" stored in the payload.
     narrative = build_narrative({**payload, "kpis": formatted_kpis})
 
-    generated_at = meta.get("generated_at")
-    if generated_at and hasattr(generated_at, "strftime"):
-        generated_str = timezone.localtime(generated_at).strftime("%Y-%m-%d %H:%M")
-    else:
-        generated_str = timezone.localtime(timezone.now()).strftime("%Y-%m-%d %H:%M")
+    generated_str = _local_stamp(meta.get("generated_at"))
 
     # Structured (label, value) filter rows preferred; chip list is the
     # legacy fallback for callers that never built summary_pairs.
@@ -1135,6 +1338,16 @@ def export_pdf(
     for chart in payload.get("charts") or []:
         png_bytes = render_chart_png(chart)
         if not png_bytes:
+            # A chart with no data renders nothing. Silently dropping it left
+            # the reader unable to tell an empty period from a broken export,
+            # so carry it through with an explicit empty state instead.
+            chart_images.append(
+                {
+                    "title": chart.get("title") or chart.get("id") or _("Chart"),
+                    "path": None,
+                    "empty": True,
+                }
+            )
             continue
         tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
         try:
@@ -1146,13 +1359,18 @@ def export_pdf(
             {
                 "title": chart.get("title") or chart.get("id") or _("Chart"),
                 "path": tmp.name,
+                "empty": False,
             }
         )
+
+    # Pair charts up so the template can lay them out two per row.
+    chart_rows = [chart_images[i : i + 2] for i in range(0, len(chart_images), 2)]
 
     try:
         html = render_to_string(
             "report/standard_report_pdf.html",
             {
+                "chart_rows": chart_rows,
                 "report_title": payload.get("title") or _("Standard Report"),
                 "domain_label": (payload.get("domain") or meta.get("domain") or "")
                 .replace("_", " ")
@@ -1162,6 +1380,7 @@ def export_pdf(
                 "logo_path": logo_path,
                 "period_label": period_label,
                 "compare_label": compare_label,
+                "period_note": payload.get("period_note") or "",
                 "narrative": narrative,
                 "filter_pairs": filter_pairs,
                 "filter_chips": filter_chips,
@@ -1185,7 +1404,11 @@ def export_pdf(
         )
 
         buf = BytesIO()
-        result = pisa.CreatePDF(src=html, dest=buf)
+        # Without a link_callback, xhtml2pdf cannot resolve the @font-face
+        # URI in the template and silently falls back to Helvetica -- a
+        # base-14 face with no coverage outside Latin, so non-Latin employee
+        # names render as black boxes.
+        result = pisa.CreatePDF(src=html, dest=buf, link_callback=_pdf_link_callback)
         if result.err:
             raise RuntimeError(f"PDF generation failed ({result.err})")
     finally:

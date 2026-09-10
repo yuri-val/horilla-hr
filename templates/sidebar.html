@@ -362,8 +362,8 @@
         if (!allowedExtensions.exec(filePath)) {
             Swal.fire({
                 icon: 'error',
-                title: '{% trans "Invalid File" %}',
-                text: '{% trans "Please upload a valid XLSX file." %}',
+                title: '{% trans "Invalid File"|escapejs %}',
+                text: '{% trans "Please upload a valid XLSX file."|escapejs %}',
                 customClass: {
                     popup: 'file-xlsx-validation',
                 },

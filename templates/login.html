@@ -165,10 +165,10 @@
             $(document).ready(function () {
                 if ($(".oh-alert--warning").length > 0) {
                     Swal.fire({
-                        title: 'Access Denied !',
-                        text: 'Your login credentials are currently blocked. Please contact HR administrators for assistance.',
+                        title: '{% trans "Access Denied !"|escapejs %}',
+                        text: '{% trans "Your login credentials are currently blocked. Please contact HR administrators for assistance."|escapejs %}',
                         icon: 'warning',
-                        confirmButtonText: 'OK',
+                        confirmButtonText: '{% trans "OK"|escapejs %}',
                     });
                 }
             });

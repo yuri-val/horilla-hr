@@ -8,6 +8,7 @@ import ast
 import logging
 from datetime import datetime
 
+from django.apps import apps
 from django.conf import settings
 from django.contrib import messages
 from django.db.models import Q
@@ -24,7 +25,6 @@ from base.forms import AddToUserGroupForm, ModelForm, forms
 from base.methods import paginator_qry
 from base.templatetags.horillafilters import app_installed
 from base.views import get_models_in_app
-from employee.methods.methods import get_model_class
 from employee.models import Employee, EmployeeBankDetails, EmployeeWorkInformation
 from employee.models import models as django_models
 from horilla.horilla_middlewares import _thread_locals
@@ -85,13 +85,16 @@ class AllocationView(HorillaDetailedView):
         if model:
             # Only for recruitment and onboarding process
             # expecting model-> recruitment.models.Candidate
-            model = get_model_class(model)
-            candidate = model.objects.get(pk=pk)
+            Candidate = apps.get_model("recruitment", "Candidate")
+            candidate = Candidate.objects.filter(pk=pk).first()
+            if not candidate:
+                messages.error(request, _("Record not found."))
+                return HorillaFormView.HttpResponse()
             # set candidate to request for accessing inside work info signal
             request.employee_candidate = candidate
             instance = candidate.converted_employee_id
             if instance is None and (candidate.hired or candidate.onboarding_stage):
-                instance = Employee.objects.get_or_create(
+                instance, _created = Employee.objects.get_or_create(
                     employee_first_name=candidate.name,
                     email=candidate.email,
                     phone=candidate.mobile,
@@ -102,13 +105,12 @@ class AllocationView(HorillaDetailedView):
                     zip=candidate.zip,
                     dob=candidate.dob,
                     gender=candidate.gender,
-                )[0]
+                )
                 # Candidate may fail business validation on unrelated fields
                 # during allocation, so only persist the link directly.
-                model.objects.filter(pk=candidate.pk).update(
+                Candidate.objects.filter(pk=candidate.pk).update(
                     converted_employee_id=instance
                 )
-                candidate.converted_employee_id = instance
                 instance.employee_user_id.is_active = False
                 instance.employee_user_id.save()
 
@@ -118,7 +120,10 @@ class AllocationView(HorillaDetailedView):
                 )
                 return HorillaFormView.HttpResponse()
         else:
-            instance = Employee.objects.get(pk=pk)
+            instance = Employee.objects.filter(pk=pk).first()
+            if not instance:
+                messages.error(request, _("Employee not found."))
+                return HorillaFormView.HttpResponse()
 
         self.instance = instance
 
@@ -483,10 +488,13 @@ if app_installed("leave"):
         Leave type assign toggle allocation
         """
         request = getattr(_thread_locals, "request")
+        instance_id = request.GET.get("instance_id")
 
-        available_leave = self.employee_available_leave.filter(
-            employee_id__id=request.GET["instance_id"]
-        ).first()
+        available_leave = (
+            self.employee_available_leave.filter(employee_id__id=instance_id).first()
+            if instance_id
+            else None
+        )
         return render_template(
             "cbv/allocations/leave/toggle_type.html",
             {"instance": self, "available_leave": available_leave},
@@ -510,7 +518,7 @@ if app_installed("leave"):
         header_attrs = {
             "payment": "style='width:80px;'",
             "count": "style='width:105px;'",
-            "action": "style='width:105px;'",
+            "action": "style='width:70px;'",
         }
         row_status_indications = []
         filter_selected = False
@@ -526,9 +534,14 @@ if app_installed("leave"):
 
         def get_context_data(self, **kwargs):
             context = super().get_context_data(**kwargs)
-            context["assigned_types"] = AvailableLeave.objects.filter(
-                employee_id__id=self.request.GET["instance_id"],
-                leave_type_id__in=self.queryset,
+            instance_id = self.request.GET.get("instance_id")
+            context["assigned_types"] = (
+                AvailableLeave.objects.filter(
+                    employee_id__id=instance_id,
+                    leave_type_id__in=self.queryset,
+                )
+                if instance_id
+                else AvailableLeave.objects.none()
             )
 
             return context
@@ -537,6 +550,14 @@ if app_installed("leave"):
             """
             To avoide parent permissions
             """
+            # This is a fragment meant to be loaded via htmx inside the
+            # "Add types" modal (see leave/types.html), always carrying the
+            # employee's instance_id. Visited directly/standalone without
+            # it, there's no employee context to show assigned types
+            # against, so render nothing rather than the raw, unstyled
+            # list+export+column-picker fragment.
+            if not request.GET.get("instance_id"):
+                return HttpResponse()
             return super(LeaveTypeListView, self).dispatch(request, *args, **kwargs)
 
         def get_queryset(self, queryset=None, filtered=False, *args, **kwargs):
@@ -557,14 +578,15 @@ if app_installed("leave"):
             """
             post
             """
+            AvailableLeave = apps.get_model("leave", "AvailableLeave")
+            LeaveType = apps.get_model("leave", "LeaveType")
+
             ids = ast.literal_eval(self.request.POST["ids"])
             employee_id = self.request.POST["instance_id"]
-            avaiable_model = get_model_class("leave.models.AvailableLeave")
-            type_model = get_model_class("leave.models.LeaveType")
-            types = type_model.objects.filter(id__in=ids)
+            types = LeaveType.objects.filter(id__in=ids)
             instance = Employee.objects.get(pk=employee_id)
             for leave_type in types:
-                avaiable_instance = avaiable_model()
+                avaiable_instance = AvailableLeave()
                 avaiable_instance.employee_id = instance
                 avaiable_instance.leave_type_id = leave_type
                 avaiable_instance.available_days = leave_type.total_days
@@ -598,6 +620,7 @@ if app_installed("asset"):
     )
 
     @method_decorator(login_required, name="dispatch")
+    @method_decorator(hx_request_required, name="dispatch")
     @method_decorator(
         all_manager_can_enter(perm="recruitment.view_recruitment"), name="dispatch"
     )
@@ -647,10 +670,11 @@ if app_installed("asset"):
         template_name = "cbv/allocations/asset/asset_list.html"
 
         header_attrs = {
+            "asset_tracking_id": "style='width:120px !important;'",
             "asset_name": "style='width:160px !important;'",
             "asset_category_id": "style='width:150px !important;'",
             "asset_status": "style='width:140px !important;'",
-            "action": "style='width:105px;'",
+            "action": "style='width:70px;'",
         }
         row_status_indications = []
         filter_selected = False
@@ -659,6 +683,7 @@ if app_installed("asset"):
             onclick="$(this).find('td:first [type=checkbox]').prop('checked',!$(this).find('td:first [type=checkbox]').is(':checked')).change()"
         """
         columns = [
+            (_("Tracking Id"), "asset_tracking_id"),
             (_("Asset"), "asset_name", "allocation_asset_get_avatar"),
             (_("Category"), "asset_category_id"),
             (_("Status"), "asset_allocation_status"),
@@ -707,6 +732,11 @@ if app_installed("asset"):
                             )
                         )
                         | Q(asset_name__icontains=self.request.GET.get("search", ""))
+                        | Q(
+                            asset_tracking_id__icontains=self.request.GET.get(
+                                "search", ""
+                            )
+                        )
                     )
                 )
 
@@ -810,7 +840,7 @@ if app_installed("asset"):
 
         header_attrs = {
             "asset_category_name": "style='width:160px !important;'",
-            "action": "style='width:105px;'",
+            "action": "style='width:70px;'",
         }
         row_status_indications = []
         filter_selected = False
@@ -1136,7 +1166,11 @@ if app_installed("payroll"):
             )
 
         def get(self, request, *args, **kwargs):
-            self.instance = Employee.objects.get(pk=request.GET["instance_id"])
+            self.instance = Employee.objects.filter(
+                pk=request.GET.get("instance_id")
+            ).first()
+            if not self.instance:
+                return HttpResponse()
 
             return super().get(request, *args, **kwargs)
 
@@ -1254,7 +1288,11 @@ if app_installed("payroll"):
             )
 
         def get(self, request, *args, **kwargs):
-            self.instance = Employee.objects.get(pk=request.GET["instance_id"])
+            self.instance = Employee.objects.filter(
+                pk=request.GET.get("instance_id")
+            ).first()
+            if not self.instance:
+                return HttpResponse()
 
             return super().get(request, *args, **kwargs)
 

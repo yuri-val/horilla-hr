@@ -98,6 +98,21 @@ def get_MENUS(request):
 def load_ldap_settings():
     """
     Fetch LDAP settings dynamically from the database after Django is ready.
+
+    Diagnostics here go through `logger`, and stay ASCII, on purpose. This runs
+    from `horilla_ldap`'s AppConfig.ready(), so it executes during
+    django.setup() for every management command and for runserver. Two
+    consequences follow:
+
+    * A bare `print()` of a non-ASCII character raises UnicodeEncodeError on a
+      console that is not UTF-8 -- Windows defaults to cp1252 -- and that
+      exception propagates out of django.setup(). A warning nobody needed to
+      read took the whole process down. `logging` routes through a handler that
+      absorbs encoding errors instead of raising them, so a diagnostic can no
+      longer be fatal.
+    * The likeliest caller is a database that predates the horilla_ldap app, so
+      the table genuinely does not exist. That is an ordinary state, not an
+      error, and it must not stop anything.
     """
     try:
         from django.db import connection
@@ -106,7 +121,7 @@ def load_ldap_settings():
 
         # Ensure DB is ready before querying
         if not connection.introspection.table_names():
-            print("⚠️ Database is empty. Using default LDAP settings.")
+            logger.warning("Database is empty. Using default LDAP settings.")
             return settings.DEFAULT_LDAP_CONFIG
 
         ldap_config = LDAPSettings.objects.first()
@@ -118,7 +133,7 @@ def load_ldap_settings():
                 "BASE_DN": ldap_config.base_dn,
             }
     except Exception as e:
-        print(f"⚠️ Warning: Could not load LDAP settings ({e})")
+        logger.warning("Could not load LDAP settings (%s)", e)
         return settings.DEFAULT_LDAP_CONFIG  # Return default on error
 
     return settings.DEFAULT_LDAP_CONFIG  # Fallback in case of an issue

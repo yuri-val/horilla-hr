@@ -1,0 +1,316 @@
+# Changelog
+
+All notable changes to Horilla HR are recorded here.
+
+The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
+project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+This file starts at **2.1.1**, the first release maintained in this format. Releases
+before it are documented on the
+[releases page](https://github.com/horilla/horilla-hr/releases) and are not reproduced
+here — they predate this convention and back-filling them would misrepresent how they
+were recorded at the time.
+
+Each released version corresponds to a git tag of the same name (bare semver, no `v`
+prefix) and to the Docker tag `horilla/horilla-hr:<version>`. `horilla/__version__.py`
+is the single source of truth; the release workflow refuses to publish an image whose
+tag disagrees with it.
+
+## [Unreleased]
+
+<!--
+Add entries here as you merge, under the headings below. Drop any heading you
+do not use. At release time, rename this section to the new version with its
+date and open a fresh Unreleased above it.
+
+### Breaking      — requires action from an existing installation before or on upgrade
+### Added         — new features
+### Changed       — changes to existing behaviour
+### Deprecated    — soon-to-be-removed features
+### Removed        — features removed in this release
+### Fixed         — bug fixes
+### Security      — vulnerabilities fixed; link the advisory and credit the reporter
+-->
+
+## [2.1.5] — 2026-09-09
+
+Bug-fix release. No security content and no migration — but it carries fixes
+for two problems that were reported by users and have been unavailable to them
+until now.
+
+### Fixed
+
+- **Dashboard panels stuck on "Loading…" forever.** `HorillaFilterSet` called
+  `self.data.getlist(...)`, which assumes a `QueryDict`. django-filter accepts
+  any mapping, and eight call sites pass a plain dict — the offline/online and
+  not-checked-in cards, their API equivalents, asset history and
+  reimbursements. Every one raised `AttributeError`, returned a 500, and left
+  the card it feeds spinning. Reported independently by **@owino600** in
+  [#1216](https://github.com/horilla/horilla-hr/issues/1216) and by a customer
+  after a v1→v2 migration; it affects every 2.1.x install, migrated or not.
+
+- **Horilla would not start on a Windows console.** A warning in
+  `horilla/config.py` contained an emoji, printed during `django.setup()` from
+  `horilla_ldap`'s `AppConfig.ready()`. On a cp1252 console — the Windows
+  default — encoding it raised `UnicodeEncodeError`, which propagated out of
+  startup and killed the process. Any database predating the LDAP app triggers
+  the warning path, so a v1→v2 migration hit it every time. Startup
+  diagnostics are now ASCII and go through `logging`, which absorbs an encoding
+  failure rather than letting it become fatal.
+
+- **A full table load and a session write on every page view.** The breadcrumb
+  context processor read every employee and every active candidate on every
+  request and rewrote their ids into the session each time. It is now scoped,
+  lazy, and writes only when the ids change. Reported and fixed by
+  **@Roshan931** ([#1180](https://github.com/horilla/horilla-hr/pull/1180)).
+
+- **The organisation chart showed a single node** for anyone with no direct
+  reports, which read as a page that had failed to load. It now roots at the
+  top of the viewer's reporting chain, stopping at a company boundary so a
+  cross-company reporting line cannot expose another company's tree. By
+  **@yuri-val** ([#1168](https://github.com/horilla/horilla-hr/pull/1168)).
+
+- **Every employee showed as "Offline", permanently,** when check-in/check-out
+  was disabled for the company. The indicator is now hidden rather than
+  asserting something false. By **@yuri-val**
+  ([#1169](https://github.com/horilla/horilla-hr/pull/1169)).
+
+- **Survey template descriptions were saved but never displayed** anywhere a
+  user could see them. By **@yuri-val**
+  ([#1171](https://github.com/horilla/horilla-hr/pull/1171)).
+
+- Candidate cards fall back to initials when a profile image is missing,
+  instead of showing a broken image.
+
+- Two `pre-commit` hooks failed on a clean checkout: a `ruff` B023 warning, and
+  `check-yaml` on Compose's `!override` merge tag.
+
+### Added
+
+- **The running version is now visible in the UI** — in the sidebar footer and
+  under Settings → System Preferences → About, with a link to that release's
+  notes. Until now the version existed only in build metadata, so "which
+  version are you on?" could not be answered from the screen. It is
+  deliberately *not* exposed on `/health/` or `/ready/`, which are
+  unauthenticated.
+
+- Policy documents with an uploaded file now preview inline rather than
+  offering a download. By **@yuri-val**
+  ([#1175](https://github.com/horilla/horilla-hr/pull/1175)).
+
+### Changed
+
+- Eighteen commits adding `escapejs` to translated strings used inside
+  JavaScript, plus missing `trans` tags and an i18n context processor.
+  Apostrophes in translations no longer break the scripts they appear in.
+
+### Upgrading
+
+No migration or configuration change is required.
+
+```bash
+docker pull horilla/horilla-hr:2.1.5
+```
+
+## [2.1.4] — 2026-09-08
+
+Security release. **Upgrade from any 2.x.** Both flaws below are reachable by an
+ordinary employee holding no permission over the data they reach.
+
+### Security
+
+| Advisory | Severity | Issue |
+|---|---|---|
+| [GHSA-6fxh-v24c-4cmx](https://github.com/horilla/horilla-hr/security/advisories/GHSA-6fxh-v24c-4cmx) | Medium | The mail-template sanitizer's denylist was bypassable, leaving the server-side template injection that CVE-2026-63432 was meant to close reachable — any account in the stock `HR Manager` role could read any user's password hash, the superuser's included |
+| [GHSA-97wm-28fj-g4pj](https://github.com/horilla/horilla-hr/security/advisories/GHSA-97wm-28fj-g4pj) | Critical | The API's manager check asked whether anybody at all reported to the caller, never which employee the record belonged to, so any employee who managed one person could approve, edit and delete other employees' leave, attendance, overtime, rotating assignments and documents |
+
+With thanks to **@Ntn10** and **@lighthousekeeper1212** for reporting these
+responsibly.
+
+**The mail-template sanitizer is no longer a denylist.** `{{ }}` expressions
+were checked only up to the first `|`, so a filter argument carried the path the
+check rejected, and `{% %}` tags were checked only by name, so `{% with %}`,
+`{% firstof %}` and every other tag carried it too. The body is now tokenized
+with Django's own lexer — the same one that parses the result, so no construct
+can be read differently by the check and the renderer — every part of a
+construct is inspected rather than a prefix, and template tags are allow-listed
+instead of denied two at a time. `{% include %}` and `{% extends %}`, which read
+from disk and were on nobody's denylist, are shut with the same change. Eighteen
+call sites share this function and only two of them added the strict allow-list,
+so the fix is at the function, not at the endpoints that were reported.
+
+**API manager checks now name their target.** `manager_permission_required`
+established only that the caller managed *somebody*; the record was then loaded
+straight from the URL. Seventeen record-specific handlers were on it. They now
+use the target-scoped decorators introduced for
+[GHSA-39gq-9wwx-p8hx](https://github.com/horilla/horilla-hr/security/advisories/GHSA-39gq-9wwx-p8hx)
+and [GHSA-gc35-jfv9-r3cm](https://github.com/horilla/horilla-hr/security/advisories/GHSA-gc35-jfv9-r3cm),
+with approve and reject endpoints refusing self-approval independently of the
+manager test. The two bulk endpoints take their ids from the request body rather
+than the URL and were not in the report; they apply the same rule per record,
+since scoping only the by-id routes would have left their unscoped twins in
+place.
+
+Multiple-approval chains are unaffected: an approver a leave condition nominates
+is admitted explicitly, because such an approver is frequently neither the
+requester's reporting manager nor a permission holder.
+
+### Fixed
+
+- `PUT /api/attendance/converted-mail-template` and
+  `POST /api/attendance/offline-employee-mail-send` returned a 500 instead of a
+  404 for a template or employee id that does not exist.
+- Removed an owner-or-manager permission helper on the rotating work-type
+  assignment API that was written but never wired to a handler. The decorator
+  now applied enforces the same rule.
+
+### Added
+
+- Regression tests for both advisories, including the allow cases — a scoped
+  permission check is only correct if the people who legitimately held it still
+  get through.
+
+## [2.1.3] — 2026-09-07
+
+Bug-fix and security release. **Upgrade if you are on 2.1.0, 2.1.1 or 2.1.2** —
+three pages return a server error on all three, and the leave-allocation
+authorization flaw below affects every 2.x release.
+
+### Security
+
+| Advisory | Severity | Issue |
+|---|---|---|
+| [GHSA-gc35-jfv9-r3cm](https://github.com/horilla/horilla-hr/security/advisories/GHSA-gc35-jfv9-r3cm) | Medium | Any employee who was the reporting manager of one person could approve their own leave allocation and credit an arbitrary number of days to their own balance |
+
+With thanks to **@je-lv** for reporting it responsibly.
+
+Approval now requires a second person who actually manages the requester, and
+the approver may never be the requester — the two checks are independent, since
+an employee can be recorded as their own reporting manager. The fix is at the
+shared authorization gate, so the reject, read, edit and delete endpoints on the
+same model are covered too: rejecting an approved allocation subtracts the days
+again, and the edit endpoint accepts `requested_days`. Neither was in the report.
+
+### Fixed
+
+- **Attendance work records, the skill zone view and the attendance monthly
+  summary returned a 500.** A documentation comment in the modern filter panel
+  described where the filter body is included, and wrote that description using
+  real template syntax. Django's lexer does not recognise CSS comments, so the
+  `{% include %}` inside the comment was executed on every render; on the pages
+  that include the panel directly — rather than through the generic nav, where
+  the list views supply `filter_body_template` — the variable resolved empty and
+  the include raised `TemplateDoesNotExist: No template names provided`.
+
+  Reported by **@owino600** in
+  [#1216](https://github.com/horilla/horilla-hr/issues/1216), with an accurate
+  diagnosis of the cause.
+
+- Two `{% url %}` tags in a disabled block of jQuery in the grace-time template
+  were being resolved on every render for the same reason. They resolved, so
+  nothing broke, but removing the routes they name would have 500ed the page
+  from inside a comment. The block was already marked unused and has been
+  removed.
+
+### Added
+
+- A test that fails the build if `{% include %}`, `{% extends %}`, `{% url %}` or
+  `{% ssi %}` appears inside a CSS or JavaScript comment in any template. The
+  defect above shipped in three consecutive releases without being noticed, so
+  the class is now checked rather than the instance.
+
+### Upgrading
+
+No migration or configuration change is required.
+
+```bash
+docker pull horilla/horilla-hr:2.1.3
+```
+
+## [2.1.2] — 2026-09-07
+
+Security patch release. **Upgrading is recommended for all installations.**
+
+### Security
+
+Three access-control issues, all exploitable by an ordinary low-privilege
+account and none dependent on `DEBUG` or any operator setting.
+
+| Advisory | Severity | Issue |
+|---|---|---|
+| [GHSA-39gq-9wwx-p8hx](https://github.com/horilla/horilla-hr/security/advisories/GHSA-39gq-9wwx-p8hx) | High | Any employee who managed one person could overwrite — or delete — any other employee's bank account details, redirecting salary payments |
+| [GHSA-x72c-5gf7-97g3](https://github.com/horilla/horilla-hr/security/advisories/GHSA-x72c-5gf7-97g3) | Medium | Any authenticated employee could delete any other employee's documents, including contracts and identity documents |
+| [GHSA-v963-hrfx-34mw](https://github.com/horilla/horilla-hr/security/advisories/GHSA-v963-hrfx-34mw) | Medium | Any candidate could write notes onto any other candidate's hiring record, across companies, and read that candidate's tracking page |
+
+With thanks to **@je-lv** for reporting all three responsibly.
+
+Each fix was made at the shared authorization gate rather than the reported
+endpoint, so sibling endpoints on the same gate are covered too. The bank-detail
+`DELETE` and the document `GET`/`PUT` were not in the reports and were reachable
+the same way.
+
+### Changed
+
+- Editing a document through `PUT /api/employee/documents/<pk>/` now authorizes
+  against `horilla_documents.change_document` rather than
+  `horilla_documents.view_document`. Owners and reporting managers are
+  unaffected; an integration that held only the view permission and relied on it
+  to write will now be refused.
+- `DELETE /api/employee/employee-bank-details/<pk>/` now also admits the record's
+  owner, and restricts managers to their own reports rather than any manager of
+  anyone.
+
+### Upgrading
+
+No migration or configuration change is required.
+
+If you drive Horilla through the REST API, check the two permission changes
+above before upgrading — an integration that wrote documents using only
+`horilla_documents.view_document` will start receiving 403.
+
+```bash
+docker pull horilla/horilla-hr:2.1.2
+```
+
+## [2.1.1] — 2026-09-06
+
+Security patch release. **Upgrading is recommended for all installations.**
+
+### Security
+
+| Advisory | Severity | Issue |
+|---|---|---|
+| [GHSA-rf47-2qgf-qq4j](https://github.com/horilla/horilla-hr/security/advisories/GHSA-rf47-2qgf-qq4j) | High | Stored XSS leading to credential theft — XSS validation was bypassed on every REST and direct write |
+| [GHSA-cjr4-rrp6-g72j](https://github.com/horilla/horilla-hr/security/advisories/GHSA-cjr4-rrp6-g72j) | High | Local file read through PDF generation, via an XSS-filter bypass |
+| [GHSA-56x4-6268-vg4f](https://github.com/horilla/horilla-hr/security/advisories/GHSA-56x4-6268-vg4f) | High | Reimbursement approval could rewrite the claimed payout amount |
+| [GHSA-p745-9729-g8jw](https://github.com/horilla/horilla-hr/security/advisories/GHSA-p745-9729-g8jw) | Medium | A candidate could read any other candidate's uploaded documents |
+| [GHSA-mpw3-7c6v-vfjp](https://github.com/horilla/horilla-hr/security/advisories/GHSA-mpw3-7c6v-vfjp) | Medium | An employee could read any other employee's leave requests |
+
+With thanks to **@je-lv** and **@Pig-Tail** for reporting these responsibly.
+
+### Changed
+
+- Rich text (ticket descriptions and comments, recruitment descriptions, policy bodies,
+  OKR comments) is sanitised on output with an allow-list rather than a blocklist. Images
+  and inline colour are preserved; scripts, event handlers and `javascript:`/`data:` URLs
+  are removed.
+- "Default Export Access" is now an explicit per-company setting rather than
+  permissive-by-absence.
+- API rate limiting added; outstanding tokens are revoked when a password changes.
+
+### Upgrading
+
+No migration or configuration change is required by this release.
+
+If you are upgrading from **2.0.x** and use the WhatsApp integration, note that
+[2.1.0](https://github.com/horilla/horilla-hr/releases/tag/2.1.0) requires a Meta App
+Secret — message delivery stops until it is set.
+
+```bash
+docker pull horilla/horilla-hr:2.1.1
+```
+
+[Unreleased]: https://github.com/horilla/horilla-hr/compare/2.1.3...HEAD
+[2.1.3]: https://github.com/horilla/horilla-hr/compare/2.1.2...2.1.3
+[2.1.2]: https://github.com/horilla/horilla-hr/compare/2.1.1...2.1.2
+[2.1.1]: https://github.com/horilla/horilla-hr/releases/tag/2.1.1

@@ -308,7 +308,6 @@ def faq_update(request, obj_id):
 
 
 @login_required
-@hx_request_required
 def faq_search(request):
     """
     This function is responsible for search and filter the FAQ.
@@ -320,7 +319,16 @@ def faq_search(request):
     GET : return faq filter form template
     POST : return faq view
     """
-    id = request.GET.get("cat_id", "")
+    # This endpoint returns only the list/filter fragment; a genuine
+    # top-level browser navigation/reload should land on the real FAQ page
+    # instead of showing the raw, unstyled fragment.
+    if request.headers.get("Sec-Fetch-Mode") == "navigate":
+        redirect_url = reverse("faq-category-view")
+        query_string = request.GET.urlencode()
+        if query_string:
+            redirect_url = f"{redirect_url}?{query_string}"
+        return redirect(redirect_url)
+    id = request.GET.get("cat_id") or 0
     category = request.GET.get("category", "")
     previous_data = request.GET.urlencode()
     query = request.GET.get("search", "")
@@ -409,7 +417,7 @@ def faq_delete(request, id):
         message = _("No FAQ found matching the query.")
 
     except ProtectedError:
-        messages = _("You cannot delete this FAQ.")
+        message = _("You cannot delete this FAQ.")
 
     return HorillaRedirect(request, message=message)
 
@@ -1078,7 +1086,9 @@ def ticket_update_tag(request):
 @login_required
 @hx_request_required
 def ticket_change_raised_on(request, ticket_id):
-    ticket = Ticket.objects.get(id=ticket_id)
+    ticket = Ticket.objects.filter(id=ticket_id).first()
+    if not ticket:
+        return HttpResponse()
     if (
         request.user.has_perm("helpdesk.view_ticket")
         or request.user.employee_get == ticket.employee_id
@@ -1102,7 +1112,9 @@ def ticket_change_raised_on(request, ticket_id):
 @login_required
 @hx_request_required
 def ticket_change_assignees(request, ticket_id):
-    ticket = Ticket.objects.get(id=ticket_id)
+    ticket = Ticket.objects.filter(id=ticket_id).first()
+    if not ticket:
+        return HttpResponse()
     if request.user.has_perm("helpdesk.change_ticket") or is_department_manager(
         request, ticket
     ):
@@ -1188,7 +1200,11 @@ def remove_tag(request):
         # message = messages.success(request,_("Success"))
         message = _("success")
         type = "success"
-    except:
+    except (Ticket.DoesNotExist, Tags.DoesNotExist):
+        # An unknown ticket or tag id. Narrowed from a bare except, which
+        # also reported a genuine failure in tags.remove() as "Failed" with
+        # nothing logged.
+        logger.warning("tag removal failed: ticket_id=%r tag_id=%r", ticket_id, tag_id)
         message = messages.error(request, _("Failed"))
         type = "failed"
 
@@ -1461,7 +1477,7 @@ def claim_ticket(request, id):
 
 
 @login_required
-@ticket_owner_can_enter(perm="helpdesk.change_ticket", model=Ticket)
+@ticket_owner_can_enter(perm="helpdesk.change_ticket", model=ClaimRequest)
 def approve_claim_request(request, req_id):
     """
     Function for approve claim request and send notifications to the responsibles.
@@ -1470,19 +1486,20 @@ def approve_claim_request(request, req_id):
     if not claim_request:
         return HttpResponse("Invalid claim request", status=404)
 
+    ticket = claim_request.ticket_id
+    employee = claim_request.employee_id
+
     if not (
         request.user.has_perm("helpdesk.change_claimrequest")
         or request.user.has_perm("helpdesk.change_ticket")
         or is_department_manager(request, ticket)
     ):
-        handle_no_permission(request)
+        return handle_no_permission(request)
 
     approve = strtobool(
         request.GET.get("approve", "False")
     )  # Safely convert to boolean
 
-    ticket = claim_request.ticket_id
-    employee = claim_request.employee_id
     refresh = False
     if approve:
         # message
@@ -1505,8 +1522,13 @@ def approve_claim_request(request, req_id):
                 )
             except Exception as e:
                 logger.error(e)
-            if not ticket.employee_id == ticket.created_by.employee_get:
-                for emp in [ticket.created_by.employee_get, ticket.employee_id]:
+            # created_by is null=True with on_delete=SET_NULL, so it is None
+            # for tickets not created through a request (fixtures, imports,
+            # the shell) and for any ticket whose creator has since been
+            # deleted. Notify the raiser alone in that case.
+            raiser = ticket.created_by.employee_get if ticket.created_by else None
+            if raiser is not None and raiser != ticket.employee_id:
+                for emp in [raiser, ticket.employee_id]:
                     try:
                         notify.send(
                             request.user.employee_get,
@@ -1714,7 +1736,9 @@ def create_department_manager(request):
 @hx_request_required
 @permission_required("helpdesk.change_departmentmanager")
 def update_department_manager(request, dep_id):
-    department_manager = DepartmentManager.objects.get(id=dep_id)
+    department_manager = DepartmentManager.objects.filter(id=dep_id).first()
+    if not department_manager:
+        return HttpResponse()
     form = DepartmentManagerCreateForm(instance=department_manager)
     if request.method == "POST":
         form = DepartmentManagerCreateForm(request.POST, instance=department_manager)
@@ -1843,7 +1867,9 @@ def ticket_type_update(request, t_type_id):
     """
     This method renders form and template to create Ticket type
     """
-    ticket_type = TicketType.objects.get(id=t_type_id)
+    ticket_type = TicketType.objects.filter(id=t_type_id).first()
+    if not ticket_type:
+        return HttpResponse()
     form = TicketTypeForm(instance=ticket_type)
     if request.method == "POST":
         form = TicketTypeForm(request.POST, instance=ticket_type)
@@ -1875,7 +1901,8 @@ def ticket_type_delete(request, t_type_id):
                 return HttpResponse(
                     "<script>$('#reloadMessagesButton').click()</script>"
                 )
-        except:
+        except ProtectedError:
+            # Related tickets still reference this type.
             messages.error(request, _("Ticket type can not delete"))
             return HttpResponse("<script>$('.reload-record').click()</script>")
     return HttpResponse("<script>$('#reloadMessagesButton').click()</script>")

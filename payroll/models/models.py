@@ -16,6 +16,7 @@ from django.db import models
 from django.http import QueryDict
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
+from django.utils.functional import cached_property
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 
@@ -1565,12 +1566,18 @@ class Deduction(HorillaModel):
         MultipleCondition, blank=True, editable=False
     )
 
+    @cached_property
     def installment_payslip(self):
         """
-        Method to retrieve the payslip associated with this installment.
+        The payslip associated with this installment, if any. A
+        cached_property so the handful of templates/filters checking this
+        per row (loan/salary-advance/fine repayment schedules) don't each
+        re-query for the same instance. Views rendering many installments
+        at once should still bulk-resolve and pre-set this attribute
+        instead of relying on the per-instance query here -- see
+        LoanDetailView.get_context_data.
         """
-        payslip = Payslip.objects.filter(installment_ids=self).first()
-        return payslip
+        return Payslip.objects.filter(installment_ids=self).first()
 
     def get_is_pretax_display(self):
         return _("Yes") if self.is_pretax else _("No")
@@ -2255,6 +2262,14 @@ class Payslip(HorillaModel):
         ordering = [
             "-end_date",
         ]
+        # Meta.ordering sorts every unqualified Payslip query by -end_date,
+        # and the UniqueConstraint below leads on employee_id so it cannot
+        # serve that sort. Payroll registers also filter by status within a
+        # period.
+        indexes = [
+            models.Index(fields=["-end_date"], name="payslip_end_date_idx"),
+            models.Index(fields=["status", "end_date"], name="payslip_status_date_idx"),
+        ]
         constraints = [
             models.UniqueConstraint(
                 fields=["employee_id", "start_date", "end_date"],
@@ -2398,7 +2413,7 @@ class LoanAccount(HorillaModel):
 
         installment_date = installment_start_date
         installment_schedule = {}
-        for _ in range(total_installments):
+        for _unused in range(total_installments):
             installment_schedule[str(installment_date)] = installment_amount
             installment_date = get_next_month_same_date(installment_date)
 

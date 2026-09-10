@@ -31,7 +31,7 @@
     document.execCommand("copy");
     $temp.remove();
     Swal.fire({
-      text: "Link copied",
+      text: "{% trans 'Link copied'|escapejs %}",
       icon: "success",
       showConfirmButton: false,
       timer: 3000, // Set the timer to 3000 milliseconds (3 seconds)
@@ -200,7 +200,7 @@
                                 <span>
                                   <form
                                     action="{% url 'recruitment-delete' rec.id  %}"
-                                    onsubmit="return confirm('{% trans "Are you sure to delete this recruitment?" %}')"
+                                    onsubmit="return confirm('{% trans "Are you sure to delete this recruitment?"|escapejs %}')"
                                     method="post"
                                     style="display: contents">
                                     {% csrf_token %}

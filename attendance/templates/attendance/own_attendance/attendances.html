@@ -25,7 +25,7 @@
         <span
             class="me-3"
             style="cursor: pointer"
-            hx-get='{% url "filter-own-attendance" %}?is_validate_request_approved=true'
+            hx-get='{% url "filter-own-attendance" %}?is_validate_request_approved=True'
             hx-swap="innerHTML"
             hx-target="#attendance-container"
         >
@@ -38,7 +38,7 @@
         <span
             class="me-3"
             style="cursor: pointer"
-            hx-get='{% url "filter-own-attendance" %}?is_validate_request=true'
+            hx-get='{% url "filter-own-attendance" %}?is_validate_request=True'
             hx-swap="innerHTML"
             hx-target="#attendance-container"
         >
@@ -51,7 +51,7 @@
         <span
             class="me-3"
             style="cursor: pointer"
-            hx-get='{% url "filter-own-attendance" %}?attendance_validated=false'
+            hx-get='{% url "filter-own-attendance" %}?attendance_validated=False'
             hx-swap="innerHTML"
             hx-target="#attendance-container"
         >
@@ -64,7 +64,7 @@
         <span
             class="me-3"
             style="cursor: pointer"
-            hx-get='{% url "filter-own-attendance" %}?attendance_validated=true'
+            hx-get='{% url "filter-own-attendance" %}?attendance_validated=True'
             hx-swap="innerHTML"
             hx-target="#attendance-container"
         >
@@ -145,7 +145,7 @@
                         </div>
                         <div
                             data-cell-index="6"
-                            data-cell-title='{% trans "Out Date" %}'
+                            data-cell-title="{% trans 'Out Date' %}"
                             class="oh-sticky-table__th {% if request.sort_option.order == '-attendance_clock_out_date' %}arrow-up {% elif request.sort_option.order == 'attendance_clock_out_date' %}arrow-down {% else %} arrow-up-down {% endif %}"
                             hx-target="#attendance-container"
                             hx-get="{% url 'own-attendance-filter' %}?{{pd}}&orderby=attendance_clock_out_date"

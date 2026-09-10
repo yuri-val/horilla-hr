@@ -331,7 +331,7 @@
                     },
                     error: function(xhr, status, error) {
                         // Handle error response
-                        $('.oh-alert-container').html('<div class="oh-alert oh-alert--animated oh-alert--danger">' + '{% trans "Failed to update question order." %}' + '</div>');
+                        $('.oh-alert-container').html('<div class="oh-alert oh-alert--animated oh-alert--danger">' + '{% trans "Failed to update question order."|escapejs %}' + '</div>');
                     }
                 });
             }

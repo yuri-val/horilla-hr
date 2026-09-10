@@ -663,12 +663,12 @@ class AddCandidateForm(ModelForm):
                 recruitment_id=recruitment
             )
             self.fields["job_position_id"].queryset = recruitment.open_positions
+            if recruitment.optional_profile_image:
+                self.fields["profile"].required = False
+            if recruitment.optional_resume:
+                self.fields["resume"].required = False
         self.fields["profile"].widget.attrs["accept"] = ".jpg, .jpeg, .png"
         self.fields["resume"].widget.attrs["accept"] = ".pdf"
-        if recruitment.optional_profile_image:
-            self.fields["profile"].required = False
-        if recruitment.optional_resume:
-            self.fields["resume"].required = False
         self.fields["gender"].empty_label = None
         self.fields["job_position_id"].empty_label = None
         self.fields["stage_id"].empty_label = None
@@ -794,7 +794,7 @@ class QuestionForm(ModelForm):
     QuestionForm
     """
 
-    cols = {"options": 12, "template_id": 12, "question": 12}
+    cols = {"options": 12, "question": 12}
 
     verbose_name = "Survey Questions"
 
@@ -914,9 +914,18 @@ class QuestionForm(ModelForm):
             if key.startswith("options"):
                 self.option_count += 1
                 create_options_field(key, initial=value)
-        fields_order = list(self.fields.keys())
-        fields_order.remove("recruitment")
-        fields_order.insert(2, "recruitment")
+
+        pinned_order = [
+            "question",
+            "type",
+            "sequence",
+            "is_mandatory",
+            "template_id",
+            "recruitment",
+        ]
+        fields_order = pinned_order + [
+            field for field in self.fields.keys() if field not in pinned_order
+        ]
         self.fields = {field: self.fields[field] for field in fields_order}
 
 
@@ -1353,7 +1362,7 @@ class ScheduleInterviewForm(BaseModelForm):
                 )
 
         if managers and apps.is_installed("leave"):
-            from leave.models import LeaveRequest
+            LeaveRequest = apps.get_model("leave", "LeaveRequest")
 
             leave_employees = LeaveRequest.objects.filter(
                 employee_id__in=managers, status="approved"

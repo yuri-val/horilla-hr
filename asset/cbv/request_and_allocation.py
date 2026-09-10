@@ -23,6 +23,7 @@ from asset.filters import (
 )
 from asset.forms import AssetAllocationForm, AssetReassignForm, AssetRequestForm
 from asset.models import Asset, AssetAssignment, AssetRequest, ReturnImages
+from attendance.cbv.tab_shell import AttendanceTabContentShell
 from base.methods import filtersubordinates
 from employee.models import Employee
 from horilla.horilla_middlewares import _thread_locals
@@ -114,10 +115,7 @@ class AllocationList(HorillaListView):
         data-toggle="oh-modal-toggle"
     """
 
-    # Mirrors RequestAndAllocationNav.nested_group_by_fields below. This
-    # one Nav is shared across all 3 tabs (Asset, Asset Request, Asset
-    # Allocation) backed by two different models (AssetRequest here vs
-    # AssetAssignment for this List/AssetAllocationList) -- same mixed
+    # Mirrors AllocationList.nested_group_by_fields below -- same mixed
     # list already used by the classic group_by_fields above, which
     # tolerates a field not existing on the currently active tab's model
     # by falling back silently (see the try/except around both the
@@ -239,11 +237,18 @@ class AssetRequestList(HorillaListView):
 
         # Fallback for a deep link into this tab (see
         # RequestAndAllocationView.get) - only applies when the current
-        # request didn't already specify its own status filter. Read (not
-        # popped) since HorillaListView calls get_queryset() more than once
-        # per request; RequestAndAllocationView.get clears it on the next
-        # plain visit instead, so it doesn't linger indefinitely.
-        if not self.request.GET.get("asset_request_status"):
+        # request didn't already specify its own status filter. Checked by
+        # key presence, not truthiness: clicking the "x" on the "Asset
+        # request status" chip (clearFilterFromTag in clearFilter.js) sets
+        # the form field to "" and resubmits, so the key IS present (just
+        # empty) - `not self.request.GET.get(...)` would still be True for
+        # that, silently re-applying the just-cleared filter forever. Read
+        # (not popped) since HorillaListView calls get_queryset() more than
+        # once per request; RequestAndAllocationView.get clears it on the
+        # next plain visit instead, so it doesn't linger indefinitely -- an
+        # explicit clear here also drops it immediately instead of waiting
+        # for that.
+        if "asset_request_status" not in self.request.GET:
             deep_link_status = self.request.session.get(
                 "asset_request_deep_link_status"
             )
@@ -255,6 +260,8 @@ class AssetRequestList(HorillaListView):
                 saved_filters = self._saved_filters.copy()
                 saved_filters["asset_request_status"] = deep_link_status
                 self._saved_filters = saved_filters
+        else:
+            self.request.session.pop("asset_request_deep_link_status", None)
         return queryset
 
     columns = [
@@ -284,7 +291,7 @@ class AssetRequestList(HorillaListView):
         data-toggle="oh-modal-toggle"
     """
 
-    # Mirrors AllocationList.nested_group_by_fields / RequestAndAllocationNav.nested_group_by_fields
+    # Mirrors AllocationList.nested_group_by_fields
     nested_group_by_fields = [
         ("requested_employee_id", _("Asset Request / Employee")),
         ("asset_category_id", _("Asset Request / Asset Category")),
@@ -375,103 +382,162 @@ class RequestAndAllocationTab(HorillaTabView):
         self.tabs = [
             {
                 "title": _("Asset"),
-                "url": f"{reverse('list-asset')}",
+                "url": f"{reverse('req-alloc-asset-tab-shell')}",
                 "badge": asset_count,
             },
             {
                 "title": _("Asset Request"),
-                "url": f"{reverse('list-asset-request')}",
+                "url": f"{reverse('req-alloc-asset-request-tab-shell')}",
                 "badge": request_count,
-                "actions": [
-                    {
-                        "action": _("Create Request"),
-                        "attrs": f"""
-                            data-toggle="oh-modal-toggle"
-                            data-target="#genericModal"
-                            hx-get="{reverse('asset-request-creation')}"
-                            hx-target="#genericModalBody"
-                            style="cursor: pointer;"
-                        """,
-                    }
-                ],
             },
         ]
         if self.request.user.has_perm("asset.view_assetassignment"):
             self.tabs.append(
                 {
                     "title": _("Asset Allocation"),
-                    "url": f"{reverse('list-asset-allocation')}",
+                    "url": f"{reverse('req-alloc-asset-allocation-tab-shell')}",
                     "badge": allocation_count,
-                    "actions": [
-                        {
-                            "action": _("Create Allocation"),
-                            "attrs": f"""
-                                data-toggle="oh-modal-toggle"
-                                data-target="#genericModal"
-                                hx-get="{reverse('asset-allocate-creation')}"
-                                hx-target="#genericModalBody"
-                                style="cursor: pointer;"
-                            """,
-                        },
-                        {
-                            "action": _("Asset Renewal"),
-                            "attrs": f"""
-                                href="{reverse('asset-renewal')}"
-                            """,
-                        },
-                    ],
                 },
             )
 
 
+class _RequestAndAllocationNavBase(HorillaNavView):
+    """
+    Shared base for each Request & Allocation tab's own, independent Nav -
+    everything (nav_title/search_url/search_swap_target/filter_instance/
+    filter_body_template/group_by_fields/create_attrs/actions) differs per
+    tab, since each tab is backed by its own model with its own create flow.
+    """
+
+
 @method_decorator(login_required, name="dispatch")
-class RequestAndAllocationNav(HorillaNavView):
+class AssetNav(_RequestAndAllocationNavBase):
     """
-    Nav bar
+    Independent Nav for the Asset tab. No create flow of its own (this tab
+    just lists the logged-in employee's own allocations).
     """
+
+    nav_title = _("Asset")
+    filter_instance = CustomAssetFilter()
+    filter_form_context_name = "form"
+    filter_body_template = "cbv/request_and_allocation/asset_filter.html"
+    # Modern slide-over filter panel (generic/horilla_nav.html's own
+    # {% if modern_filter %} branch) -- same treatment as every other
+    # panel this session.
+    modern_filter = True
+
+    group_by_fields = [
+        ("assigned_to_employee_id", _("Employee")),
+        ("assigned_date", _("Assigned Date")),
+        ("return_date", _("Return Date")),
+    ]
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-        self.search_url = reverse("tab-asset-request-allocation")
-        # Forward deep-link params (e.g. open_tab / asset_request_status from
-        # the dashboard's "pending approvals" card) onto the tab view this
-        # nav auto-loads on page load - otherwise they never reach it, since
-        # this hardcoded search_url carries no query string of its own.
-        if self.request and self.request.GET:
-            self.search_url += f"?{self.request.GET.urlencode()}"
+        self.search_url = reverse("list-asset")
+        self.search_swap_target = "#assetListContainer"
 
-    nav_title = _("Asset")
-    filter_instance = AssetAllocationFilter()
-    filter_form_context_name = "asset_allocation_filter_form"
-    filter_body_template = "cbv/request_and_allocation/filter.html"
-    search_swap_target = "#listContainer"
-    # Scopes the shared Group By dropdown's options to the active tab --
-    # see the script in this template for why.
-    template_name = "cbv/request_and_allocation/nav.html"
 
-    def get_context_data(self, **kwargs):
-        """
-        context data
-        """
-        context = super().get_context_data(**kwargs)
-        assets_filter_form = CustomAssetFilter()
-        asset_request_filter_form = AssetRequestFilter()
-        context["assets_filter_form"] = assets_filter_form.form
-        context["asset_request_filter_form"] = asset_request_filter_form.form
-        return context
+@method_decorator(login_required, name="dispatch")
+class AssetRequestNav(_RequestAndAllocationNavBase):
+    """
+    Independent Nav for the Asset Request tab.
+    """
+
+    nav_title = _("Asset Request")
+    filter_instance = AssetRequestFilter()
+    filter_form_context_name = "form"
+    filter_body_template = "cbv/request_and_allocation/asset_request_filter.html"
+    # Modern slide-over filter panel (generic/horilla_nav.html's own
+    # {% if modern_filter %} branch) -- same treatment as every other
+    # panel this session. AssetRequestFilter.ajax_fields carries the
+    # AJAX-loaded comboboxes this needs. Since this tab now has its own
+    # independent Nav (this class's own filter_instance IS
+    # AssetRequestFilter), the generic custom_filter_fields/
+    # custom_filter_rows context (HorillaNavView.get_context_data)
+    # covers its "+ Add filter" builder directly -- no more manual
+    # asset_request_custom_filter_fields/rows wiring needed now that
+    # the combined 3-in-1 Nav is gone.
+    modern_filter = True
 
     group_by_fields = [
-        ("requested_employee_id", _("Asset Request / Employee")),
-        ("asset_category_id", _("Asset Request / Asset Category")),
-        ("asset_request_date", _("Asset Request / Request Date")),
-        ("asset_request_status", _("Asset Request / Status")),
-        ("assigned_to_employee_id", _("Asset Allocation / Employee")),
-        ("assigned_date", _("Asset Allocation / Assigned Date")),
-        ("return_date", _("Asset Allocation / Return Date")),
+        ("requested_employee_id", _("Employee")),
+        ("asset_category_id", _("Asset Category")),
+        ("asset_request_date", _("Request Date")),
+        ("asset_request_status", _("Status")),
     ]
 
-    # Mirrors AllocationList/AssetRequestList.nested_group_by_fields
-    nested_group_by_fields = group_by_fields
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.search_url = reverse("list-asset-request")
+        self.search_swap_target = "#assetRequestListContainer"
+        self.create_attrs = f"""
+                            data-toggle="oh-modal-toggle"
+                            data-target="#genericModal"
+                            hx-get="{reverse('asset-request-creation')}"
+                            hx-target="#genericModalBody"
+                            """
+
+
+@method_decorator(login_required, name="dispatch")
+class AssetAllocationNav(_RequestAndAllocationNavBase):
+    """
+    Independent Nav for the Asset Allocation tab.
+    """
+
+    nav_title = _("Asset Allocation")
+    filter_instance = AssetAllocationFilter()
+    filter_form_context_name = "form"
+    filter_body_template = "cbv/request_and_allocation/asset_allocation_filter.html"
+    # Modern slide-over filter panel (generic/horilla_nav.html's own
+    # {% if modern_filter %} branch) -- same treatment as every other
+    # panel this session. AssetAllocationFilter.ajax_fields carries the
+    # AJAX-loaded comboboxes this needs.
+    modern_filter = True
+
+    group_by_fields = [
+        ("assigned_to_employee_id", _("Employee")),
+        ("assigned_date", _("Assigned Date")),
+        ("return_date", _("Return Date")),
+    ]
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.search_url = reverse("list-asset-allocation")
+        self.search_swap_target = "#assetAllocationListContainer"
+        if self.request.user.has_perm("asset.view_assetassignment"):
+            self.create_attrs = f"""
+                                data-toggle="oh-modal-toggle"
+                                data-target="#genericModal"
+                                hx-get="{reverse('asset-allocate-creation')}"
+                                hx-target="#genericModalBody"
+                                """
+            self.actions = [
+                {
+                    "action": _("Asset Renewal"),
+                    "attrs": f"""
+                        href="{reverse('asset-renewal')}"
+                    """,
+                }
+            ]
+
+
+class AssetTabShell(AttendanceTabContentShell):
+    nav_url_name = "req-alloc-asset-nav"
+    container_id = "assetListContainer"
+    tabs_root_id = "assetReqAllocContainer"
+
+
+class AssetRequestTabShell(AttendanceTabContentShell):
+    nav_url_name = "req-alloc-asset-request-nav"
+    container_id = "assetRequestListContainer"
+    tabs_root_id = "assetReqAllocContainer"
+
+
+class AssetAllocationTabShell(AttendanceTabContentShell):
+    nav_url_name = "req-alloc-asset-allocation-nav"
+    container_id = "assetAllocationListContainer"
+    tabs_root_id = "assetReqAllocContainer"
 
 
 @method_decorator(login_required, name="dispatch")

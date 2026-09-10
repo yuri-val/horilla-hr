@@ -381,7 +381,10 @@ class WorkTypeRequestView(APIView):
         return paginater.get_paginated_response(serializer.data)
 
     def post(self, request):
-        serializer = self.serializer_class(data=request.data)
+        data = request.data.copy()
+        if not request.user.has_perm("base.add_worktyperequest"):
+            data["employee_id"] = request.user.employee_get.id
+        serializer = self.serializer_class(data=data)
         if serializer.is_valid():
             instance = serializer.save()
             try:
@@ -547,19 +550,9 @@ class RotatingWorkTypeAssignView(APIView):
     permission_classes = [IsAuthenticated]
     queryset = RotatingWorkTypeAssign.objects.none()  # For drf-yasg schema generation
 
-    def _permission_check(self, request, obj=None, pk=None):
-        if pk:
-            employee = request.user.employee_get
-            manager = obj.employee_id.get_reporting_manager()
-            if (
-                employee == obj.employee_id
-                or manager == employee
-                or request.user.has_perm("base.view_rotatingworktypeassign")
-            ):
-                return True
-            return False
-
-    @manager_permission_required("base.view_rotatingworktypeassign")
+    @manager_or_owner_permission_required(
+        RotatingWorkTypeAssign, "base.view_rotatingworktypeassign"
+    )
     def get(self, request, pk=None):
 
         if pk:
@@ -614,7 +607,9 @@ class RotatingWorkTypeAssignView(APIView):
             return Response(serializer.data, status=201)
         return Response(serializer.errors, status=400)
 
-    @manager_permission_required("base.change_rotatingworktypeassign")
+    @manager_or_owner_permission_required(
+        RotatingWorkTypeAssign, "base.change_rotatingworktypeassign"
+    )
     def put(self, request, pk):
         rotating_work_type_assign = object_check(RotatingWorkTypeAssign, pk)
         if rotating_work_type_assign is None:
@@ -627,7 +622,9 @@ class RotatingWorkTypeAssignView(APIView):
             return Response(serializer.data, status=200)
         return Response(serializer.errors, status=400)
 
-    @manager_permission_required("base.delete_rotatingworktypeassign")
+    @manager_or_owner_permission_required(
+        RotatingWorkTypeAssign, "base.delete_rotatingworktypeassign"
+    )
     def delete(self, request, pk):
         rotating_work_type_assign = object_check(RotatingWorkTypeAssign, pk)
         if rotating_work_type_assign is None:
@@ -847,7 +844,9 @@ class RotatingShiftAssignView(APIView):
     permission_classes = [IsAuthenticated]
     queryset = RotatingShiftAssign.objects.none()  # For drf-yasg schema generation
 
-    @manager_permission_required("base.view_rotatingshiftassign")
+    @manager_or_owner_permission_required(
+        RotatingShiftAssign, "base.view_rotatingshiftassign"
+    )
     def get(self, request, pk=None):
         if pk:
             rotating_shift_assign = object_check(RotatingShiftAssign, pk)
@@ -885,7 +884,9 @@ class RotatingShiftAssignView(APIView):
             return Response(serializer.data, status=201)
         return Response(serializer.errors, status=400)
 
-    @manager_permission_required("base.change_rotatingshiftassign")
+    @manager_or_owner_permission_required(
+        RotatingShiftAssign, "base.change_rotatingshiftassign"
+    )
     def put(self, request, pk):
         rotating_shift_assign = object_check(RotatingShiftAssign, pk)
         if rotating_shift_assign is None:
@@ -896,7 +897,9 @@ class RotatingShiftAssignView(APIView):
             return Response(serializer.data, status=200)
         return Response(serializer.errors, status=400)
 
-    @manager_permission_required("base.delete_rotatingshiftassign")
+    @manager_or_owner_permission_required(
+        RotatingShiftAssign, "base.delete_rotatingshiftassign"
+    )
     def delete(self, request, pk):
         rotating_shift_assign = object_check(RotatingShiftAssign, pk)
         if rotating_shift_assign is None:
@@ -972,7 +975,10 @@ class ShiftRequestView(APIView):
         return paginator.get_paginated_response(serializer.data)
 
     def post(self, request):
-        serializer = self.serializer_class(data=request.data)
+        data = request.data.copy()
+        if not request.user.has_perm("base.add_shiftrequest"):
+            data["employee_id"] = request.user.employee_get.id
+        serializer = self.serializer_class(data=data)
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data, status=201)
@@ -1158,6 +1164,7 @@ class ShiftRequestBulkCancelView(APIView):
 class ShiftRequestDeleteView(APIView):
     permission_classes = [IsAuthenticated]
 
+    @method_decorator(permission_required("base.delete_shiftrequest"))
     def delete(self, request, pk=None):
 
         if pk is None:
@@ -1192,6 +1199,7 @@ class ShiftRequestExportView(APIView):
 class ShiftRequestAllocationView(APIView):
     permission_classes = [IsAuthenticated]
 
+    @method_decorator(permission_required("base.change_shiftrequest"))
     def post(self, request, id):
         shift_request = ShiftRequest.objects.get(id=id)
         if not shift_request.is_any_request_exists():
@@ -1212,6 +1220,7 @@ class RotatingShiftAssignExport(APIView):
 class RotatingShiftAssignBulkArchive(APIView):
     permission_classes = [IsAuthenticated]
 
+    @method_decorator(permission_required("base.change_rotatingshiftassign"))
     def put(self, request, status):
         ids = request.data.get("ids", None)
         try:
@@ -1225,6 +1234,7 @@ class RotatingShiftAssignBulkArchive(APIView):
 class RotatingShiftAssignBulkDelete(APIView):
     permission_classes = [IsAuthenticated]
 
+    @method_decorator(permission_required("base.delete_rotatingshiftassign"))
     def delete(self, request):
         ids = request.data.get("ids", None)
         try:

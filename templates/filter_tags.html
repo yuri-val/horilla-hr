@@ -52,7 +52,7 @@
     tags = $(`
     {% if filter_dict %}
     <span class="oh-titlebar__tag oh-titlebar__tag--custom"
-      >{% trans 'Filters' %}:</span
+      >{% trans 'Filters'|escapejs %}:</span
     >
     {% endif %}
     {%for field,values in filter_dict.items %} {% if values %}
@@ -67,14 +67,14 @@
           name="close-outline"
           role="img"
           class="md hydrated close-icon"
-          aria-label="{% trans 'close outline' %}"
+          aria-label="{% trans 'close outline'|escapejs %}"
         >
         </ion-icon>
       </button>
     </span>
     {% endwith %} {% endif %} {% endfor %}
     {% if filter_dict %}
-    <span class="oh-titlebar__tag oh-titlebar__tag--custom" title="{% trans 'Clear All' %}" role="button" onclick="clearAllFilter($(this));"
+    <span class="oh-titlebar__tag oh-titlebar__tag--custom" title="{% trans 'Clear All'|escapejs %}" role="button" onclick="clearAllFilter($(this));"
       ><ion-icon class="close-icon" name="close-outline"></ion-icon></span
     >
     {% endif %}

@@ -32,7 +32,7 @@
 							></a>
 							{% endif %}
 							{% if perms.base.delete_department %}
-                            <a onclick="return confirm('{% trans "Are you sure want to delete this skill?" %}')"
+                            <a onclick="return confirm('{% trans "Are you sure want to delete this skill?"|escapejs %}')"
                                 href="{% url 'delete-skills' %}?ids={{skill.id}}"
                                 class="oh-btn oh-btn--danger w-50"
                                 title="{% trans 'Remove' %}"

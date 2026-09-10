@@ -1,0 +1,350 @@
+# Build and publish the official Horilla HR image to Docker Hub.
+#
+# docker-ci.yml is the PR gate and stays untouched; this is the release path.
+# It smoke-tests the built image before any push, so a broken image cannot be
+# published even if the build itself succeeds.
+#
+# Tag policy is driven entirely by whether the git tag has a pre-release suffix:
+#   2.0.0       -> 2.0.0, 2.0, latest   + mirror to the deprecated horilla/horilla
+#   2.0.0-rc1   -> 2.0.0-rc1 only       (no latest, no minor alias, no mirror)
+# A pre-release must never take `latest` -- that is the one mistake here that
+# would reach users, so it is asserted in the summary and testable via dry_run.
+
+name: Docker Publish
+
+on:
+  push:
+    tags:
+      - "[0-9]+.[0-9]+.[0-9]+"
+      - "[0-9]+.[0-9]+.[0-9]+-*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build (e.g. 2.0.0-rc1). Required for dispatch."
+        required: true
+      dry_run:
+        description: "Build and smoke-test, but do not push"
+        type: boolean
+        default: true
+
+env:
+  IMAGE: horilla/horilla-hr
+  LEGACY_IMAGE: horilla/horilla
+  PLATFORMS: linux/amd64,linux/arm64
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve version and release channel
+        id: v
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.version }}"
+            DRY_RUN="${{ inputs.dry_run }}"
+          else
+            VERSION="${GITHUB_REF#refs/tags/}"
+            DRY_RUN="false"
+          fi
+
+          # A '-' anywhere after the patch number means pre-release (rc, beta, alpha).
+          if printf '%s' "$VERSION" | grep -q -- '-'; then
+            PRERELEASE=true
+          else
+            PRERELEASE=false
+          fi
+
+          echo "version=$VERSION"       >> "$GITHUB_OUTPUT"
+          echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
+          echo "dry_run=$DRY_RUN"       >> "$GITHUB_OUTPUT"
+          # Real build time. repository.updated_at is the repo's metadata mtime
+          # and is empty on workflow_dispatch, which would ship a blank label.
+          echo "build_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+          echo "Version=$VERSION prerelease=$PRERELEASE dry_run=$DRY_RUN"
+
+      - name: Assert __version__ matches the tag
+        run: |
+          set -euo pipefail
+          # The image label must not disagree with the tag it ships under.
+          # A pre-release builds the same code as its base version, so
+          # 2.0.0-rc1 legitimately carries __version__ == "2.0.0".
+          # Import it rather than regex it: no nested-quoting hazard, and it
+          # reads the same value the image will report at runtime.
+          MOD=$(python3 -c 'import horilla; print(horilla.__version__)')
+          BASE="${{ steps.v.outputs.version }}"
+          BASE="${BASE%%-*}"
+          if [ "$MOD" != "$BASE" ]; then
+            echo "::error::horilla/__version__.py is '$MOD' but the tag resolves to '$BASE'."
+            echo "Update horilla/__version__.py, or tag the version it already declares."
+            exit 1
+          fi
+          echo "Version check OK: __version__=$MOD, tag base=$BASE"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # ---- Smoke test before any push. Single-arch (native amd64) is enough to
+      # prove the image boots; the multi-arch build reuses the same layers. ----
+
+      - name: Build amd64 image for smoke test
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          push: false
+          platforms: linux/amd64
+          tags: horilla-hr:smoketest
+          build-args: |
+            VERSION=${{ steps.v.outputs.version }}
+            VCS_REF=${{ github.sha }}
+            BUILD_DATE=${{ steps.v.outputs.build_date }}
+          # no-cache on purpose. A release build must install from
+          # requirements.txt as written, not from a layer another run
+          # populated: the 2.1.0 publish scanned an image whose entire venv
+          # layer was CACHED from before the msgpack/setuptools pins landed,
+          # so the scan correctly reported versions the current
+          # requirements.txt does not ask for. Reusing layers saves a few
+          # minutes once per release and can silently ship a different image
+          # than the one the tag describes.
+          no-cache: true
+
+      - name: Smoke test — version, migrations, health, readiness
+        run: |
+          set -euo pipefail
+
+          # --entrypoint is required: the image's ENTRYPOINT is entrypoint.sh,
+          # which blocks waiting for Postgres (DB_HOST defaults to "db") long
+          # before it would exec this command. Overriding CMD alone is not
+          # enough -- the entrypoint still runs and the wait loop exits 1.
+          IMG_VERSION=$(docker run --rm --entrypoint python horilla-hr:smoketest \
+            -c "import horilla; print(horilla.__version__)")
+          echo "Image reports __version__=$IMG_VERSION"
+
+          docker network create horilla-smoke
+          docker run -d --name smoke-db --network horilla-smoke \
+            -e POSTGRES_DB=horilla_db -e POSTGRES_USER=horilla_user \
+            -e POSTGRES_PASSWORD=horilla_pass postgres:16-alpine
+
+          for i in $(seq 1 60); do
+            docker exec smoke-db pg_isready -U horilla_user -d horilla_db >/dev/null 2>&1 && break
+            sleep 2
+            [ "$i" -eq 60 ] && { echo "::error::Postgres never became ready"; exit 1; }
+          done
+
+          docker run -d --name smoke-web --network horilla-smoke -p 8000:8000 \
+            -e DEBUG=0 \
+            -e SECRET_KEY=ci-smoke-test-key-not-a-real-secret-000000000000 \
+            -e ALLOWED_HOSTS=localhost,127.0.0.1 \
+            -e CSRF_TRUSTED_ORIGINS=http://localhost:8000 \
+            -e DATABASE_URL=postgres://horilla_user:horilla_pass@smoke-db:5432/horilla_db \
+            -e DB_HOST=smoke-db -e DB_PORT=5432 \
+            -e DB_INIT_PASSWORD=ci-smoke-db-init-not-a-real-secret-0000 \
+            horilla-hr:smoketest
+
+          # 300 x 2s = 10 minutes. The entrypoint runs the full migration set
+          # against an empty database before gunicorn binds: 185 migrations at
+          # roughly 1.8s each is ~5.5 minutes on a runner, so the previous 180s
+          # budget expired mid-migrate and looked like a health failure.
+          echo "Waiting for /health/ (migrations run first, this takes minutes) ..."
+          for i in $(seq 1 300); do
+            if curl -sf --max-time 5 http://localhost:8000/health/ | grep -q '"status"'; then
+              echo "Health OK after ~$((i * 2))s"; break
+            fi
+            # Fail fast if the container exited: waiting out the full budget for
+            # a dead container hides the real error behind a timeout.
+            if [ "$(docker inspect -f '{{.State.Status}}' smoke-web 2>/dev/null)" != "running" ]; then
+              echo "::error::Container exited during startup"
+              docker logs --tail=100 smoke-web; exit 1
+            fi
+            # Progress every 30s so a stall is distinguishable from slow work.
+            if [ $((i % 15)) -eq 0 ]; then
+              echo "  ... still waiting ($((i * 2))s): $(docker logs --tail=1 smoke-web 2>&1 | tail -1)"
+            fi
+            sleep 2
+            if [ "$i" -eq 300 ]; then
+              echo "::error::Health check failed after 600s"
+              docker logs --tail=100 smoke-web; exit 1
+            fi
+          done
+
+          # /ready/ only checks DB connectivity and health already passed, so
+          # this is quick -- but keep headroom rather than a tight bound.
+          echo "Waiting for /ready/ ..."
+          for i in $(seq 1 60); do
+            if curl -sf --max-time 5 http://localhost:8000/ready/ | grep -q '"database"'; then
+              echo "Readiness OK"
+              curl -s http://localhost:8000/ready/
+              break
+            fi
+            sleep 2
+            if [ "$i" -eq 60 ]; then
+              echo "::error::Readiness check failed"; docker logs --tail=100 smoke-web; exit 1
+            fi
+          done
+
+      - name: Tear down smoke stack
+        if: always()
+        run: |
+          docker rm -f smoke-web smoke-db 2>/dev/null || true
+          docker network rm horilla-smoke 2>/dev/null || true
+
+      - name: Scan image (fail on CRITICAL)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: horilla-hr:smoketest
+          # HIGH included: this gate already caught a CRITICAL Django SQL
+          # injection before it shipped, and a HIGH in an HR app handling
+          # payroll and personal data is not a "publish anyway" finding.
+          # ignore-unfixed keeps it actionable -- it only fails on things
+          # that have a fix available.
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+          ignore-unfixed: true
+          # .trivyignore.yaml suppresses two findings that come from pip's
+          # own vendored dependency manifest rather than anything installed.
+          # Read that file before adding to it -- it records how each was
+          # verified, and the versions actually installed.
+          trivyignores: .trivyignore.yaml
+
+      # ---- Publish. Everything below is skipped on a dry run. ----
+
+      - name: Log in to Docker Hub
+        if: steps.v.outputs.dry_run != 'true'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Compute tags
+        id: tags
+        run: |
+          set -euo pipefail
+          V="${{ steps.v.outputs.version }}"
+          if [ "${{ steps.v.outputs.prerelease }}" = "true" ]; then
+            # Pre-release: the exact version and nothing else. No latest, no
+            # minor alias, and never the deprecated mirror.
+            TAGS="${IMAGE}:${V}"
+          else
+            MINOR="${V%.*}"
+            TAGS="${IMAGE}:${V},${IMAGE}:${MINOR},${IMAGE}:latest"
+            TAGS="${TAGS},${LEGACY_IMAGE}:${V},${LEGACY_IMAGE}:${MINOR},${LEGACY_IMAGE}:latest"
+          fi
+          echo "tags=$TAGS" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Docker publish"
+            echo ""
+            echo "- version: \`$V\`"
+            echo "- pre-release: \`${{ steps.v.outputs.prerelease }}\`"
+            echo "- dry run: \`${{ steps.v.outputs.dry_run }}\`"
+            echo "- platforms: \`${PLATFORMS}\`"
+            echo ""
+            echo "Tags:"
+            printf '%s\n' "$TAGS" | tr ',' '\n' | sed 's/^/- `/;s/$/`/'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Build and push multi-arch
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: ${{ env.PLATFORMS }}
+          push: ${{ steps.v.outputs.dry_run != 'true' }}
+          tags: ${{ steps.tags.outputs.tags }}
+          build-args: |
+            VERSION=${{ steps.v.outputs.version }}
+            VCS_REF=${{ github.sha }}
+            BUILD_DATE=${{ steps.v.outputs.build_date }}
+          provenance: true
+          sbom: true
+          # Same reasoning as the smoke build above: the published image must
+          # come from the requirements the tag actually carries.
+          no-cache: true
+
+      - name: Verify published manifest
+        if: steps.v.outputs.dry_run != 'true'
+        run: |
+          set -euo pipefail
+          V="${{ steps.v.outputs.version }}"
+          docker buildx imagetools inspect "${IMAGE}:${V}"
+
+          # A pre-release must not have moved `latest`. If this fires, the tag
+          # policy above regressed and users would be pulling an RC by default.
+          if [ "${{ steps.v.outputs.prerelease }}" = "true" ]; then
+            PUBLISHED=$(docker buildx imagetools inspect "${IMAGE}:${V}" \
+              --format '{{json .Manifest.Digest}}' 2>/dev/null || echo '""')
+            LATEST=$(docker buildx imagetools inspect "${IMAGE}:latest" \
+              --format '{{json .Manifest.Digest}}' 2>/dev/null || echo '""')
+            if [ "$LATEST" != '""' ] && [ "$PUBLISHED" = "$LATEST" ]; then
+              echo "::error::Pre-release $V is being served as :latest. Tag policy regressed."
+              exit 1
+            fi
+            echo "Confirmed: pre-release did not take :latest"
+          fi
+
+      # ---- Docker Hub descriptions. Rendered from docker/dockerhub/ so the
+      # published page is a release artifact rather than a manual edit.
+      #
+      # Nothing synced these before, and the pages had drifted badly:
+      # horilla/horilla still told its readers to run `horilla/horilla:1.4`
+      # with `manage.py runserver` -- a January 2026 image and Django's
+      # development server -- and that page carries ~15k pulls, 38x the
+      # canonical name. This page itself claimed "latest -- Currently 2.0.0"
+      # after 2.1.2 had shipped. ----
+
+      - name: Render Docker Hub descriptions
+        if: steps.v.outputs.dry_run != 'true' && steps.v.outputs.prerelease != 'true'
+        run: |
+          set -euo pipefail
+          chmod +x docker/dockerhub/render.sh
+          docker/dockerhub/render.sh canonical "${{ steps.v.outputs.version }}" \
+            > /tmp/desc-canonical.md
+          docker/dockerhub/render.sh legacy "${{ steps.v.outputs.version }}" \
+            > /tmp/desc-legacy.md
+
+          # An unrendered placeholder would be published verbatim to a page with
+          # five figures of traffic, so fail the step instead.
+          for f in /tmp/desc-canonical.md /tmp/desc-legacy.md; do
+            if grep -q '__NOTICE__\|__VERSION__' "$f"; then
+              echo "::error::Unrendered placeholder left in $f"
+              grep -n '__NOTICE__\|__VERSION__' "$f"
+              exit 1
+            fi
+            size=$(wc -c < "$f")
+            echo "$f: $size chars"
+            # Docker Hub rejects a full description over 25,000 characters.
+            if [ "$size" -gt 25000 ]; then
+              echo "::error::$f exceeds Docker Hub's 25,000-character limit"
+              exit 1
+            fi
+          done
+
+      - name: Update horilla/horilla-hr description
+        if: steps.v.outputs.dry_run != 'true' && steps.v.outputs.prerelease != 'true'
+        uses: peter-evans/dockerhub-description@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_DESCRIPTION_TOKEN }}
+          repository: horilla/horilla-hr
+          short-description: "Free and open source HR software - recruitment, attendance, leave, payroll and performance."
+          readme-filepath: /tmp/desc-canonical.md
+
+      # The deprecated mirror is kept in sync deliberately: it carries ~38x the
+      # pull volume of the canonical name, so it is the page most users read.
+      # Leaving it stale is what produced the 1.4/runserver instructions above.
+      - name: Update horilla/horilla description (deprecated mirror)
+        if: steps.v.outputs.dry_run != 'true' && steps.v.outputs.prerelease != 'true'
+        uses: peter-evans/dockerhub-description@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_DESCRIPTION_TOKEN }}
+          repository: horilla/horilla
+          short-description: "[Moved to horilla/horilla-hr] Free and open source HR software."
+          readme-filepath: /tmp/desc-legacy.md

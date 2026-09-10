@@ -2,6 +2,7 @@ import ast
 import calendar
 import contextlib
 import json
+import logging
 import os
 import random
 import re
@@ -10,6 +11,7 @@ from types import SimpleNamespace
 
 import pandas as pd
 import pdfkit
+from django import template
 from django.apps import apps
 from django.conf import settings
 from django.contrib.auth.models import Group
@@ -21,8 +23,13 @@ from django.db.models import ForeignKey, ManyToManyField, OneToOneField, Q
 from django.db.models.functions import Lower
 from django.forms.models import ModelChoiceField
 from django.http import HttpResponse
+from django.template.base import Lexer, TokenType
 from django.template.loader import render_to_string
 from django.utils.translation import gettext as _
+
+from horilla.models import has_xss
+
+logger = logging.getLogger(__name__)
 
 from base.models import (
     Company,
@@ -32,6 +39,7 @@ from base.models import (
     Holidays,
 )
 from employee.models import Employee, EmployeeWorkInformation
+from horilla.export_safety import safe_cell
 from horilla.horilla_middlewares import _thread_locals
 
 CHART_CONFIG = {
@@ -136,47 +144,160 @@ CHART_CONFIG = {
 
 # Tokens that must never resolve in a user-supplied mail-template body —
 # they would leak password hashes, session metadata, or full request state.
-_FORBIDDEN_TEMPLATE_ATTRS = ("password", "username", "META", "session", "_state")
-_FORBIDDEN_TEMPLATE_TAGS = ("debug", "load")
+# Tokens that must never resolve in a user-supplied mail-template body --
+# they would leak password hashes, session metadata, or full request state.
+_FORBIDDEN_TEMPLATE_ATTRS = frozenset(
+    {
+        "password",
+        "username",
+        "META",
+        "COOKIES",
+        "session",
+        "_state",
+        "is_superuser",
+        "is_staff",
+        "user_permissions",
+        "groups",
+        "token",
+        "secret",
+        "api_key",
+    }
+)
+
+# Tags a mail body may use. Everything else is dropped, including the ones that
+# read from disk or widen the context: `include`, `extends`, `load`, `debug`,
+# `csrf_token`, and any tag a loaded library would add.
+#
+# This is an allow-list on purpose. Denying only `debug` and `load` left every
+# other tag free to carry the very attribute paths the variable check rejects --
+# `{% with h=instance.employee_user_id.password %}{{ h }}{% endwith %}` and
+# `{% firstof ... %}` both reached the superuser's password hash through the
+# reflected mail-template endpoints (GHSA-6fxh-v24c-4cmx).
+_ALLOWED_TEMPLATE_TAGS = frozenset(
+    {
+        "autoescape",
+        "endautoescape",
+        "comment",
+        "endcomment",
+        "cycle",
+        "resetcycle",
+        "filter",
+        "endfilter",
+        "firstof",
+        "for",
+        "empty",
+        "endfor",
+        "if",
+        "elif",
+        "else",
+        "endif",
+        "ifchanged",
+        "endifchanged",
+        "lorem",
+        "now",
+        "regroup",
+        "spaceless",
+        "endspaceless",
+        "templatetag",
+        "url",
+        "verbatim",
+        "endverbatim",
+        "widthratio",
+        "with",
+        "endwith",
+    }
+)
+
+# Everything that cannot be part of a Python identifier, so that a whole
+# construct splits into the names it could possibly look up:
+# `x|default:a.b.password` and `h=a.b.password` both yield "password".
+_TEMPLATE_IDENTIFIER_RE = re.compile(r"[^\w]+")
+
+
+# A quoted literal is never resolved as an attribute path by any builtin that
+# renders its value, so it is removed before the scan. That keeps ordinary prose
+# like `{{ "Reset your password"|upper }}` intact. The two builtins that do
+# resolve a quoted string as a property path -- `dictsort`, `dictsortreversed` --
+# sort by it and output the objects, never the resolved value.
+_QUOTED_LITERAL_RE = re.compile(r"'[^']*'|\"[^\"]*\"")
+
+
+def _references_forbidden_attr(contents):
+    """
+    True if any unquoted part of a `{{ }}` / `{% %}` construct names a
+    forbidden attribute -- anywhere in it, not just before the first filter.
+
+    The whole construct is inspected because Django resolves variables in
+    filter arguments (`|default:a.b.password`), in tag arguments
+    (`{% firstof a.b.password %}`) and in tag assignments
+    (`{% with h=a.b.password %}`), not only in the leading lookup path.
+    """
+    unquoted = _QUOTED_LITERAL_RE.sub(" ", contents)
+    return any(
+        word in _FORBIDDEN_TEMPLATE_ATTRS
+        for word in _TEMPLATE_IDENTIFIER_RE.split(unquoted)
+    )
+
+
+def _strip_all_template_syntax(body):
+    """
+    Reduce a body to inert text: re-lex and keep only text until no construct
+    survives. Each pass is strictly shorter than the last, so this terminates.
+    """
+    while True:
+        tokens = Lexer(body).tokenize()
+        if all(token.token_type == TokenType.TEXT for token in tokens):
+            return body
+        body = "".join(
+            token.contents for token in tokens if token.token_type == TokenType.TEXT
+        )
 
 
 def sanitize_mail_template_body(body):
     """
     Strip dangerous Django-template constructs from a user-supplied mail body.
 
-    Mail-preview endpoints render arbitrary user-supplied bodies through the
-    Django template engine, which exposes attribute traversal on any object
-    in the context (User.password, request.META, etc.). This function removes
-    variable expressions that reference forbidden attributes and removes
-    forbidden template tags. It does not aim to be a full Django-template
-    parser; it normalizes whitespace inside `{{ ... }}` / `{% ... %}` so
-    obvious bypasses like `{{ request . user . password }}` are also caught.
+    Mail bodies are rendered through the Django template engine with real model
+    instances in the context, and template attribute traversal reaches anything
+    hanging off them -- `instance.employee_user_id.password`, for one. This
+    removes any construct that could resolve a forbidden attribute, and any tag
+    outside `_ALLOWED_TEMPLATE_TAGS`.
+
+    Tokenizing with Django's own lexer rather than matching `{{ ... }}` with a
+    regex is deliberate: it is the same lexer that will parse the result, so
+    there is no construct the check and the renderer can disagree about.
     """
     if not body:
         return body
 
-    def _strip_variable(match):
-        # Normalize: remove all whitespace inside {{ ... }} so
-        # `{{ a . password }}` and `{{a.password|upper}}` both collapse to
-        # a single token we can inspect.
-        inner = re.sub(r"\s+", "", match.group(1))
-        # Split filters off: `a.password|upper` -> `a.password`
-        var_path = inner.split("|", 1)[0]
-        parts = var_path.split(".")
-        if any(part in _FORBIDDEN_TEMPLATE_ATTRS for part in parts):
-            return ""
-        return match.group(0)
+    kept = []
+    for token in Lexer(body).tokenize():
+        if token.token_type == TokenType.TEXT:
+            kept.append(token.contents)
+        elif token.token_type == TokenType.COMMENT:
+            continue  # `{# ... #}` is never rendered
+        elif token.token_type == TokenType.VAR:
+            if not _references_forbidden_attr(token.contents):
+                kept.append("{{ " + token.contents + " }}")
+        else:  # TokenType.BLOCK
+            tag_name = token.contents.split(None, 1)[0] if token.contents else ""
+            if tag_name in _ALLOWED_TEMPLATE_TAGS and not _references_forbidden_attr(
+                token.contents
+            ):
+                kept.append("{% " + token.contents + " %}")
 
-    def _strip_tag(match):
-        inner = match.group(1).strip()
-        tag_name = inner.split(None, 1)[0] if inner else ""
-        if tag_name in _FORBIDDEN_TEMPLATE_TAGS:
-            return ""
-        return match.group(0)
+    sanitized = "".join(kept)
 
-    body = re.sub(r"\{\{(.*?)\}\}", _strip_variable, body, flags=re.DOTALL)
-    body = re.sub(r"\{%(.*?)%\}", _strip_tag, body, flags=re.DOTALL)
-    return body
+    # Dropping one half of a block tag leaves source that will not compile --
+    # removing `{% with ... %}` strands its `{% endwith %}` -- and every caller
+    # compiles this return value immediately. Fall back to inert text rather
+    # than raising a TemplateSyntaxError out of a mail send.
+    try:
+        template.Template(sanitized)
+    except Exception:
+        sanitized = _strip_all_template_syntax(body)
+
+    return sanitized
 
 
 def sanitize_mail_template_placeholders(body, allowed_template_words):
@@ -557,7 +678,6 @@ def sortby(request, queryset, key):
     sort_count = request.GET.getlist(key).count(sortby)
     order = None
     if sortby is not None and sortby != "":
-
         field_parts = sortby.split("__")
 
         model_meta = queryset.model._meta
@@ -819,8 +939,11 @@ def closest_numbers(numbers: list, input_number: int) -> tuple:
             next_number = numbers[index + 1]
         else:
             next_number = numbers[0]
-    except:
-        pass
+    except (ValueError, TypeError):
+        # A non-numeric id in the list, or input_number not present in it.
+        # Both mean there is no previous/next to report, which the None
+        # defaults already express.
+        logger.debug("neighbour lookup skipped for %r", input_number, exc_info=True)
     return (previous_number, next_number)
 
 
@@ -846,7 +969,7 @@ def format_export_value(value, employee):
             if format_name == time_format:
                 value = check_in_time.strftime(format_string)
 
-    elif type(value) == date:
+    elif type(value) is date:
         # Convert the string to a datetime.date object
         start_date = datetime.strptime(str(value), "%Y-%m-%d").date()
         # Print the formatted date for each format
@@ -860,16 +983,58 @@ def format_export_value(value, employee):
     return value
 
 
+# Apps whose models make up the HR data surface this app is meant to
+# export. Mirrors base.signals._ALL_HRMS_APP_LABELS minus "auth" -- "auth"
+# is kept out on purpose so credential/ACL tables (User, Group, Permission)
+# can never be pulled through a generic export path, even by a superuser
+# or a company-wide "Default Export Access" toggle.
+_EXPORTABLE_APP_LABELS = {
+    "base",
+    "employee",
+    "leave",
+    "attendance",
+    "payroll",
+    "recruitment",
+    "onboarding",
+    "offboarding",
+    "asset",
+    "helpdesk",
+    "project",
+    "pms",
+    "biometric",
+    "horilla_documents",
+    "horilla_automations",
+    "horilla_audit",
+    "accessibility",
+}
+
+
 def has_export_access(request, model):
     """
     Centralized export-access check reused by every export endpoint.
 
-    Superusers always have access. When the "Default Export Access"
-    setting is enabled for the requesting user's current company (or not
-    yet configured for that company), every user of that company may
-    export data. Otherwise access falls back to the per-module
-    ``export_<model>`` permission.
+    A model must first belong to ``_EXPORTABLE_APP_LABELS`` -- this is
+    checked unconditionally, before any role/permission bypass, so an
+    endpoint that resolves ``model`` from client-supplied input can't be
+    pointed at an arbitrary Django model (e.g. ``auth.User``) outside the
+    app's own HR data surface.
+
+    Superusers always have access to whitelisted models. When the
+    "Default Export Access" setting is enabled for the requesting user's
+    current company, every user of that company may export data.
+    Otherwise access falls back to the per-module ``export_<model>``
+    permission.
+
+    A missing row still reads as enabled, for backwards compatibility.
+    That fallback should now be unreachable: migration
+    ``base.0003_seed_default_export_permission`` seeds a row per company
+    and ``create_default_export_permission`` adds one for each new
+    company, so the setting is an explicit, visible value rather than
+    permissive-by-absence.
     """
+    if model._meta.app_label not in _EXPORTABLE_APP_LABELS:
+        return False
+
     user = request.user
     if user.is_superuser:
         return True
@@ -903,7 +1068,6 @@ def export_data(request, model, form_class, filter_class, file_name, perm=None):
         "semi_monthly": _("Semi-Monthly"),
         "hourly": _("Hourly"),
         "daily": _("Daily"),
-        "monthly": _("Monthly"),
         "full_day": _("Full Day"),
         "first_half": _("First Half"),
         "second_half": _("Second Half"),
@@ -987,7 +1151,11 @@ def export_data(request, model, form_class, filter_class, file_name, perm=None):
 
                 # Check if the type of 'value' is time
                 value = format_export_value(value, employee)
-                data_export[verbose_name].append(value)
+                # Employee-entered text reaching a spreadsheet cell can
+                # execute when the file is opened (=HYPERLINK(...) will
+                # exfiltrate neighbouring cells), so guard every value at the
+                # one point they all pass through.
+                data_export[verbose_name].append(safe_cell(value))
 
     data_frame = pd.DataFrame(data=data_export)
 
@@ -1163,12 +1331,39 @@ def link_callback(uri, rel):
 
 
 def generate_pdf(template_path, context, path=True, title=None, html=True):
+    """
+    Render HTML to a PDF response.
+
+    The rendered body is XSS-checked before it reaches pdfkit. wkhtmltopdf
+    executes scripts in the document, and every call site here passes
+    `enable-local-file-access` (see template_pdf's pdf_options, where it is
+    needed to load local CSS and images). pdfkit 1.0.0 has a known,
+    currently-unfixed advisory for exactly that combination -- PYSEC-2026-2860:
+    `from_string` allows script execution and local-file exfiltration -- so a
+    template carrying an injected payload could read files off the server and
+    post them out.
+
+    horilla_automations/signals.py already did this check at its own call site.
+    Four other callers (recruitment, attendance API, employee dashboard,
+    onboarding) did not, so the guard belongs here, where all five route
+    through, rather than repeated at each one.
+    """
     title = "Document" if not title else title
 
     if html:
         html = template_path
     else:
         html = render_to_string(template_path, context)
+
+    if has_xss(html):
+        logger.error(
+            "generate_pdf: rendered body failed the XSS check; refusing to "
+            "hand it to wkhtmltopdf (title=%s).",
+            title,
+        )
+        return HttpResponse(
+            _("This document could not be generated safely."), status=400
+        )
 
     response = template_pdf(template=html, html=True, filename=title)
 

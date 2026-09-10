@@ -8,7 +8,7 @@ from django import forms
 from django.contrib import messages
 from django.db.models import Q
 from django.http import HttpResponse
-from django.shortcuts import render
+from django.shortcuts import redirect, render
 from django.urls import resolve, reverse
 from django.utils.decorators import method_decorator
 from django.utils.formats import localize
@@ -60,6 +60,11 @@ class TimeSheetNavView(HorillaNavView):
     search_swap_target = "#listContainer"
     template_name = "cbv/timesheet/timesheet_nav.html"
     filter_body_template = "cbv/timesheet/filter.html"
+    # Modern slide-over filter panel (generic/horilla_nav.html's own
+    # {% if modern_filter %} branch) -- same treatment as every other
+    # panel this session. TimeSheetFilter.ajax_fields carries the
+    # AJAX-loaded comboboxes this needs.
+    modern_filter = True
     group_by_fields = [
         "employee_id",
         "project_id",
@@ -318,6 +323,14 @@ class TimeSheetFormView(HorillaFormView):
     model = TimeSheet
     new_display_title = _("Create") + " " + model._meta.verbose_name
 
+    def dispatch(self, request, *args, **kwargs):
+        # This endpoint returns only the modal form fragment; a genuine
+        # top-level browser navigation/reload should land on the real
+        # Timesheet page instead of showing the raw, unstyled fragment.
+        if request.headers.get("Sec-Fetch-Mode") == "navigate":
+            return redirect(reverse("view-time-sheet"))
+        return super().dispatch(request, *args, **kwargs)
+
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.dynamic_create_fields = [
@@ -351,9 +364,10 @@ class TimeSheetFormView(HorillaFormView):
         user_employee_id = self.request.user.employee_get.id
         project = None
         if task_id:
-            task = Task.objects.get(id=task_id)
-            project = task.project
-            employee = Employee.objects.filter(id=user_employee_id)
+            task = Task.objects.filter(id=task_id).first()
+            if task:
+                project = task.project
+                employee = Employee.objects.filter(id=user_employee_id)
 
         if self.form.instance.pk:
             task_id = self.form.instance.task_id.id
@@ -438,9 +452,20 @@ class TimeSheetCardView(HorillaCardView):
 
     model = TimeSheet
     filter_class = TimeSheetFilter
+    records_per_page = 20
 
     def get_queryset(self):
-        queryset = super().get_queryset()
+        queryset = (
+            super()
+            .get_queryset()
+            .select_related(
+                "employee_id",
+                "employee_id__employee_work_info",
+                "employee_id__employee_work_info__company_id",
+                "project_id",
+                "task_id",
+            )
+        )
         if not self.request.user.has_perm("project.view_timesheet"):
             employee = self.request.user.employee_get
             queryset = queryset.filter(

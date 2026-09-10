@@ -693,6 +693,15 @@ function countryI18n(text) {
     return typeof gettext === "function" ? gettext(text) : text;
 }
 
+function refreshSelect2(el) {
+    if (typeof $ === "undefined" || !el) return;
+    var $el = $(el);
+    if ($el.hasClass("select2-hidden-accessible") && $el.data("select2")) {
+        $el.select2("destroy");
+        $el.select2({ width: "100%" });
+    }
+}
+
 function populateStates(countryElementId, stateElementId) {
     var countryEl = document.getElementById(countryElementId);
     var stateEl = document.getElementById(stateElementId);
@@ -716,6 +725,7 @@ function populateStates(countryElementId, stateElementId) {
             stateEl.options[stateEl.length] = option;
         }
     }
+    refreshSelect2(stateEl);
 }
 
 
@@ -748,12 +758,14 @@ function populateCountries(countryElementId, stateElementId) {
             populateStates(countryElementId, stateElementId);
         };
     }
+    refreshSelect2(countryEl);
 }
 
 
 function initCountryStateDropdowns() {
     populateCountries("id_country", "id_state");
     populateCountries("country", "state");
+    populateCountries("id_employee_bank_details__country", "id_employee_bank_details__state");
 }
 
 document.addEventListener("DOMContentLoaded", function () {

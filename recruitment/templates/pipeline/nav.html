@@ -401,10 +401,10 @@
                             if (!isNextStage(currentStageId, targetStageId, parsedStageOrder)) {
                                 if (sessionStorage.getItem('showRecuitmentKanbanConfirmation') !== 'false') {
                                     Swal.fire({
-                                        title: "Confirm Stage Change",
+                                        title: "{% trans 'Confirm Stage Change'|escapejs %}",
                                         html: `
                                             <p>The candidate is being moved from ${preStage.stage} to the ${currentStage.stage} stage. Do you want to proceed?</p>
-                                            <label><input type="checkbox" id="doNotShowAgain"> {% trans "Don't show this again in this session" %}</label>
+                                            <label><input type="checkbox" id="doNotShowAgain"> {% trans "Don't show this again in this session"|escapejs %}</label>
                                         `,
                                         icon: "warning",
                                         showCancelButton: true,
@@ -490,22 +490,22 @@
                             row.find('[name="stage_id"]').val(stageId);
                             Toast.fire({
                                 icon: "success",
-                                title: '{% trans "Sequence updated" %}',
+                                title: '{% trans "Sequence updated"|escapejs %}',
                                 position: "top-end",
                             });
                             if (response.message) {
                                 Swal.fire({
                                     title: response.message,
-                                    text: `Total vacancy is ${response.vacancy}.`,
+                                    text: "{% trans 'Total vacancy is'|escapejs %} " + response.vacancy + ".",
                                     icon: "info",
-                                    confirmButtonText: "Ok",
+                                    confirmButtonText: "{% trans 'Ok'|escapejs %}",
                                 });
                             }
                         },
                         error: function (xhr, status, error) {
                             Toast.fire({
                                 icon: "error",
-                                title: '{% trans "Something went wrong" %}',
+                                title: '{% trans "Something went wrong"|escapejs %}',
                                 position: "top-end",
                             });
                         },

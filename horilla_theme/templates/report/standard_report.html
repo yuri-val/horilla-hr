@@ -40,6 +40,18 @@
     .dark .sr-letterhead__desc { color: hsl(0,0%,68%); }
     .sr-letterhead__period { margin: 0; font-size: 12px; font-weight: 500; color: hsl(0,0%,38%); min-height: 16px; }
     .dark .sr-letterhead__period { color: hsl(0,0%,72%); }
+    /* Methodology caveat for reports that analyse a fixed window rather than
+       the selected period. Reads as a note, not an error. */
+    .sr-letterhead__note {
+        margin: 0; font-size: 11.5px; line-height: 1.45; max-width: 720px;
+        color: #5C4413; background: #FFF8E8; border-left: 3px solid #E8B84B;
+        padding: 6px 10px; border-radius: 0 4px 4px 0;
+    }
+    .dark .sr-letterhead__note {
+        color: #f7e7b8; background: rgba(232,184,75,.12);
+        border-left-color: rgba(232,184,75,.45);
+    }
+    .sr-letterhead__note[hidden] { display: none !important; }
     .sr-page .oh-card { border-radius: 8px; }
 
     .sr-section { margin-bottom: 18px; }
@@ -314,6 +326,11 @@
         </div>
         {% if report_description %}<p class="sr-letterhead__desc">{{ report_description }}</p>{% endif %}
         <p class="sr-letterhead__period" id="sr-period-label"></p>
+        {# Some reports analyse a fixed window rather than the selected one
+           (turnover's rolling 6 months, say) and explain that in
+           period_note. Without this the number looks like it ignored the
+           filter for no reason. #}
+        <p class="sr-letterhead__note" id="sr-period-note" hidden></p>
     </div>
 
     <div class="sr-status" id="sr-status">
@@ -429,6 +446,7 @@
     const tableSection = document.getElementById("sr-table-section");
     const tableMeta = document.getElementById("sr-table-meta");
     const periodLabel = document.getElementById("sr-period-label");
+    const periodNote = document.getElementById("sr-period-note");
     const presetInput = document.getElementById("sr-preset");
     const compareInput = document.getElementById("sr-compare");
     const fromInput = document.getElementById("sr-from");
@@ -525,18 +543,39 @@
         const from = period.from_date || "";
         const to = period.to_date || "";
         let text = from && to
-            ? "{% trans 'Period' %}: " + from + " → " + to
+            ? "{% trans 'Period'|escapejs %}: " + from + " → " + to
             : "";
+        // A report that overrides its own window ships a label for it
+        // ("Rolling 6 months"); showing the raw dates alone made a fixed
+        // window look like the period the user had picked.
+        if (period.label && period.preset && period.preset !== "custom") {
+            text = text
+                ? period.label + "  ·  " + text
+                : period.label;
+        }
         if (compare && compare.period) {
             const cf = compare.period.from_date || "";
             const ct = compare.period.to_date || "";
-            const clabel = compare.label || "{% trans 'Compare' %}";
+            const clabel = compare.label || "{% trans 'Compare'|escapejs %}";
             if (cf && ct) {
                 text += text ? "  ·  " : "";
                 text += clabel + ": " + cf + " → " + ct;
             }
         }
         periodLabel.textContent = text;
+    }
+
+    function setPeriodNote(note) {
+        if (!periodNote) {
+            return;
+        }
+        if (note) {
+            periodNote.textContent = note;
+            periodNote.hidden = false;
+        } else {
+            periodNote.textContent = "";
+            periodNote.hidden = true;
+        }
     }
 
     function renderChips(list) {
@@ -577,7 +616,7 @@
                 const cmp = document.createElement("div");
                 cmp.className = "sr-kpi-compare";
                 const prior = document.createElement("span");
-                prior.textContent = "{% trans 'Prior' %}: " + String(kpi.prior_value);
+                prior.textContent = "{% trans 'Prior'|escapejs %}: " + String(kpi.prior_value);
                 cmp.appendChild(prior);
                 if (kpi.delta_label) {
                     const delta = document.createElement("span");
@@ -675,8 +714,8 @@
                 const priorTotal = chart.prior_data.reduce(function (a, b) {
                     return a + (Number(b) || 0);
                 }, 0);
-                note.textContent = (chart.compare_label || "{% trans 'Prior' %}")
-                    + " {% trans 'total' %}: " + priorTotal;
+                note.textContent = (chart.compare_label || "{% trans 'Prior'|escapejs %}")
+                    + " {% trans 'total'|escapejs %}: " + priorTotal;
                 wrap.appendChild(note);
             }
             const el = document.createElement("div");
@@ -846,8 +885,8 @@
         if (!drillModal) return;
         drillModal.classList.add("oh-modal--show");
         drillModal.setAttribute("aria-hidden", "false");
-        if (drillTitle) drillTitle.textContent = "{% trans 'Drill-down' %}: " + (value || "");
-        if (drillMeta) drillMeta.textContent = "{% trans 'Loading…' %}";
+        if (drillTitle) drillTitle.textContent = "{% trans 'Drill-down'|escapejs %}: " + (value || "");
+        if (drillMeta) drillMeta.textContent = "{% trans 'Loading…'|escapejs %}";
         if (drillThead) drillThead.innerHTML = "";
         if (drillTbody) drillTbody.innerHTML = "";
         try {
@@ -860,9 +899,9 @@
             });
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || "Failed to load");
-            if (drillTitle) drillTitle.textContent = data.title || ("{% trans 'Drill-down' %}: " + value);
+            if (drillTitle) drillTitle.textContent = data.title || ("{% trans 'Drill-down'|escapejs %}: " + value);
             if (drillMeta) {
-                drillMeta.textContent = (data.count != null ? data.count + " {% trans 'rows' %}" : "")
+                drillMeta.textContent = (data.count != null ? data.count + " {% trans 'rows'|escapejs %}" : "")
                     + (data.message ? " · " + data.message : "");
             }
             const columns = data.columns || [];
@@ -889,7 +928,7 @@
                         if (col.type === "link" && val) {
                             const a = document.createElement("a");
                             a.href = val;
-                            a.textContent = "{% trans 'Open' %}";
+                            a.textContent = "{% trans 'Open'|escapejs %}";
                             a.target = "_blank";
                             a.rel = "noopener";
                             td.appendChild(a);
@@ -925,9 +964,17 @@
             return;
         }
         tableSection.hidden = false;
-        tableMeta.textContent = rows.length === 1
-            ? "1 {% trans 'row' %}"
-            : rows.length + " {% trans 'rows' %}";
+        let metaText = rows.length === 1
+            ? "1 {% trans 'row'|escapejs %}"
+            : rows.length + " {% trans 'rows'|escapejs %}";
+        // A metric whose KPI counts every match but whose list is capped has
+        // to say so, or the card reads "347" above a table of 100.
+        if (table && table.truncated) {
+            metaText += table.total_rows
+                ? "  ·  {% trans 'sample of'|escapejs %} " + table.total_rows
+                : "  ·  {% trans 'partial list'|escapejs %}";
+        }
+        tableMeta.textContent = metaText;
 
         const numericCols = {};
         columns.forEach((col) => {
@@ -984,7 +1031,7 @@
                 }
                 if (dim && val) {
                     r.classList.add("sr-row--drill");
-                    r.title = "{% trans 'Click to drill down' %}";
+                    r.title = "{% trans 'Click to drill down'|escapejs %}";
                     r.addEventListener("click", function () {
                         openDrilldown(dim, val, "");
                     });
@@ -996,7 +1043,7 @@
 
     async function load() {
         statusEl.className = "sr-status";
-        statusText.textContent = "{% trans 'Loading…' %}";
+        statusText.textContent = "{% trans 'Loading…'|escapejs %}";
         if (statusDot) statusDot.hidden = false;
         statusEl.hidden = false;
         kpiSection.hidden = true;
@@ -1016,11 +1063,17 @@
                 if (statusDot) statusDot.hidden = true;
                 statusText.textContent = data.message;
             }
-            if (data.period && presetInput.value !== "custom") {
+            // A report that analyses its own fixed window reports that window
+            // back in data.period. Don't copy it into the filter inputs --
+            // that silently rewrites the user's selection to dates they never
+            // chose, and the next report they open inherits it.
+            const usesOwnWindow = Boolean(data.period_note);
+            if (data.period && presetInput.value !== "custom" && !usesOwnWindow) {
                 fromInput.value = data.period.from_date || fromInput.value;
                 toInput.value = data.period.to_date || toInput.value;
             }
             setPeriodLabel(data.period, data.compare);
+            setPeriodNote(data.period_note);
             renderChips(data.filters || []);
             renderKpis(data.kpis);
             renderCharts(data.charts);
@@ -1052,8 +1105,8 @@
             const open = advanced.hidden;
             advanced.hidden = !open;
             this.textContent = open
-                ? "{% trans 'Hide filters' %}"
-                : "{% trans 'More filters' %}";
+                ? "{% trans 'Hide filters'|escapejs %}"
+                : "{% trans 'More filters'|escapejs %}";
             if (open) initOhSelects(advanced, document.getElementById("sr-filters"));
         });
     }
@@ -1095,8 +1148,8 @@
         favoriteBtn.setAttribute("aria-pressed", on ? "true" : "false");
         favoriteIcon.textContent = on ? "★" : "☆";
         favoriteLabel.textContent = on
-            ? "{% trans 'Favorited' %}"
-            : "{% trans 'Favorite' %}";
+            ? "{% trans 'Favorited'|escapejs %}"
+            : "{% trans 'Favorite'|escapejs %}";
     }
 
     function refreshPresetSelect(presets) {
@@ -1105,7 +1158,7 @@
         savedPresetSelect.innerHTML = "";
         const blank = document.createElement("option");
         blank.value = "";
-        blank.textContent = "{% trans '— Select a preset —' %}";
+        blank.textContent = "{% trans '— Select a preset —'|escapejs %}";
         savedPresetSelect.appendChild(blank);
         (presets || []).forEach((p) => {
             presetsById[String(p.id)] = p.filters || {};
@@ -1164,7 +1217,7 @@
             return input && advanced.contains(input) && filters[k];
         })) {
             advanced.hidden = false;
-            if (toggleAdvanced) toggleAdvanced.textContent = "{% trans 'Hide filters' %}";
+            if (toggleAdvanced) toggleAdvanced.textContent = "{% trans 'Hide filters'|escapejs %}";
             initOhSelects(advanced, document.getElementById("sr-filters"));
         }
         syncCustomVisibility();
@@ -1198,7 +1251,7 @@
     });
 
     document.getElementById("sr-save-preset").addEventListener("click", async function () {
-        const name = window.prompt("{% trans 'Name this filter preset' %}");
+        const name = window.prompt("{% trans 'Name this filter preset'|escapejs %}");
         if (!name || !name.trim()) return;
         try {
             const res = await fetch(page.dataset.presetsUrl, {
@@ -1225,7 +1278,7 @@
     document.getElementById("sr-delete-preset").addEventListener("click", async function () {
         const id = savedPresetSelect.value;
         if (!id) return;
-        if (!window.confirm("{% trans 'Delete this saved filter preset?' %}")) return;
+        if (!window.confirm("{% trans 'Delete this saved filter preset?'|escapejs %}")) return;
         const url = page.dataset.presetsUrl.replace(/\/?$/, "/") + id + "/delete/";
         try {
             const res = await fetch(url, {
@@ -1280,7 +1333,7 @@
         const recipients = (document.getElementById("sr-sub-recipients").value || "").trim();
         const attachmentFormat = document.getElementById("sr-sub-format").value || "xlsx";
         if (!recipients) {
-            window.alert("{% trans 'Add at least one recipient email.' %}");
+            window.alert("{% trans 'Add at least one recipient email.'|escapejs %}");
             return;
         }
         try {
@@ -1304,8 +1357,8 @@
             if (!res.ok) throw new Error(data.error || "Failed to subscribe");
             closeSubscribeModal();
             if (data.manage_url && window.confirm(
-                (data.message || "{% trans 'Subscription created.' %}") +
-                "\n\n{% trans 'Open subscriptions list?' %}"
+                (data.message || "{% trans 'Subscription created.'|escapejs %}") +
+                "\n\n{% trans 'Open subscriptions list?'|escapejs %}"
             )) {
                 window.location.href = data.manage_url;
             }

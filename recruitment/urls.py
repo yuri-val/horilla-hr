@@ -483,8 +483,68 @@ urlpatterns = [
     ),
     path(
         "recruitment-survey-question-template-view/",
-        surveys.view_question_template,
+        recruitment_survey.SurveyTemplateSettingsView.as_view(),
         name="recruitment-survey-question-template-view",
+    ),
+    path(
+        "survey-template-filter/",
+        recruitment_survey.SurveyTemplateQuestionsTab.as_view(),
+        name="survey-template-filter",
+    ),
+    path(
+        "list-survey-templates/",
+        recruitment_survey.SurveyTemplateList.as_view(),
+        name="list-survey-templates",
+    ),
+    path(
+        "list-survey-questions/",
+        recruitment_survey.SurveyQuestionList.as_view(),
+        name="list-survey-questions",
+    ),
+    path(
+        "survey-template-nav/",
+        recruitment_survey.SurveyTemplateNavView.as_view(),
+        name="survey-template-nav",
+    ),
+    path(
+        "survey-question-nav/",
+        recruitment_survey.SurveyQuestionNavView.as_view(),
+        name="survey-question-nav",
+    ),
+    path(
+        "survey-template-tab-shell/",
+        recruitment_survey.SurveyTemplateTabShell.as_view(),
+        name="survey-template-tab-shell",
+    ),
+    path(
+        "survey-question-tab-shell/",
+        recruitment_survey.SurveyQuestionTabShell.as_view(),
+        name="survey-question-tab-shell",
+    ),
+    path(
+        "survey-template-settings-tab-view/",
+        recruitment_survey.SurveyTemplateTabView.as_view(),
+        name="survey-template-settings-tab-view",
+    ),
+    path(
+        "survey-template-tab/",
+        surveys.survey_template_tab,
+        name="survey-template-tab",
+    ),
+    path(
+        "survey-template-tab-list/",
+        surveys.survey_template_tab_list,
+        name="survey-template-tab-list",
+    ),
+    path(
+        "survey-question-tab/",
+        surveys.survey_question_tab,
+        name="survey-question-tab",
+    ),
+    path(
+        "survey-question-tab-list/",
+        surveys.survey_question_tab_list,
+        name="survey-question-tab-list",
     ),
     # path(
     #     "recruitment-survey-question-template-create",
@@ -543,11 +603,11 @@ urlpatterns = [
         surveys.candidate_survey,
         name="candidate-survey",
     ),
-    path(
-        "filter-survey/",
-        search.filter_survey,
-        name="rec-filter-survey",
-    ),
+    # path(
+    #     "filter-survey/",
+    #     search.filter_survey,
+    #     name="rec-filter-survey",
+    # ),
     # path(
     #     "single-survey-view/<int:survey_id>/",
     #     surveys.single_survey,
@@ -568,6 +628,16 @@ urlpatterns = [
     #     surveys.create_template,
     #     name="survey-template-create",
     # ),
+    # path(
+    #     "survey-template-delete/<int:pk>/",
+    #     surveys.delete_survey_template,
+    #     name="survey-template-delete",
+    # ),
+    path(
+        "survey-template-delete/<int:pk>/",
+        surveys.delete_survey_template,
+        name="survey-template-delete",
+    ),
     path(
         "survey-template-delete/",
         surveys.delete_template,
@@ -992,6 +1062,11 @@ urlpatterns = [
         "candidate-card-cbv/<int:pk>/",
         pipeline.CandidateCard.as_view(),
         name="candidate-card-cbv",
+    ),
+    path(
+        "recruitment-pipeline-shell/<int:rec_id>/",
+        pipeline.RecruitmentPipelineContentShell.as_view(),
+        name="recruitment-pipeline-shell",
     ),
     path(
         "cbv-change-stage/<int:pk>/",

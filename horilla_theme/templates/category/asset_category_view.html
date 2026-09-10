@@ -2,10 +2,35 @@
 {% load static i18n widget_tweaks assets_custom_filter %}
 {% block content %}
     <div
+        id="assetCategoryNavBar"
         hx-get="{% url 'asset-category-nav' %}?{{request.GET.urlencode}}"
         hx-trigger="load"
     >
     </div>
+
+    {% if request.GET.asset_purchase_date_from or request.GET.asset_purchase_date_till or request.GET.asset_status %}
+        <script>
+            document.body.addEventListener("htmx:afterSettle", function once(e) {
+                if (e.detail.target && e.detail.target.id === "assetCategoryNavBar") {
+                    document.body.removeEventListener("htmx:afterSettle", once);
+                    var container = e.detail.target.querySelector("#filterTagContainerSectionNav");
+                    if (!container) return;
+                    var tags = '<span class="oh-titlebar__tag oh-titlebar__tag--custom">{% trans "Filters"|escapejs %}: </span>';
+                    {% if request.GET.asset_purchase_date_from %}
+                        tags += '<span class="oh-titlebar__tag filter-field"><span class="filter-value">{% trans "Purchase date from"|escapejs %}: {{ request.GET.asset_purchase_date_from }}</span></span>';
+                    {% endif %}
+                    {% if request.GET.asset_purchase_date_till %}
+                        tags += '<span class="oh-titlebar__tag filter-field"><span class="filter-value">{% trans "Purchase date till"|escapejs %}: {{ request.GET.asset_purchase_date_till }}</span></span>';
+                    {% endif %}
+                    {% if request.GET.asset_status %}
+                        tags += '<span class="oh-titlebar__tag filter-field"><span class="filter-value">{% trans "Status"|escapejs %}: {{ request.GET.asset_status }}</span></span>';
+                    {% endif %}
+                    tags += '<a href="javascript:void(0)" class="oh-titlebar__tag oh-titlebar__tag--custom" title="{% trans "Clear"|escapejs %}" onclick="document.getElementById(\'filterTagContainerSectionNav\').innerHTML=\'\'; window.location.href=\'{% url "asset-category-view" %}\';"><ion-icon class="close-icon" name="close-outline"></ion-icon></a>';
+                    container.innerHTML = tags;
+                }
+            });
+        </script>
+    {% endif %}
 
     <div
         class="oh-checkpoint-badge mb-2"

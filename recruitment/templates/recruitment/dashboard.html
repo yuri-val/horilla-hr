@@ -5,7 +5,7 @@
     <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
     <style>
         :root {
-            --rd-indigo: #E54F38;
+            --rd-indigo: var(--primary-600, #E54F38);
             --rd-green: #22c55e;
             --rd-amber: #f59e0b;
             --rd-red: #ef4444;
@@ -365,14 +365,15 @@
             min-width: 50px;
             padding: 6px 8px;
             border-radius: 8px;
-            background: #eef2ff;
-            color: var(--rd-indigo);
+            background: color-mix(in srgb, var(--primary-600, #E54F38) 12%, transparent);
+            color: var(--primary-600, #E54F38);
             font-weight: 700;
             font-size: 11px;
             text-align: center;
         }
         .dark .rd-interview-item__date {
-            background: #312e81;
+            background: color-mix(in srgb, var(--primary-600, #E54F38) 25%, transparent);
+            color: var(--primary-300, #fcedeb);
         }
         .rd-interview-item__info {
             flex: 1;
@@ -419,6 +420,7 @@
             display: flex;
             align-items: center;
             height: 28px;
+            min-width: 26px;
             padding: 0 10px;
             border-radius: 6px;
             color: #fff;
@@ -752,13 +754,14 @@
             transition: all 0.15s;
         }
         .rd-period-preset:hover {
-            border-color: var(--rd-indigo);
-            color: var(--rd-indigo);
+            border-color: var(--primary-600, #E54F38);
+            color: var(--primary-600, #E54F38);
         }
-        .rd-period-preset--active {
-            border-color: var(--rd-indigo);
-            background: var(--rd-indigo);
-            color: #fff;
+        .rd-period-preset--active,
+        .rd-period-preset--active:hover {
+            border-color: var(--primary-600, #E54F38) !important;
+            background: var(--primary-600, #E54F38) !important;
+            color: #ffffff !important;
         }
         .dark .rd-period-picker input[type='date'] {
             color-scheme: dark;
@@ -1079,7 +1082,7 @@
                 <div class="rd-info-panel">
                     <div class="rd-info-panel__header">
                         <div class="rd-info-panel__title">{% trans "Interviews" %}</div>
-                        <span style="font-size: 11px; opacity: 0.5">{% trans "In selected period" %}</span>
+                        <a href="{% url 'interview-view' %}" style="font-size: 11px; opacity: 0.7;">{% trans "View all" %} &rarr;</a>
                     </div>
                     <div class="rd-info-panel__body" id="rd-interviews">
                         <div class="rd-info-panel__empty">{% trans "Loading..." %}</div>
@@ -1228,7 +1231,7 @@
 
             function updateRefreshText() {
                 const mins = Math.floor((Date.now() - lastRefresh) / 60000);
-                refreshText.textContent = mins < 1 ? '{% trans "Just now" %}' : mins + '{% trans "m ago" %}';
+                refreshText.textContent = mins < 1 ? '{% trans "Just now"|escapejs %}' : mins + '{% trans "m ago"|escapejs %}';
             }
             registerAutoRefresh(setInterval(updateRefreshText, 30000));
 
@@ -1241,12 +1244,14 @@
                 localStorage.setItem(REFRESH_KEY, 'on');
                 refreshDot.classList.add('rd-refresh__dot--pulse');
                 refreshToggle.textContent = '⟳';
-                refreshToggle.title = '{% trans "Auto-refresh ON (5 min)" %}';
-                refreshTimer = setInterval(() => {
+                refreshToggle.title = '{% trans "Auto-refresh ON (5 min)"|escapejs %}';
+                // Wrapped so a hidden tab does not keep fetching; refreshes once on return.
+                const refreshTick = autoRefreshWhenVisible(() => {
                     lastRefresh = Date.now();
                     updateRefreshText();
                     refreshAllData();
-                }, REFRESH_INTERVAL);
+                });
+                refreshTimer = setInterval(refreshTick, REFRESH_INTERVAL);
                 registerAutoRefresh(refreshTimer);
             }
             function stopAutoRefresh() {
@@ -1254,7 +1259,7 @@
                 localStorage.setItem(REFRESH_KEY, 'off');
                 refreshDot.classList.remove('rd-refresh__dot--pulse');
                 refreshToggle.textContent = '⏸';
-                refreshToggle.title = '{% trans "Auto-refresh OFF" %}';
+                refreshToggle.title = '{% trans "Auto-refresh OFF"|escapejs %}';
                 if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
             }
             refreshToggle.addEventListener('click', () => { if (autoRefreshOn) stopAutoRefresh(); else startAutoRefresh(); });
@@ -1268,33 +1273,33 @@
                     document.getElementById('rd-kpi-grid').innerHTML = `
                 <a href="{% url 'recruitment-view' %}" class="rd-kpi-card">
                     <div class="rd-kpi-card__icon rd-kpi-card__icon--amber"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg></div>
-                    <div class="rd-kpi-card__label">{% trans "Total Vacancies" %}</div>
+                    <div class="rd-kpi-card__label">{% trans "Total Vacancies"|escapejs %}</div>
                     <div class="rd-kpi-card__value">${data.total_vacancy}</div>
-                    <div class="rd-kpi-card__sub">{% trans "Open positions" %}</div>
+                    <div class="rd-kpi-card__sub">{% trans "Open positions"|escapejs %}</div>
                 </a>
                 <a href="{% url 'recruitment-view' %}" class="rd-kpi-card">
                     <div class="rd-kpi-card__icon rd-kpi-card__icon--red"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></div>
-                    <div class="rd-kpi-card__label">{% trans "Ongoing" %}</div>
+                    <div class="rd-kpi-card__label">{% trans "Ongoing"|escapejs %}</div>
                     <div class="rd-kpi-card__value">${data.ongoing_recruitments}</div>
-                    <div class="rd-kpi-card__sub">{% trans "Active recruitments" %}</div>
+                    <div class="rd-kpi-card__sub">{% trans "Active recruitments"|escapejs %}</div>
                 </a>
                 <a href="{% url 'candidate-view' %}?hired=true&created_at_from=${data.period_from_date}&created_at_till=${data.period_to_date}&filter_applied=1" class="rd-kpi-card">
                     <div class="rd-kpi-card__icon rd-kpi-card__icon--green"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><polyline points="17 11 19 13 23 9"/></svg></div>
-                    <div class="rd-kpi-card__label">{% trans "Hired" %}</div>
+                    <div class="rd-kpi-card__label">{% trans "Hired"|escapejs %}</div>
                     <div class="rd-kpi-card__value">${data.total_hired}</div>
-                    <div class="rd-kpi-card__sub">{% trans "of" %} ${data.total_candidates} {% trans "candidates" %}</div>
+                    <div class="rd-kpi-card__sub">{% trans "of"|escapejs %} ${data.total_candidates} {% trans "candidates"|escapejs %}</div>
                 </a>
-                <div class="rd-kpi-card rd-kpi-card--static" title="{% trans "Conversion Rate" %} = {% trans "Hired" %} (${data.total_hired}) / {% trans "Total Candidates" %} (${data.total_candidates}) × 100 = ${data.conversion_rate}%">
+                <div class="rd-kpi-card rd-kpi-card--static" title="{% trans "Conversion Rate"|escapejs %} = {% trans "Hired"|escapejs %} (${data.total_hired}) / {% trans "Total Candidates"|escapejs %} (${data.total_candidates}) × 100 = ${data.conversion_rate}%">
                     <div class="rd-kpi-card__icon rd-kpi-card__icon--blue"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg></div>
-                    <div class="rd-kpi-card__label">{% trans "Conversion Rate" %}</div>
+                    <div class="rd-kpi-card__label">{% trans "Conversion Rate"|escapejs %}</div>
                     <div class="rd-kpi-card__value">${data.conversion_rate}%</div>
-                    <div class="rd-kpi-card__sub">{% trans "Hired / Total" %}</div>
+                    <div class="rd-kpi-card__sub">{% trans "Hired / Total"|escapejs %}</div>
                 </div>
-                <div class="rd-kpi-card rd-kpi-card--static" title="{% trans "Acceptance Rate" %} = {% trans "Accepted Offers" %} (${data.accepted_count}) / {% trans "Hired" %} (${data.total_hired}) × 100 = ${data.acceptance_rate}%">
+                <div class="rd-kpi-card rd-kpi-card--static" title="{% trans "Acceptance Rate"|escapejs %} = {% trans "Accepted Offers"|escapejs %} (${data.accepted_count}) / {% trans "Hired"|escapejs %} (${data.total_hired}) × 100 = ${data.acceptance_rate}%">
                     <div class="rd-kpi-card__icon rd-kpi-card__icon--purple"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="m9 18 2 2 4-4"/></svg></div>
-                    <div class="rd-kpi-card__label">{% trans "Acceptance Rate" %}</div>
+                    <div class="rd-kpi-card__label">{% trans "Acceptance Rate"|escapejs %}</div>
                     <div class="rd-kpi-card__value">${data.acceptance_rate}%</div>
-                    <div class="rd-kpi-card__sub">{% trans "Offer accepted" %}</div>
+                    <div class="rd-kpi-card__sub">{% trans "Offer accepted"|escapejs %}</div>
                 </div>`;
                 });
             }
@@ -1306,15 +1311,21 @@
                 .then(r => r.json())
                 .then(data => {
                     const el = document.querySelector("#chart-conversion-funnel");
-                    if (!data.conversions.length) { el.innerHTML = emptyHtml('{% trans "No data" %}'); return; }
+                    if (!data.conversions.length) { el.innerHTML = emptyHtml('{% trans "No data"|escapejs %}'); return; }
                     const maxCount = Math.max(...data.conversions.map(c => c.count), 1);
                     const funnelColors = { initial: '#94a3b8', test: '#3b82f6', interview: '#f59e0b', hired: '#22c55e', cancelled: '#ef4444' };
                     let html = '<div class="rd-funnel">';
                     data.conversions.forEach(c => {
-                        const pct = Math.max(20, (c.count / maxCount) * 100);
+                        // True-to-value width, not a fixed floor -- a 20%-min
+                        // floor made every small count (e.g. 0 vs 1 out of a
+                        // max of 7) render as the same-length bar. Only a
+                        // real zero collapses to 0; any actual count still
+                        // gets a thin sliver (via the CSS min-width) so it
+                        // stays visible instead of vanishing at very low %.
+                        const pct = c.count > 0 ? (c.count / maxCount) * 100 : 0;
                         const color = funnelColors[c.type] || '#E54F38';
                         const url = "{% url 'candidate-view' %}?stage_id__stage_type=" + encodeURIComponent(c.type);
-                        html += `<div class="rd-funnel-step" onclick="window.location.href='${url}'" title="{% trans 'View ${c.stage} candidates' %}">
+                        html += `<div class="rd-funnel-step" onclick="window.location.href='${url}'" title="{% trans 'View ${c.stage} candidates'|escapejs %}">
                     <div class="rd-funnel-step__label">${c.stage}</div>
                     <div class="rd-funnel-step__bar" style="width:${pct}%;background:${color};">${c.count}</div>
                     <div class="rd-funnel-step__rate">${c.conversion_rate}%</div>
@@ -1331,7 +1342,11 @@
                 fetchP("{% url 'recruitment-dashboard-source' %}")
                 .then(r => r.json())
                 .then(data => {
-                    if (!data.sources.length) { document.querySelector("#chart-source-hire").innerHTML = emptyHtml('{% trans "No source data" %}'); return; }
+                    // A single "not_set" slice isn't real signal -- every candidate's
+                    // source is simply unrecorded -- so treat it the same as no data,
+                    // rather than rendering a misleading 100% pie.
+                    const hasRealSource = data.sources.some(s => s.key !== 'not_set');
+                    if (!data.sources.length || !hasRealSource) { document.querySelector("#chart-source-hire").innerHTML = emptyHtml('{% trans "No source data available yet"|escapejs %}'); return; }
                     const sourceColors = { 'Application Form': '#3b82f6', 'Inside Software': '#E54F38', 'Referral': '#22c55e', 'Other': '#94a3b8' };
                     renderChart('source-hire', document.querySelector("#chart-source-hire"), {
                         series: data.sources.map(s => s.count),
@@ -1349,7 +1364,7 @@
                         },
                         labels: data.sources.map(s => s.source),
                         colors: data.sources.map(s => sourceColors[s.source] || COLORS[data.sources.indexOf(s) % COLORS.length]),
-                        plotOptions: { pie: { donut: { size: '65%', labels: { show: true, total: { show: true, label: '{% trans "Total" %}', color: textColor, fontSize: '13px', fontWeight: 600, formatter: w => w.globals.seriesTotals.reduce((a,b)=>a+b,0) } } } } },
+                        plotOptions: { pie: { donut: { size: '65%', labels: { show: true, total: { show: true, label: '{% trans "Total"|escapejs %}', color: textColor, fontSize: '13px', fontWeight: 600, formatter: w => w.globals.seriesTotals.reduce((a,b)=>a+b,0) } } } } },
                         stroke: { width: 2, colors: [isDark ? '#242424' : '#ffffff'] },
                         dataLabels: { enabled: false },
                         legend: { position: 'bottom', labels: { colors: textColor }, fontSize: '11px', markers: { width: 8, height: 8, radius: 2 } },
@@ -1364,11 +1379,11 @@
                 fetchP("{% url 'recruitment-dashboard-open-dept' %}")
                 .then(r => r.json())
                 .then(data => {
-                    if (!data.departments.length) { document.querySelector("#chart-open-dept").innerHTML = emptyHtml('{% trans "No open positions" %}'); return; }
+                    if (!data.departments.length) { document.querySelector("#chart-open-dept").innerHTML = emptyHtml('{% trans "No open positions"|escapejs %}'); return; }
                     renderChart('open-dept', document.querySelector("#chart-open-dept"), {
                         series: [
-                            { name: '{% trans "Filled" %}', data: data.departments.map(d => d.filled) },
-                            { name: '{% trans "Open" %}', data: data.departments.map(d => d.open) },
+                            { name: '{% trans "Filled"|escapejs %}', data: data.departments.map(d => d.filled) },
+                            { name: '{% trans "Open"|escapejs %}', data: data.departments.map(d => d.open) },
                         ],
                         chart: { type: 'bar', height: 300, toolbar: { show: false }, background: 'transparent', fontFamily: 'inherit', stacked: true },
                         colors: ['#22c55e', '#f59e0b'],
@@ -1389,11 +1404,12 @@
                 fetchP("{% url 'recruitment-dashboard-source-conv' %}")
                 .then(r => r.json())
                 .then(data => {
-                    if (!data.sources.length) { document.querySelector("#chart-source-conv").innerHTML = emptyHtml('{% trans "No source data" %}'); return; }
+                    const hasRealSource = data.sources.some(s => s.source !== '{% trans "Not Specified"|escapejs %}');
+                    if (!data.sources.length || !hasRealSource) { document.querySelector("#chart-source-conv").innerHTML = emptyHtml('{% trans "No source data available yet"|escapejs %}'); return; }
                     renderChart('source-conv', document.querySelector("#chart-source-conv"), {
                         series: [
-                            { name: '{% trans "Hired" %}', data: data.sources.map(s => s.hired) },
-                            { name: '{% trans "Total" %}', data: data.sources.map(s => s.total - s.hired) },
+                            { name: '{% trans "Hired"|escapejs %}', data: data.sources.map(s => s.hired) },
+                            { name: '{% trans "Total"|escapejs %}', data: data.sources.map(s => s.total - s.hired) },
                         ],
                         chart: { type: 'bar', height: 280, toolbar: { show: false }, background: 'transparent', fontFamily: 'inherit', stacked: true },
                         colors: ['#22c55e', '#e2e8f0'],
@@ -1415,7 +1431,7 @@
                 .then(r => r.json())
                 .then(data => {
                     const el = document.getElementById('rd-interviews');
-                    if (!data.interviews.length) { el.innerHTML = '<div class="rd-info-panel__empty">{% trans "No interviews scheduled" %}</div>'; return; }
+                    if (!data.interviews.length) { el.innerHTML = '<div class="rd-info-panel__empty">{% trans "No interviews scheduled"|escapejs %}</div>'; return; }
                     el.innerHTML = data.interviews.map(iv => `
                 <div class="rd-interview-item">
                     <div class="rd-interview-item__date">${iv.date}</div>
@@ -1425,7 +1441,7 @@
                     </div>
                     <div class="rd-interview-item__time">${iv.time}</div>
                 </div>`).join('');
-                }).catch(() => { document.getElementById('rd-interviews').innerHTML = '<div class="rd-info-panel__empty">{% trans "No interviews scheduled" %}</div>'; });
+                }).catch(() => { document.getElementById('rd-interviews').innerHTML = '<div class="rd-info-panel__empty">{% trans "No interviews scheduled"|escapejs %}</div>'; });
             }
             loadInterviews();
 
@@ -1434,10 +1450,10 @@
                 fetchP("{% url 'recruitment-dashboard-stage-summary' %}")
                 .then(r => r.json())
                 .then(data => {
-                    if (!data.stages.length) { document.querySelector("#chart-stage-summary").innerHTML = emptyHtml('{% trans "No data" %}'); return; }
+                    if (!data.stages.length) { document.querySelector("#chart-stage-summary").innerHTML = emptyHtml('{% trans "No data"|escapejs %}'); return; }
                     const stageColors = { initial: '#94a3b8', test: '#3b82f6', interview: '#f59e0b', hired: '#22c55e', cancelled: '#ef4444' };
                     renderChart('stage-summary', document.querySelector("#chart-stage-summary"), {
-                        series: [{ name: '{% trans "Candidates" %}', data: data.stages.map(s => s.count) }],
+                        series: [{ name: '{% trans "Candidates"|escapejs %}', data: data.stages.map(s => s.count) }],
                         chart: { type: 'bar', height: 300, toolbar: { show: false }, background: 'transparent', fontFamily: 'inherit',
                             events: { dataPointSelection: (e, ctx, config) => {
                                 const stage = data.stages[config.dataPointIndex];
@@ -1463,7 +1479,7 @@
                 .then(r => r.json())
                 .then(data => {
                     const total = data.data.reduce((a, b) => a + b, 0);
-                    if (!total) { document.querySelector("#chart-offer-status").innerHTML = emptyHtml('{% trans "No candidates" %}'); return; }
+                    if (!total) { document.querySelector("#chart-offer-status").innerHTML = emptyHtml('{% trans "No candidates"|escapejs %}'); return; }
                     const offerColors = ['#94a3b8', '#f59e0b', '#22c55e', '#ef4444', '#E54F38'];
                     renderChart('offer-status', document.querySelector("#chart-offer-status"), {
                         series: data.data,
@@ -1475,7 +1491,7 @@
                         },
                         labels: data.labels,
                         colors: offerColors,
-                        plotOptions: { pie: { donut: { size: '65%', labels: { show: true, total: { show: true, label: '{% trans "Total" %}', color: textColor, fontSize: '13px', fontWeight: 600, formatter: w => w.globals.seriesTotals.reduce((a,b)=>a+b,0) } } } } },
+                        plotOptions: { pie: { donut: { size: '65%', labels: { show: true, total: { show: true, label: '{% trans "Total"|escapejs %}', color: textColor, fontSize: '13px', fontWeight: 600, formatter: w => w.globals.seriesTotals.reduce((a,b)=>a+b,0) } } } } },
                         stroke: { width: 2, colors: [isDark ? '#242424' : '#ffffff'] },
                         dataLabels: { enabled: false },
                         legend: { position: 'bottom', labels: { colors: textColor }, fontSize: '11px', markers: { width: 8, height: 8, radius: 2 } },
@@ -1491,11 +1507,11 @@
                 .then(r => r.json())
                 .then(data => {
                     const el = document.getElementById('rd-pipeline-table');
-                    if (!data.pipeline.length) { el.innerHTML = emptyHtml('{% trans "No active recruitments" %}'); return; }
+                    if (!data.pipeline.length) { el.innerHTML = emptyHtml('{% trans "No active recruitments"|escapejs %}'); return; }
                     const types = Object.entries(data.stage_types);
-                    let html = '<table class="rd-pipeline-table"><thead><tr><th>{% trans "Recruitment" %}</th>';
+                    let html = '<table class="rd-pipeline-table"><thead><tr><th>{% trans "Recruitment"|escapejs %}</th>';
                     types.forEach(([k, v]) => { html += `<th style="text-align:center">${v}</th>`; });
-                    html += '<th style="text-align:center">{% trans "Total" %}</th></tr></thead><tbody>';
+                    html += '<th style="text-align:center">{% trans "Total"|escapejs %}</th></tr></thead><tbody>';
                     data.pipeline.forEach(p => {
                         html += `<tr><td><a href="{% url 'candidate-view' %}?recruitment=${encodeURIComponent(p.recruitment)}" style="color:var(--rd-indigo);text-decoration:none;font-weight:500;">${p.recruitment}</a></td>`;
                         types.forEach(([k]) => {
@@ -1515,9 +1531,9 @@
                 fetchP("{% url 'recruitment-dashboard-source-quality' %}")
                 .then(r => r.json())
                 .then(data => {
-                    if (!data.sources.length) { document.querySelector("#chart-hire-rate").innerHTML = emptyHtml('{% trans "No data" %}'); return; }
+                    if (!data.sources.length) { document.querySelector("#chart-hire-rate").innerHTML = emptyHtml('{% trans "No data"|escapejs %}'); return; }
                     renderChart('hire-rate', document.querySelector("#chart-hire-rate"), {
-                        series: [{ name: '{% trans "Hire Rate" %}', data: data.sources.map(s => s.rate) }],
+                        series: [{ name: '{% trans "Hire Rate"|escapejs %}', data: data.sources.map(s => s.rate) }],
                         chart: { type: 'bar', height: 300, toolbar: { show: false }, background: 'transparent', fontFamily: 'inherit',
                             events: { dataPointSelection: (e, ctx, config) => {
                                 const rec = data.sources[config.dataPointIndex]?.recruitment || '';
@@ -1541,9 +1557,9 @@
                 fetchP("{% url 'recruitment-dashboard-time-to-hire' %}")
                 .then(r => r.json())
                 .then(data => {
-                    if (!data.data.length) { document.querySelector("#chart-time-to-hire").innerHTML = emptyHtml('{% trans "No hire date data available" %}'); return; }
+                    if (!data.data.length) { document.querySelector("#chart-time-to-hire").innerHTML = emptyHtml('{% trans "No hire date data available"|escapejs %}'); return; }
                     renderChart('time-to-hire', document.querySelector("#chart-time-to-hire"), {
-                        series: [{ name: '{% trans "Avg Days" %}', data: data.data.map(d => d.avg_days) }],
+                        series: [{ name: '{% trans "Avg Days"|escapejs %}', data: data.data.map(d => d.avg_days) }],
                         chart: { type: 'bar', height: 300, toolbar: { show: false }, background: 'transparent', fontFamily: 'inherit',
                             events: { dataPointSelection: (e, ctx, config) => {
                                 const rec = data.data[config.dataPointIndex]?.recruitment || '';
@@ -1555,8 +1571,8 @@
                         xaxis: { categories: data.data.map(d => d.recruitment), labels: { style: { colors: textColor, fontSize: '11px' }, rotate: -45 }, axisBorder: { show: false }, axisTicks: { show: false } },
                         yaxis: { labels: { style: { colors: textColor }, formatter: v => v + 'd' } },
                         grid: { borderColor: gridColor, strokeDashArray: 4 },
-                        dataLabels: { enabled: true, formatter: v => v + ' {% trans "days" %}', style: { fontSize: '11px', colors: ['#fff'] } },
-                        tooltip: { theme: isDark ? 'dark' : 'light', y: { formatter: (v, { dataPointIndex: i }) => `${v} days (${data.data[i].hired_count} hired)` } },
+                        dataLabels: { enabled: true, formatter: v => (v === null ? '{% trans "N/A"|escapejs %}' : v + ' {% trans "days"|escapejs %}'), style: { fontSize: '11px', colors: ['#fff'] } },
+                        tooltip: { theme: isDark ? 'dark' : 'light', y: { formatter: (v, { dataPointIndex: i }) => v === null ? '{% trans "No joining date recorded"|escapejs %}' : `${v} days (${data.data[i].hired_count} hired)` } },
                     });
                 });
             }
@@ -1568,11 +1584,11 @@
                 .then(r => r.json())
                 .then(data => {
                     if (!data.data || !data.data.length || !data.data.some(v => v > 0)) {
-                        document.querySelector("#chart-joinings").innerHTML = emptyHtml('{% trans "No joinings in this period" %}');
+                        document.querySelector("#chart-joinings").innerHTML = emptyHtml('{% trans "No joinings in this period"|escapejs %}');
                         return;
                     }
                     renderChart('joinings', document.querySelector("#chart-joinings"), {
-                        series: [{ name: '{% trans "Joined" %}', data: data.data }],
+                        series: [{ name: '{% trans "Joined"|escapejs %}', data: data.data }],
                         chart: { type: 'bar', height: 280, toolbar: { show: false }, background: 'transparent', fontFamily: 'inherit',
                             events: { dataPointSelection: (e, ctx, config) => {
                                 const b = data.buckets[config.dataPointIndex];
@@ -1602,8 +1618,8 @@
                 .then(r => r.json())
                 .then(data => {
                     const el = document.getElementById('rd-managers-table');
-                    if (!data.recruitments.length) { el.innerHTML = emptyHtml('{% trans "No ongoing recruitments" %}'); return; }
-                    let html = '<table class="rd-pipeline-table"><thead><tr><th>{% trans "Recruitment" %}</th><th style="text-align:center">{% trans "Vacancy" %}</th><th style="text-align:center">{% trans "Candidates" %}</th><th>{% trans "Managers" %}</th></tr></thead><tbody>';
+                    if (!data.recruitments.length) { el.innerHTML = emptyHtml('{% trans "No ongoing recruitments"|escapejs %}'); return; }
+                    let html = '<table class="rd-pipeline-table"><thead><tr><th>{% trans "Recruitment"|escapejs %}</th><th style="text-align:center">{% trans "Vacancy"|escapejs %}</th><th style="text-align:center">{% trans "Candidates"|escapejs %}</th><th>{% trans "Managers"|escapejs %}</th></tr></thead><tbody>';
                     data.recruitments.forEach(r => {
                         const chips = r.managers.map(m => `<span class="rd-chip">${m}</span>`).join('');
                         html += `<tr>

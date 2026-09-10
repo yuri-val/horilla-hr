@@ -78,7 +78,7 @@
                             candidateCheckBoxes = $(this).closest('.oh-sticky-table').find('.stage-candidate-row[type=checkbox]:checked')
                             if (!candidateCheckBoxes.length) {
                                 Swal.fire({
-                                    title: 'No rows selected!',
+                                    title: '{% trans "No rows selected!"|escapejs %}',
                                     icon: 'warning'
                                 });
                             }else{
@@ -433,7 +433,7 @@
 </div>
 <script>
     $("#stageCount{{stage.id}}").text({{candidates.paginator.count}})
-    $("#stageCount{{stage.id}}").attr("title",'{{candidates.paginator.count}} {% trans "Candidates" %}')
+    $("#stageCount{{stage.id}}").attr("title",'{{candidates.paginator.count}} {% trans "Candidates"|escapejs %}')
 </script>
 {% if candidates.number %}
     <div class="oh-pagination">

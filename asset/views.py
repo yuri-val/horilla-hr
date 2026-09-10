@@ -10,7 +10,6 @@ from datetime import date, datetime
 from urllib.parse import parse_qs
 
 import pandas as pd
-from django.conf import settings
 from django.contrib import messages
 from django.core.files.base import ContentFile
 from django.core.files.storage import FileSystemStorage
@@ -300,6 +299,7 @@ def asset_item_bulk_edit(request, asset_id):
 
 
 @login_required
+@hx_request_required
 def get_asset_items_hx(request):
     """
     Returns the "Asset Item" field of the asset allocation form, populated
@@ -633,23 +633,28 @@ def filter_pagination_asset_category(request):
 @permission_required(perm="asset.view_assetcategory")
 def asset_category_view(request):
     """
-    View function for rendering a paginated list of asset categories.
+    View function for rendering the Asset Category page shell.
+
+    The grouped-by-category asset list itself is rendered through the
+    standard HorillaViews nav/list pair (asset.cbv.asset_category
+    AssetCategoryNav / AssetCategoryListView), loaded via HTMX from the
+    page shell template.
     Args:
         request (HttpRequest): A Django HttpRequest object that contains information
         about the current request.
     Returns:
-        A rendered HTML template that displays a paginated list of asset categories.
+        A rendered HTML template that displays the Asset Category page.
     Raises:
         None
     """
 
-    queryset = AssetCategory.objects.all()
-    if queryset.exists():
-        template = "category/asset_category_view.html"
-    else:
-        template = "category/asset_empty.html"
-    context = filter_pagination_asset_category(request)
-    return render(request, template, context)
+    if not AssetCategory.objects.exists():
+        return render(request, "category/asset_empty.html")
+    return render(
+        request,
+        "category/asset_category_view.html",
+        {"dashboard": request.GET.get("dashboard")},
+    )
 
 
 @login_required
@@ -1197,7 +1202,6 @@ def asset_request_allocation_view(request):
 
 
 @login_required
-@hx_request_required
 def asset_request_alloaction_view_search_filter(request):
     """
     This view handles the search and filter functionality for the asset request allocation list.
@@ -1206,6 +1210,18 @@ def asset_request_alloaction_view_search_filter(request):
     Returns:
         Rendered HTTP response with the filtered and paginated asset request allocation list.
     """
+    # This endpoint returns only the list/filter fragment; direct browser opens
+    # (address bar navigation/reload) should land on the full request &
+    # allocation page that loads this fragment via HTMX, instead of showing
+    # the raw, unstyled fragment. Sec-Fetch-Mode is set by the browser itself
+    # for a real top-level navigation and can't be spoofed by an htmx fetch()
+    # call, unlike the HX-Request header alone.
+    if request.headers.get("Sec-Fetch-Mode") == "navigate":
+        redirect_url = reverse("asset-request-allocation-view")
+        query_string = request.GET.urlencode()
+        if query_string:
+            redirect_url = f"{redirect_url}?{query_string}"
+        return redirect(redirect_url)
     context = filter_pagination_asset_request_allocation(request)
     template = "request_allocation/asset_request_allocation_list.html"
     if (
@@ -1276,7 +1292,9 @@ def asset_request_individual_view(request, asset_request_id):
     dashboard = not request.META.get("HTTP_HX_CURRENT_URL", "").endswith(
         "asset-request-allocation-view/"
     )
-    asset_request = AssetRequest.objects.get(id=asset_request_id)
+    asset_request = AssetRequest.objects.filter(id=asset_request_id).first()
+    if not asset_request:
+        return HttpResponse()
     context = {
         "asset_request": asset_request,
         "dashboard": dashboard,
@@ -1314,7 +1332,9 @@ def asset_allocation_individual_view(request, asset_allocation_id):
     Returns:
         HttpResponse: The rendered 'individual_allocation.html' template with the context data.
     """
-    asset_allocation = AssetAssignment.objects.get(id=asset_allocation_id)
+    asset_allocation = AssetAssignment.objects.filter(id=asset_allocation_id).first()
+    if not asset_allocation:
+        return HttpResponse()
     context = {"asset_allocation": asset_allocation}
     allocation_ids_json = request.GET.get("allocations_ids")
     if allocation_ids_json:
@@ -1485,6 +1505,7 @@ def asset_excel(_request):
 
 
 @login_required
+@hx_request_required
 @permission_required("asset.view_assetcategory")
 def asset_export_excel(request):
     """asset export view"""
@@ -2065,7 +2086,9 @@ def profile_asset_tab(request, emp_id):
     Returns: return profile-asset-tab template
 
     """
-    employee = Employee.objects.get(id=emp_id)
+    employee = Employee.objects.filter(id=emp_id).first()
+    if not employee:
+        return HttpResponse()
     assets = employee.allocated_employee.all()
     assets_ids = json.dumps([instance.id for instance in assets])
     context = {
@@ -2089,7 +2112,9 @@ def asset_request_tab(request, emp_id):
     Returns: return asset-request-tab template
 
     """
-    employee = Employee.objects.get(id=emp_id)
+    employee = Employee.objects.filter(id=emp_id).first()
+    if not employee:
+        return HttpResponse()
     assets_requests = employee.requested_employee.all()
     requests_ids = json.dumps([instance.id for instance in assets_requests])
     context = {

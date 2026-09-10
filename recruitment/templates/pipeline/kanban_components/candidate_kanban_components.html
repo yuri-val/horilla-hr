@@ -209,12 +209,12 @@
                     {% endif %}
                     {% if perms.recruitment.delete_candidate %}
                         <li class="oh-dropdown__item">
-                            <a onclick="return confirm('{% trans "Do you want to archive this candidate?" %}')" href="{% url 'rec-candidate-archive' cand.id %}?is_active=False" class="oh-dropdown__link ">{% trans "Archive" %}</a>
+                            <a onclick="return confirm('{% trans "Do you want to archive this candidate?"|escapejs %}')" href="{% url 'rec-candidate-archive' cand.id %}?is_active=False" class="oh-dropdown__link ">{% trans "Archive" %}</a>
                         </li>
                     {% endif %}
                     {% if perms.recruitment.delete_candidate %}
                         <li class="oh-dropdown__item">
-                        <form action="{% url 'rec-candidate-delete' cand.id %}" onsubmit="return confirm('{% trans "Are you sure you want to delete this candidate?" %}');" method="post">
+                        <form action="{% url 'rec-candidate-delete' cand.id %}" onsubmit="return confirm('{% trans "Are you sure you want to delete this candidate?"|escapejs %}');" method="post">
                             {% csrf_token %}
                             <button class="oh-dropdown__link oh-dropdown__link--danger ">{% trans "Delete" %}</button>
                         </form>
@@ -241,7 +241,7 @@
 
     <script>
         $("#stageCount{{stage.id}}").text({{candidates.paginator.count}})
-        $("#stageCount{{stage.id}}").attr("title",'{{candidates.paginator.count}} {% trans "Candidates" %}')
+        $("#stageCount{{stage.id}}").attr("title",'{{candidates.paginator.count}} {% trans "Candidates"|escapejs %}')
     </script>
     {% endfor %}
     {% if candidates.has_previous or candidates.has_next %}

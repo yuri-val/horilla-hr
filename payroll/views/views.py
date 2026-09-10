@@ -6,7 +6,7 @@ This module is used to define the method for the path in the urls
 
 import json
 from collections import defaultdict
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 from itertools import groupby
 from urllib.parse import parse_qs
 
@@ -212,6 +212,7 @@ def contract_status_update(request, contract_id):
                 for error in errors:
                     messages.error(request, error)
         return HttpResponse("<script>$('#reloadMessagesButton').click()</script>")
+    return HttpResponse()
 
 
 @login_required
@@ -1022,7 +1023,7 @@ def payslip_export(request):
                 employer_contribution = sum(
                     item["employer_contribution_amount"] for item in group
                 )
-            except:
+            except (KeyError, TypeError):
                 employer_contribution = 0
             if employer_contribution > 0:
                 table5_data.append(
@@ -1239,7 +1240,6 @@ def payslip_export(request):
     heading_format = workbook.add_format(
         {
             "bold": True,
-            "font_size": 14,
             "align": "center",
             "valign": "vcenter",
             "bg_color": "#eb7968",
@@ -1809,7 +1809,9 @@ def view_payrollrequest_comment(request, payroll_id):
         request_id=payroll_id
     ).order_by("-created_at")
 
-    req = Reimbursement.objects.get(id=payroll_id)
+    req = Reimbursement.objects.filter(id=payroll_id).first()
+    if not req:
+        return HttpResponse()
     no_comments = False
     if not comments.exists():
         no_comments = True
@@ -1929,12 +1931,16 @@ def auto_payslip_settings_view(request):
 
 
 @login_required
-@hx_request_required
 @permission_required("payroll.change_payslipautogenerate")
 def create_or_update_auto_payslip(request, auto_id=None):
+    # This endpoint returns only the modal form fragment; a genuine
+    # top-level browser navigation/reload should land on the real Payroll
+    # Settings page instead of showing the raw, unstyled fragment.
+    if request.headers.get("Sec-Fetch-Mode") == "navigate":
+        return redirect(reverse("payroll-settings-view"))
     auto_payslip = None
     if auto_id:
-        auto_payslip = PayslipAutoGenerate.objects.get(id=auto_id)
+        auto_payslip = PayslipAutoGenerate.objects.filter(id=auto_id).first()
     form = PayslipAutoGenerateForm(instance=auto_payslip)
     if request.method == "POST":
         form = PayslipAutoGenerateForm(request.POST, instance=auto_payslip)

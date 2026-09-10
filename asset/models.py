@@ -208,7 +208,7 @@ class Asset(HorillaModel):
         verbose_name_plural = _("Assets")
 
     def __str__(self):
-        return f"{self.asset_name}-{self.asset_tracking_id}"
+        return f"{self.asset_tracking_id}-{self.asset_name}"
 
     def asset_name_display(self):
         return self.asset_name
@@ -537,13 +537,6 @@ class AssetAssignment(HorillaModel):
 
     def __str__(self):
         return f"{self.assigned_to_employee_id} --- {self.asset_id} --- {self.return_status}"
-
-    def get_avatar(self):
-        """
-        Method will retun the api to the avatar or path to the profile image
-        """
-        url = f"https://ui-avatars.com/api/?name={self.asset_id}&background=random"
-        return url
 
     def asset_detail_view(self):
         """
