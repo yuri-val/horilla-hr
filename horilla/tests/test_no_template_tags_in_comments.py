@@ -47,9 +47,23 @@ SKIP_DIRS = {
 DANGEROUS_TAG = re.compile(r"{%\s*(include|extends|url|ssi)\b")
 
 CSS_COMMENT = re.compile(r"/\*.*?\*/", re.DOTALL)
+
+# `{# #}` is single-line ONLY. Django's lexer is
+#     ({%.*?%}|{{.*?}}|{#.*?#})
+# compiled WITHOUT re.DOTALL, so `.` never crosses a newline and a `{# #}`
+# spanning lines is not a comment at all -- it renders as literal text and any
+# tag inside it is parsed and executed.
+#
+# Blanking multi-line `{# #}` here (which DOTALL would do) modelled Django
+# wrongly in exactly that spot: a dangerous tag wrapped in a multi-line `{# #}`
+# was reported inert while Django ran it. `[^\n]` keeps this matching the real
+# lexer. `{% comment %}` genuinely does span lines, so it keeps DOTALL.
 TEMPLATE_COMMENT = re.compile(
-    r"{%\s*comment\s*%}.*?{%\s*endcomment\s*%}|{#.*?#}", re.DOTALL
+    r"{%\s*comment\s*%}.*?{%\s*endcomment\s*%}|{#[^\n]*?#}", re.DOTALL
 )
+
+# An opening `{#` with no `#}` before the end of the line.
+UNTERMINATED_HASH_COMMENT = re.compile(r"{#(?![^\n]*?#})")
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -137,3 +151,58 @@ class TemplateTagsInCommentsTests(unittest.TestCase):
         """{{ var }} and {% trans %} in a comment cannot raise."""
         harmless = "<style>/* {{ user.name }} and {% trans 'hi' %} */</style>"
         self.assertEqual(list(_offences(harmless)), [])
+
+    def test_a_multi_line_hash_comment_is_not_treated_as_inert(self):
+        """Wrapping a dangerous tag in a multi-line {# #} must not hide it.
+
+        Django does not read that as a comment, so the tag runs. The blanking
+        step used to model it as inert, which silently disarmed this test for
+        exactly the shape that shipped.
+        """
+        wrapped = (
+            "{# a note that runs on past\n"
+            "<style>\n/* {% include filter_body_template %} */</style>\n"
+            "   the end of its first line #}\n"
+        )
+        self.assertNotEqual(list(_offences(wrapped)), [])
+
+
+class MultiLineHashCommentTests(unittest.TestCase):
+    """`{# ... #}` must open and close on one line.
+
+    Django's lexer is compiled without re.DOTALL, so a `{# #}` spanning lines
+    is not tokenised as a comment: it renders as literal text. Nine report
+    templates shipped that way in 2.1.5, printing an internal note about CSS
+    duplication onto all seven explorer pages, the standard report letterhead
+    and -- worst -- into the generated PDFs that get circulated outside the
+    company. Use `{% comment %}` for anything spanning lines.
+    """
+
+    def test_no_template_has_a_multi_line_hash_comment(self):
+        offences = []
+        for path in _templates():
+            text = path.read_text(encoding="utf-8", errors="replace")
+            if "{#" not in text:
+                continue
+            for match in UNTERMINATED_HASH_COMMENT.finditer(text):
+                lineno = text.count("\n", 0, match.start()) + 1
+                offences.append(f"{path.relative_to(REPO_ROOT)}:{lineno}")
+
+        self.assertEqual(
+            offences,
+            [],
+            "`{# #}` does not span lines -- Django renders these to the page "
+            "as literal text. Use {% comment %} ... {% endcomment %}:\n  "
+            + "\n  ".join(offences),
+        )
+
+    def test_detects_a_planted_multi_line_comment(self):
+        planted = "{# first line\n   second line #}\n"
+        self.assertEqual(len(UNTERMINATED_HASH_COMMENT.findall(planted)), 1)
+
+    def test_allows_a_single_line_comment(self):
+        self.assertEqual(UNTERMINATED_HASH_COMMENT.findall("{# fine #}\n"), [])
+
+    def test_allows_several_single_line_comments(self):
+        text = "{# one #}\n{# two #}\n"
+        self.assertEqual(UNTERMINATED_HASH_COMMENT.findall(text), [])

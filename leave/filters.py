@@ -54,14 +54,40 @@ class LeaveTypeFilter(HorillaFilterSet):
 
     name = filters.CharFilter(field_name="name", lookup_expr="icontains")
     search = filters.CharFilter(field_name="name", lookup_expr="icontains")
-    carry_forward_gte = filters.CharFilter(
-        field_name="carryforward_max", lookup_expr="gte"
-    )
-    carry_forward_lte = filters.CharFilter(
-        field_name="carryforward_max", lookup_expr="lte"
-    )
-    total_days_gte = filters.CharFilter(field_name="total_days", lookup_expr="gte")
-    total_days_lte = filters.CharFilter(field_name="total_days", lookup_expr="lte")
+
+    def _build_custom_filter_fields(self):
+        """
+        Registry backing the Advanced section's "+ Add filter" builder
+        (see HorillaFilterSet._build_custom_filter_fields's docstring):
+        pick a field, a lookup (Greater or Equal / Lesser or Equal) and
+        a value. Replaces the fixed carry-forward/total-days gte/lte
+        inputs.
+        """
+        fields = [
+            {
+                "key": "carryforward_max",
+                "field": "carryforward_max",
+                "label": str(_("Carry Forward Max")),
+                "type": "number",
+            },
+            {
+                "key": "total_days",
+                "field": "total_days",
+                "label": str(_("Total Days")),
+                "type": "number",
+            },
+        ]
+        for entry in fields:
+            entry["lookups"] = [
+                [lk, str(label)]
+                for lk, label in self.CUSTOM_FILTER_LOOKUPS[entry["type"]]
+            ]
+        return fields
+
+    def filter_queryset(self, queryset):
+        """Apply the Advanced builder rows after the regular filters."""
+        queryset = super().filter_queryset(queryset)
+        return self._apply_custom_filters(queryset)
 
     class Meta:
         """ "
@@ -222,6 +248,13 @@ class LeaveRequestFilter(HorillaFilterSet):
         field_name="employee_id__employee_work_info__department_id__department",
         lookup_expr="icontains",
     )
+    # Paid/unpaid leave type, used by the leave dashboard's Paid vs Unpaid chart
+    # (matches its split: anything that is not paid counts as unpaid).
+    payment = django_filters.ChoiceFilter(
+        choices=[("paid", _("Paid")), ("unpaid", _("Unpaid"))],
+        method="filter_payment",
+        label=_("Payment"),
+    )
     # Dedicated comma-separated "Name or Badge ID" search, alongside the
     # AJAX employee_id picker below rather than instead of it -- same
     # field/behavior as EmployeeFilter.name_or_badge/AttendanceFilters.
@@ -328,6 +361,16 @@ class LeaveRequestFilter(HorillaFilterSet):
             "employee_id__employee_work_info__work_type_id",
         ]
 
+    def filter_payment(self, queryset, _name, value):
+        """
+        Paid/unpaid leave type filter
+        """
+        if value == "paid":
+            return queryset.filter(leave_type_id__payment="paid")
+        if value == "unpaid":
+            return queryset.exclude(leave_type_id__payment="paid")
+        return queryset
+
     def overall_leave_filter(self, queryset, _, value):
         """
         Overall leave custom filter method
@@ -335,19 +378,23 @@ class LeaveRequestFilter(HorillaFilterSet):
         today = datetime.today()
 
         today_leave_requests = queryset.filter(
-            Q(start_date__lte=today) & Q(end_date__gte=today) & Q(status="approved")
+            Q(start_date__lte=today)
+            & Q(end_date__gte=today)
+            & Q(status__in=["approved", "cancel_requested"])
         )
         start_of_week = today - timedelta(days=today.weekday())
         end_of_week = start_of_week + timedelta(days=6)
         weekly_leave_requests = queryset.filter(
-            status="approved", start_date__lte=end_of_week, end_date__gte=start_of_week
+            status__in=["approved", "cancel_requested"],
+            start_date__lte=end_of_week,
+            end_date__gte=start_of_week,
         )
         start_of_month = today.replace(day=1)
         end_of_month = start_of_month.replace(day=28) + timedelta(days=4)
         if end_of_month.month != today.month:
             end_of_month = end_of_month - timedelta(days=end_of_month.day)
         monthly_leave_requests = queryset.filter(
-            status="approved",
+            status__in=["approved", "cancel_requested"],
             start_date__lte=end_of_month,
             end_date__gte=start_of_month,
         )
@@ -355,7 +402,7 @@ class LeaveRequestFilter(HorillaFilterSet):
         end_of_year = today.replace(month=12, day=31)
         yearly_leave_requests = (
             queryset.filter(
-                status="approved",
+                status__in=["approved", "cancel_requested"],
                 start_date__lte=end_of_year,
                 end_date__gte=start_of_year,
             )

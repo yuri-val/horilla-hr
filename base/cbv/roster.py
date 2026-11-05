@@ -25,8 +25,11 @@ from openpyxl.worksheet.datavalidation import DataValidation
 
 from base.filters import RosterFilter
 from base.forms import RosterCellUpdateForm
+from base.methods import get_subordinate_employee_ids
 from base.models import CompanyLeaves, EmployeeShift, Holidays, Roster, RosterPublishLog
 from employee.models import Employee
+from horilla.decorators import hx_request_required
+from horilla.methods import handle_no_permission
 from horilla_views.cbv_methods import login_required, paginator_qry
 from horilla_views.generic.cbv.views import HorillaCardView, HorillaNavView
 
@@ -50,6 +53,29 @@ def _week_start():
 # ---------------------------------------------------------------------------
 # Roster Home
 # ---------------------------------------------------------------------------
+
+
+ROSTER_PERM = "base.change_roster"
+
+
+def _roster_scope(request):
+    """
+    Whose roster the caller may see and change.
+
+    ``None`` means everyone's (they hold ``base.change_roster``); otherwise the
+    set of ids of their own reports. These views carried ``login_required``
+    alone, so any signed-in user could plan, publish and import shifts for the
+    whole company.
+    """
+    if request.user.has_perm(ROSTER_PERM):
+        return None
+    return {int(pk) for pk in get_subordinate_employee_ids(request)}
+
+
+def _in_roster_scope(scope, employee_id):
+    if scope is None:
+        return True
+    return str(employee_id).isdigit() and int(employee_id) in scope
 
 
 @method_decorator(login_required, name="dispatch")
@@ -81,6 +107,11 @@ class RosterNavView(HorillaNavView):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        self.search_in = [
+            ("employee", _("Employee")),
+            ("shift", _("Shift")),
+            ("department", _("Department")),
+        ]
         self.actions = [
             {
                 "action": _("Import Roster"),
@@ -140,6 +171,12 @@ class RosterGridView(HorillaCardView):
 
     def get_queryset(self):
         queryset = super().get_queryset()
+        scope = _roster_scope(self.request)
+        if scope is not None:
+            queryset = queryset.filter(employee_id__in=scope)
+            # The base view caches its queryset and the grid reads it again
+            # when it builds its rows, so keep the narrowed one.
+            self.queryset = queryset
         today = _week_start()
         if not self.request.GET.get("from_date"):
             queryset = queryset.filter(
@@ -219,6 +256,7 @@ class RosterGridView(HorillaCardView):
 
 
 @method_decorator(login_required, name="dispatch")
+@method_decorator(hx_request_required, name="dispatch")
 class RosterCellUpdateView(View):
     template_name = "base/roster/roster_cell_form.html"
 
@@ -235,6 +273,8 @@ class RosterCellUpdateView(View):
         if not employee_id or not cell_date:
             return HttpResponse(status=400)
 
+        if not _in_roster_scope(_roster_scope(request), employee_id):
+            return handle_no_permission(request)
         employee = get_object_or_404(Employee, pk=employee_id)
         entry = self._get_entry(employee_id, cell_date)
         form = RosterCellUpdateForm(instance=entry)
@@ -261,6 +301,8 @@ class RosterCellUpdateView(View):
         if not employee_id or not cell_date:
             return HttpResponse(status=400)
 
+        if not _in_roster_scope(_roster_scope(request), employee_id):
+            return handle_no_permission(request)
         employee = get_object_or_404(Employee, pk=employee_id)
         department = employee.get_department()
         entry = self._get_entry(employee_id, cell_date)
@@ -305,6 +347,7 @@ class RosterCellUpdateView(View):
 
 
 @method_decorator(login_required, name="dispatch")
+@method_decorator(hx_request_required, name="dispatch")
 class RosterPublishFormView(View):
     template_name = "base/roster/publish_form.html"
 
@@ -340,6 +383,7 @@ class RosterPublishView(View):
             departments = Department.objects.all()
 
         publisher = getattr(request.user, "employee_get", None)
+        scope = _roster_scope(request)
         all_employee_ids = set()
         for department in departments:
             qs = Roster.objects.filter(
@@ -349,11 +393,15 @@ class RosterPublishView(View):
             )
             if to_date:
                 qs = qs.filter(date__lte=to_date)
+            if scope is not None:
+                qs = qs.filter(employee_id__in=scope)
 
             emp_ids = set(qs.values_list("employee_id", flat=True))
             all_employee_ids.update(emp_ids)
             qs.update(is_published=True)
 
+            if scope is not None and not emp_ids:
+                continue
             RosterPublishLog.objects.create(
                 department=department,
                 from_date=from_date,
@@ -388,11 +436,18 @@ class RosterPublishView(View):
                 pass
 
         dept_label = departments.first() if dept_id else _("All Departments")
-        messages.success(
-            request,
-            _("Roster published for %(dept)s (%(range)s).")
-            % {"dept": dept_label, "range": date_label},
-        )
+        if all_employee_ids:
+            messages.success(
+                request,
+                _("Roster published for %(dept)s (%(range)s).")
+                % {"dept": dept_label, "range": date_label},
+            )
+        else:
+            messages.info(
+                request,
+                _("Nothing to publish for %(dept)s (%(range)s).")
+                % {"dept": dept_label, "range": date_label},
+            )
         grid_params = f"from_date={from_date}"
         if to_date:
             grid_params += f"&to_date={to_date}"
@@ -423,6 +478,9 @@ class RosterEmployeeBulkPublishView(View):
 
         if not employee_ids or not from_date:
             return HttpResponse(status=400)
+        scope = _roster_scope(request)
+        if not all(_in_roster_scope(scope, pk) for pk in employee_ids):
+            return handle_no_permission(request)
 
         publisher = getattr(request.user, "employee_get", None)
 
@@ -529,6 +587,7 @@ class MyRosterView(View):
 
 
 @method_decorator(login_required, name="dispatch")
+@method_decorator(hx_request_required, name="dispatch")
 class RosterImportFormView(View):
     template_name = "base/roster/roster_import_form.html"
 
@@ -663,6 +722,11 @@ class RosterTemplateDownloadView(View):
         dv = DataValidation(
             type="list", formula1=dv_formula, allow_blank=True, showErrorMessage=False
         )
+        # Only employees the caller may plan; otherwise the sheet lists the
+        # whole company and every other row fails on import.
+        scope = _roster_scope(request)
+        if scope is not None:
+            emp_qs = emp_qs.filter(pk__in=scope)
         last_row = max(emp_qs.count() + 2, 100)
         dv.sqref = f"C2:{get_column_letter(len(date_range) + 2)}{last_row}"
         ws.add_data_validation(dv)
@@ -759,6 +823,7 @@ class RosterImportView(View):
         publisher = getattr(request.user, "employee_get", None)
         created = updated = skipped = 0
         errors = []
+        scope = _roster_scope(request)
 
         for row in range(2, ws.max_row + 1):
             emp_id_val = ws.cell(row, 2).value
@@ -769,6 +834,11 @@ class RosterImportView(View):
                     "employee_work_info__department_id",
                 ).get(pk=int(emp_id_val))
             except (Employee.DoesNotExist, ValueError, TypeError):
+                errors.append(f"Row {row}: Employee ID {emp_id_val!r} not found.")
+                continue
+            # An employee outside the caller's team reads as "not found", so the
+            # message does not confirm that the id is real.
+            if not _in_roster_scope(scope, emp.pk):
                 errors.append(f"Row {row}: Employee ID {emp_id_val!r} not found.")
                 continue
 

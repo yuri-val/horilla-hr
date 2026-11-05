@@ -11,6 +11,7 @@ from django.db.models import Value
 from django.db.models.functions import Concat
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
+from django.utils.html import escape
 from django.utils.translation import gettext_lazy as _
 
 from base.horilla_company_manager import HorillaCompanyManager
@@ -995,6 +996,44 @@ class Question(HorillaModel):
     def __str__(self):
         return self.question
 
+    def get_question_col(self):
+        """
+        Question text with its multiple-choice options listed underneath
+        """
+        html = f"<div class='pb-3' data-no-tooltip>{escape(self.question)}</div>"
+        prefetched = getattr(self, "prefetched_options", None)
+        if prefetched is None:
+            prefetched = self.question_options.all()
+        options = next(iter(prefetched), None)
+        if not options:
+            return html
+        items = "".join(
+            f'<span class="inline-block mr-3">{number}. {escape(value)}</span>'
+            for number, value in enumerate(
+                (
+                    options.option_a,
+                    options.option_b,
+                    options.option_c,
+                    options.option_d,
+                ),
+                start=1,
+            )
+            if value
+        )
+        if items:
+            html += f'<div class="text-xs text-[#999] whitespace-normal">{items}</div>'
+        return html
+
+    def action_col(self):
+        """
+        For action column
+        """
+
+        return render_template(
+            path="cbv/question/actions.html",
+            context={"instance": self},
+        )
+
 
 class QuestionOptions(HorillaModel):
     """options for question"""
@@ -1087,7 +1126,7 @@ class Feedback(HorillaModel):
         EmployeeKeyResult, blank=True, verbose_name=_("Key Result")
     )
     cyclic_feedback = models.BooleanField(
-        default=False, verbose_name=_("Is Cyclic Feedback")
+        default=False, verbose_name=_("Cyclic Feedback")
     )
     cyclic_feedback_days_count = models.IntegerField(
         blank=True, null=True, verbose_name=_("Cycle Period")
@@ -1595,7 +1634,7 @@ class Meetings(HorillaModel):
         if not getattr(self, "request", None):
             self.request = request
         if request.user.employee_get in self.manager.all():
-            return f'style="background-color: rgba(255, 166, 0, 0.158);" '
+            return 'style="background-color: rgba(255, 166, 0, 0.158);"'
 
     def meeting_detail_view(self):
         """
@@ -1753,7 +1792,7 @@ class BonusPointSetting(models.Model):
     points = models.IntegerField(
         default=0, validators=[MinValueValidator(0)], verbose_name=_("Points")
     )
-    is_active = models.BooleanField(default=True)
+    is_active = models.BooleanField(default=True, verbose_name=_("Active"))
     company_id = models.ForeignKey(
         Company,
         null=True,
@@ -1815,6 +1854,22 @@ class BonusPointSetting(models.Model):
         """
         return render_template(
             path="bonus/is_active_toggle.html",
+            context={"instance": self},
+        )
+
+    def bonus_point_setting_detail_view(self):
+        """
+        detail view
+        """
+        url = reverse("bonus-point-setting-detail-view", kwargs={"pk": self.pk})
+        return url
+
+    def bonus_point_setting_detail_view_actions(self):
+        """
+        detail view actions
+        """
+        return render_template(
+            path="bonus/bonus_point_setting_detail_actions.html",
             context={"instance": self},
         )
 

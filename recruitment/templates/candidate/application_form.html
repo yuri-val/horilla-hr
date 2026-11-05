@@ -394,8 +394,8 @@
         {% if resume %}
             $("#resume").val(resume)
         {% endif %}
-        {# A backtick literal would still evaluate ${...}; escapejs does not
-           escape it. A double-quoted string has no interpolation at all. #}
+        {% comment %} A backtick literal would still evaluate ${...}; escapejs does not
+           escape it. A double-quoted string has no interpolation at all. {% endcomment %}
         var description = "{{ form.instance.recruitment_id.description|escapejs }}";
         // Build the line breaks as nodes rather than markup: .html() on a
         // recruiter-authored string is a stored-XSS sink, and this page is

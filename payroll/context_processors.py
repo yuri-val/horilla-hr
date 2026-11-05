@@ -13,13 +13,19 @@ def default_currency(request):
     """
     This method will return the currency
     """
-    if models.PayrollSettings.objects.first() is None:
+    settings = models.PayrollSettings.for_selected_company()
+    if settings is None:
+        # HorillaCompanyManager scopes .objects.first() to the request's
+        # current company -- a freshly created row here isn't guaranteed to
+        # be visible on an immediate re-query (e.g. no company selected yet
+        # for a brand new employee's very first request), so reuse this
+        # instance directly instead of re-querying for it.
         settings = models.PayrollSettings()
         settings.currency_symbol = "$"
         settings.company_id = getattr(request, "selected_company_instance", None)
         settings.save()
-    symbol = models.PayrollSettings.objects.first().currency_symbol
-    position = models.PayrollSettings.objects.first().position
+    symbol = settings.currency_symbol
+    position = settings.position
     return {
         "currency": request.session.get("currency", symbol),
         "position": request.session.get("position", position),

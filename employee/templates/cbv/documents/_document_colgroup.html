@@ -1,0 +1,13 @@
+{% comment %}
+Same fixed column widths for the one shared header (pipeline.html) and every
+document-type group's own table (DocumentListView, show_header=False -- see
+employee/cbv/document_request.py), so columns line up across all of them
+even though only the header carries labels.
+{% endcomment %}
+<colgroup>
+    <col style="width:36px">
+    <col style="width:280px">
+    <col style="width:140px">
+    <col style="width:140px">
+    <col style="width:160px">
+</colgroup>

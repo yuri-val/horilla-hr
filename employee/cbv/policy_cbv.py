@@ -26,6 +26,7 @@ class PolicyFormView(HorillaFormView):
     form_class = PolicyForm
     model = Policy
     new_display_title = _("Policy Creation")
+    template_name = "policies/policy_form.html"
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)

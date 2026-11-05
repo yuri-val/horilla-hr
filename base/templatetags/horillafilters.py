@@ -316,15 +316,19 @@ def on_off(value):
 
 @register.filter(name="currency_symbol_position")
 def currency_symbol_position(amount):
-    if apps.is_installed("payroll"):
-        PayrollSettings = get_horilla_model_class(
-            app_label="payroll", model="payrollsettings"
-        )
-    symbol = PayrollSettings.objects.first()
+    if not apps.is_installed("payroll"):
+        return f"$ {amount}"
+
+    PayrollSettings = get_horilla_model_class(
+        app_label="payroll", model="payrollsettings"
+    )
+    symbol = PayrollSettings.for_selected_company()
 
     currency = symbol.currency_symbol if symbol else "$"
 
-    if symbol.position == "postfix":
+    position = symbol.position if symbol else "prefix"
+
+    if position == "postfix":
         currency_symbol = f"{amount} {currency}"
     else:
         currency_symbol = f"{currency} {amount}"
@@ -358,6 +362,52 @@ def is_check_in_enabled(request):
 
     # Check if check-in is enabled
     return bool(attendance_settings and attendance_settings.enable_check_in)
+
+
+@register.filter(name="is_geofencing_enabled")
+def is_geofencing_enabled(request):
+    """
+    Whether the selected company has an active geo-fence -- the web
+    check-in/out buttons only need to capture the browser's location (and
+    the backend only needs to enforce it) when this is true.
+    """
+    from geofencing.models import GeoFencing
+
+    selected_company = request.session.get("selected_company")
+    if selected_company and selected_company != "all":
+        company = Company.objects.filter(id=selected_company).first()
+    else:
+        # "All companies" is selected: the punch is still checked against the employee's own
+        # company (see geofence_denial_web), so the button has to send the location for it.
+        employee = getattr(request.user, "employee_get", None)
+        company = employee.get_company() if employee else None
+    if not company:
+        return False
+    fence = GeoFencing.for_company(company)
+    return bool(fence and fence.start)
+
+
+@register.filter(name="is_asset_fine_enabled")
+def is_asset_fine_enabled(request):
+    """
+    This method checks whether the asset fine feature is enabled.
+    """
+    from asset.models import AssetGeneralSetting
+
+    selected_company = request.session.get("selected_company")
+    if not selected_company:
+        return False  # Safeguard if session key is missing
+
+    # Fetch the settings based on the selected company
+    if selected_company == "all":
+        asset_settings = AssetGeneralSetting.objects.filter(company_id=None).first()
+    else:
+        company = Company.objects.filter(id=selected_company).first()
+        if not company:
+            return False  # Return False if the company doesn't exist
+        asset_settings = AssetGeneralSetting.objects.filter(company_id=company).first()
+
+    return bool(asset_settings and asset_settings.enable_asset_fine)
 
 
 @register.filter(name="is_timerunner_enabled")

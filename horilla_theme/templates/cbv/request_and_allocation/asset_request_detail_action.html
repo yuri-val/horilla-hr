@@ -1,6 +1,72 @@
 {% load static i18n %}
 
 <div class="oh-modal__button-container text-center w-100 flex items-center justify-center gap-2 flex-wrap">
+    {# Approve / Reject #}
+    {% if perms.asset.add_assetassignment %}
+        {% if instance.asset_request_status == 'Requested' %}
+            <a
+                class="oh-btn oh-btn--success px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300"
+                role="button"
+                data-toggle="oh-modal-toggle"
+                data-target="#genericModal"
+                hx-get="{% url 'asset-request-approve-form' req_id=instance.id %}"
+                hx-target="#genericModalBody"
+                title="{% trans 'Approve' %}"
+            >
+                <ion-icon name="checkmark-outline"></ion-icon>
+                {% trans "Approve" %}
+            </a>
+            <a
+                class="oh-btn oh-btn--danger px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300"
+                role="button"
+                href="{% url 'asset-request-reject' instance.id %}"
+                onclick="return confirm(`{% trans 'Do you want to reject this request?'|escapejs %}`)"
+                title="{% trans 'Reject' %}"
+            >
+                <ion-icon name="close-outline"></ion-icon>
+                {% trans "Reject" %}
+            </a>
+        {% else %}
+            <button
+                type="button"
+                class="oh-btn oh-btn--success px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300"
+                title="{% trans 'Approve' %}"
+                disabled
+            >
+                <ion-icon name="checkmark-outline"></ion-icon>
+                {% trans "Approve" %}
+            </button>
+            <button
+                type="button"
+                class="oh-btn oh-btn--danger px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300"
+                title="{% trans 'Reject' %}"
+                disabled
+            >
+                <ion-icon name="close-outline"></ion-icon>
+                {% trans "Reject" %}
+            </button>
+        {% endif %}
+    {% else %}
+        <button
+            type="button"
+            class="oh-btn oh-btn--success px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300"
+            title="{% trans 'Approve' %}"
+            disabled
+        >
+            <ion-icon name="checkmark-outline"></ion-icon>
+            {% trans "Approve" %}
+        </button>
+        <button
+            type="button"
+            class="oh-btn oh-btn--danger px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300"
+            title="{% trans 'Reject' %}"
+            disabled
+        >
+            <ion-icon name="close-outline"></ion-icon>
+            {% trans "Reject" %}
+        </button>
+    {% endif %}
+
     {# Edit #}
     {% if perms.asset.change_assetrequest or request.user.employee_get == instance.requested_employee_id %}
         {% if instance.asset_request_status == "Approved" %}
@@ -70,72 +136,6 @@
         >
             <ion-icon name="trash-outline"></ion-icon>
             {% trans "Delete" %}
-        </button>
-    {% endif %}
-
-    {# Approve / Reject #}
-    {% if perms.asset.add_assetassignment %}
-        {% if instance.asset_request_status == 'Requested' %}
-            <a
-                class="oh-btn oh-btn--success px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300"
-                role="button"
-                data-toggle="oh-modal-toggle"
-                data-target="#genericModal"
-                hx-get="{% url 'asset-request-approve-form' req_id=instance.id %}"
-                hx-target="#genericModalBody"
-                title="{% trans 'Approve' %}"
-            >
-                <ion-icon name="checkmark-outline"></ion-icon>
-                {% trans "Approve" %}
-            </a>
-            <a
-                class="oh-btn oh-btn--danger px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300"
-                role="button"
-                href="{% url 'asset-request-reject' instance.id %}"
-                onclick="return confirm(`{% trans 'Do you want to reject this request?'|escapejs %}`)"
-                title="{% trans 'Reject' %}"
-            >
-                <ion-icon name="close-outline"></ion-icon>
-                {% trans "Reject" %}
-            </a>
-        {% else %}
-            <button
-                type="button"
-                class="oh-btn oh-btn--success px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300"
-                title="{% trans 'Approve' %}"
-                disabled
-            >
-                <ion-icon name="checkmark-outline"></ion-icon>
-                {% trans "Approve" %}
-            </button>
-            <button
-                type="button"
-                class="oh-btn oh-btn--danger px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300"
-                title="{% trans 'Reject' %}"
-                disabled
-            >
-                <ion-icon name="close-outline"></ion-icon>
-                {% trans "Reject" %}
-            </button>
-        {% endif %}
-    {% else %}
-        <button
-            type="button"
-            class="oh-btn oh-btn--success px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300"
-            title="{% trans 'Approve' %}"
-            disabled
-        >
-            <ion-icon name="checkmark-outline"></ion-icon>
-            {% trans "Approve" %}
-        </button>
-        <button
-            type="button"
-            class="oh-btn oh-btn--danger px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300"
-            title="{% trans 'Reject' %}"
-            disabled
-        >
-            <ion-icon name="close-outline"></ion-icon>
-            {% trans "Reject" %}
         </button>
     {% endif %}
 </div>

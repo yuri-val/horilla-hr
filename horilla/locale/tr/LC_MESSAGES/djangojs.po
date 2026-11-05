@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2025-12-18 13:57+0530\n"
+"POT-Creation-Date: 2026-09-10 13:50+0530\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -19,63 +19,313 @@ msgstr ""
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
 msgid "An unexpected error occurred. Please refresh the page."
-msgstr ""
+msgstr "Beklenmeyen bir hata oluştu. Lütfen sayfayı yenileyin."
 
 msgid "Do you really want to validate all the selected attendances?"
-msgstr ""
+msgstr "Seçilen tüm devam kayıtlarını doğrulamak istediğinizden emin misiniz?"
 
 msgid "No rows are selected from Validate Attendances."
-msgstr ""
+msgstr "Devam Kayıtlarını Doğrula'dan satır seçilmedi."
 
 msgid "Do you really want to approve OT for all the selected attendances?"
-msgstr ""
+msgstr "Seçilen tüm devam kayıtları için fazla mesaiyi onaylamak istediğinizden emin misiniz?"
 
 msgid "No rows are selected from OT Attendances."
-msgstr ""
+msgstr "Fazla Mesai Devam Kayıtlarından satır seçilmedi."
 
 msgid "Do you really want to reject all the selected attendance requests?"
-msgstr ""
+msgstr "Seçilen tüm devam taleplerini reddetmek istediğinizden emin misiniz?"
 
 msgid "Pending Attendance Update Request!"
-msgstr ""
+msgstr "Bekleyen Devam Güncelleme Talebi!"
 
 msgid ""
 "An attendance request exists for updating this attendance prior to "
 "validation."
-msgstr ""
+msgstr "Bu devam kaydını güncellemek için doğrulamadan önce bir devam talebi mevcut."
 
 msgid "View Request"
-msgstr ""
+msgstr "Talebi Görüntüle"
 
-msgid "Some selected requests have already been approved."
-msgstr ""
+msgid "Employees Imported Successfully"
+msgstr "Çalışanlar Başarıyla İçe Aktarıldı"
 
-msgid "Some selected requests have already been rejected."
+msgid "You have"
+msgstr "Şunlara sahipsiniz:"
+
+msgid "errors. Do you want to download the error list?"
+msgstr "hata. Hata listesini indirmek ister misiniz?"
+
+msgid "Download error list & Skip Import"
+msgstr "Hata listesini indir ve İçe Aktarmayı Atla"
+
+msgid "Download error list & Continue Import"
+msgstr "Hata listesini indir ve İçe Aktarmaya Devam Et"
+
+msgid "Invalid File"
+msgstr "Geçersiz Dosya"
+
+msgid "Please upload a valid XLSX file."
+msgstr "Lütfen geçerli bir XLSX dosyası yükleyin."
+
+msgid "Stage updated"
+msgstr "Aşama güncellendi"
+
+msgid "Failed to update sequence: "
+msgstr "Sıra güncellenemedi: "
+
+msgid "Sequence updated"
+msgstr "Sıra güncellendi"
+
+msgid "Confirm Stage Change"
+msgstr "Aşama Değişikliğini Onayla"
+
+msgid ""
+"The candidate is being moved from %(from)s to the %(to)s stage. Do you want "
+"to proceed?"
 msgstr ""
+"Aday %(from)s aşamasından %(to)s aşamasına taşınıyor. Devam etmek istiyor "
+"musunuz?"
+
+msgid "Don't show this again in this session"
+msgstr "Bu oturumda bunu bir daha gösterme"
+
+msgid "Cannot Change Stage"
+msgstr "Aşama Değiştirilemiyor"
+
+msgid "This move is not allowed."
+msgstr "Bu harekete izin verilmiyor."
+
+msgid "Employees"
+msgstr "Çalışanlar"
+
+msgid "Number of days"
+msgstr "Gün sayısı"
+
+msgid "Draft"
+msgstr "Taslak"
+
+msgid "Review Ongoing"
+msgstr "İnceleme Devam Ediyor"
+
+msgid "Confirmed"
+msgstr "Onaylandı"
+
+msgid "Paid"
+msgstr "Ödendi"
+
+msgid "Leave count"
+msgstr "İzin sayısı"
 
 msgid "Do you wish to create a Leave Report?"
-msgstr ""
+msgstr "Bir İzin Raporu oluşturmak istiyor musunuz?"
 
 msgid "Do you want to reject the selected leave requests?"
-msgstr ""
+msgstr "Seçilen izin taleplerini reddetmek istiyor musunuz?"
+
+msgid "Onboarding Candidates"
+msgstr "İşe Alım Sürecindeki Adaylar"
+
+msgid "Candidates per Stage"
+msgstr "Aşama Başına Adaylar"
+
+msgid "Number of Candidates"
+msgstr "Aday Sayısı"
 
 msgid "Do you want to send the payslip by mail?"
-msgstr ""
+msgstr "Bordroyu e-posta ile göndermek istiyor musunuz?"
 
 msgid "Name of Employees"
-msgstr ""
+msgstr "Çalışanların Adı"
 
 msgid "Amount"
-msgstr ""
+msgstr "Tutar"
+
+msgid "Objective"
+msgstr "Hedef"
+
+msgid "Key Result"
+msgstr "Temel Sonuç"
+
+msgid "Feedback"
+msgstr "Geri Bildirim"
 
 msgid "Upload Completed!"
-msgstr ""
+msgstr "Yükleme Tamamlandı!"
 
 msgid "Imported Successfully!"
-msgstr ""
+msgstr "Başarıyla İçe Aktarıldı!"
 
 msgid "Please upload a file with the .xlsx extension only."
-msgstr ""
+msgstr "Lütfen yalnızca .xlsx uzantılı bir dosya yükleyin."
+
+msgid "Hired Candidates"
+msgstr "İşe Alınan Adaylar"
+
+msgid "Stage sequence updated"
+msgstr "Aşama sırası güncellendi"
+
+msgid "Dashboard"
+msgstr "Gösterge paneli"
+
+msgid "Horilla dashboard section"
+msgstr "Horilla gösterge paneli bölümü"
+
+msgid "Mark Attendance"
+msgstr "Yoklama işaretle"
+
+msgid "Used to mark your attendance"
+msgstr "Yoklamanızı işaretlemek için kullanılır"
+
+msgid "Settings"
+msgstr "Ayarlar"
+
+msgid "Settings configurations"
+msgstr "Ayar yapılandırmaları"
+
+msgid "Notification"
+msgstr "Bildirim"
+
+msgid "Notifications section"
+msgstr "Bildirimler bölümü"
+
+msgid "Language"
+msgstr "Dil"
+
+msgid "Multi-Language options"
+msgstr "Çoklu dil seçenekleri"
+
+msgid "Multi-Company"
+msgstr "Çoklu şirket"
+
+msgid "Multi-Company options"
+msgstr "Çoklu şirket seçenekleri"
+
+msgid "Profile"
+msgstr "Profil"
+
+msgid "Profile and change password options"
+msgstr "Profil ve şifre değiştirme seçenekleri"
+
+msgid "Dashboard Tiles"
+msgstr "Gösterge paneli kutucukları"
+
+msgid "Horilla Dashboard Tiles"
+msgstr "Horilla gösterge paneli kutucukları"
+
+msgid "Dashboard Actions"
+msgstr "Gösterge paneli işlemleri"
+
+msgid "Approve or Reject Options"
+msgstr "Onayla veya Reddet seçenekleri"
+
+msgid "Add announcement"
+msgstr "Duyuru ekle"
+
+msgid "Create announcement from dashboard"
+msgstr "Gösterge panelinden duyuru oluştur"
+
+msgid "Quick Actions"
+msgstr "Hızlı işlemler"
+
+msgid "Create Quick Requests"
+msgstr "Hızlı talepler oluştur"
+
+msgid "Company"
+msgstr "Şirket"
+
+msgid "Your current company access"
+msgstr "Mevcut şirket erişiminiz"
+
+msgid "App"
+msgstr "Uygulama"
+
+msgid "Horilla Hr Apps. eg Dashboard"
+msgstr "Horilla IK uygulamaları, örn. Gösterge paneli"
+
+msgid "Pipeline"
+msgstr "İş hattı"
+
+msgid "Recruitment pipeline management"
+msgstr "İşe alım hattı yönetimi"
+
+msgid "New Recruitment"
+msgstr "Yeni işe alım"
+
+msgid "Add new recruitment"
+msgstr "Yeni işe alım ekle"
+
+msgid "Filter"
+msgstr "Filtre"
+
+msgid "Pipeline filter option"
+msgstr "İş hattı filtre seçeneği"
+
+msgid "Toggle View"
+msgstr "Görünümü değiştir"
+
+msgid "Toggle view type"
+msgstr "Görünüm türünü değiştir"
+
+msgid "Search"
+msgstr "Ara"
+
+msgid "Search in candidate, recruitment and stage"
+msgstr "Aday, işe alım ve aşamada ara"
+
+msgid "Filter Tag"
+msgstr "Filtre etiketi"
+
+msgid "Filter tag option"
+msgstr "Filtre etiketi seçeneği"
+
+msgid "Quick Filters"
+msgstr "Hızlı filtreler"
+
+msgid "Recruitment"
+msgstr "İşe alım"
+
+msgid "Add Stage"
+msgstr "Aşama ekle"
+
+msgid "Add new stage to recruitment"
+msgstr "İşe alıma yeni aşama ekle"
+
+msgid "Stage"
+msgstr "Aşama"
+
+msgid "Recruitment stage"
+msgstr "İşe alım aşaması"
+
+msgid "Add candidate"
+msgstr "Aday ekle"
+
+msgid "Add candidate to stage option"
+msgstr "Adayı aşamaya ekleme seçeneği"
+
+msgid "Candidate"
+msgstr "Aday"
+
+msgid "Candidate record"
+msgstr "Aday kaydı"
+
+msgid "Rating"
+msgstr "Puanlama"
+
+msgid "Candidate rating option"
+msgstr "Aday puanlama seçeneği"
+
+msgid "Change Stage"
+msgstr "Aşamayı değiştir"
+
+msgid "Candidate change stage option"
+msgstr "Aday aşama değiştirme seçeneği"
+
+msgid "Options"
+msgstr "Seçenekler"
+
+msgid "Candidate management options"
+msgstr "Aday yönetim seçenekleri"
 
 msgid "visible"
 msgstr ""
@@ -108,7 +358,7 @@ msgid "minor"
 msgstr ""
 
 msgid "label"
-msgstr ""
+msgstr "Etiket"
 
 msgid "arrowlen"
 msgstr ""
@@ -143,11 +393,44 @@ msgstr ""
 msgid "customdata"
 msgstr ""
 
+msgid "All your company and base configurations"
+msgstr "Tüm şirket ve temel yapılandırmalarınız"
+
+msgid "Settings Options"
+msgstr "Ayar seçenekleri"
+
+msgid "Settings menu bar"
+msgstr "Ayarlar menü çubuğu"
+
+msgid "Settings View"
+msgstr "Ayarlar görünümü"
+
+msgid "Selected settings view"
+msgstr "Seçili ayarlar görünümü"
+
+msgid "Project: "
+msgstr "Proje: "
+
+msgid "watchFile"
+msgstr ""
+
+msgid "watchDirectory"
+msgstr ""
+
+msgid "getCompletionsAtPosition: getCompletionEntriesFromSymbols: "
+msgstr ""
+
+msgid "placeOpenBraceOnNewLineForControlBlocks"
+msgstr ""
+
+msgid "placeOpenBraceOnNewLineForFunctions"
+msgstr ""
+
 msgid "punc"
 msgstr ""
 
 msgid "name"
-msgstr ""
+msgstr "ad"
 
 msgid "keyword"
 msgstr ""
@@ -158,198 +441,136 @@ msgstr ""
 msgid "operator"
 msgstr ""
 
-msgid "close"
+msgid "Expected "
+msgstr "Beklenen "
+
+msgid "I"
+msgstr "I"
+
+msgid "E"
+msgstr "E"
+
+msgid "X"
+msgstr "X"
+
+msgid "B"
+msgstr "B"
+
+msgid "Invalid generatedCharacter found"
+msgstr "Geçersiz generatedCharacter bulundu"
+
+msgid "Invalid sourceIndex found"
+msgstr "Geçersiz sourceIndex bulundu"
+
+msgid "Unsupported Format: No entries after sourceIndex"
+msgstr "Desteklenmeyen Biçim: sourceIndex'ten sonra giriş yok"
+
+msgid "Invalid sourceLine found"
+msgstr "Geçersiz sourceLine bulundu"
+
+msgid "Unsupported Format: No entries after sourceLine"
+msgstr "Desteklenmeyen Biçim: sourceLine'dan sonra giriş yok"
+
+msgid "Invalid sourceCharacter found"
+msgstr "Geçersiz sourceCharacter bulundu"
+
+msgid "Invalid nameIndex found"
+msgstr "Geçersiz nameIndex bulundu"
+
+msgid "Unsupported Error Format: Entries after nameIndex"
+msgstr "Desteklenmeyen Hata Biçimi: nameIndex'ten sonraki girişler"
+
+msgid "collectAutoImports"
 msgstr ""
+
+msgid "continuePreviousIncompleteResponse"
+msgstr ""
+
+msgid "TypeRoots version has changed; provide new program"
+msgstr "TypeRoots sürümü değişti; yeni program sağlayın"
+
+msgid "getIndentationAtPosition: getCurrentSourceFile: "
+msgstr ""
+
+msgid "getIndentationAtPosition: computeIndentation  : "
+msgstr ""
+
+msgid "Program"
+msgstr "Program"
+
+msgid "BlockStatement"
+msgstr "Blok İfadesi"
+
+msgid "close"
+msgstr "kapat"
 
 msgid "Confirm"
-msgstr ""
+msgstr "Onayla"
 
 msgid "Close"
-msgstr ""
+msgstr "Kapat"
 
 msgid "Cancel"
-msgstr ""
+msgstr "İptal"
 
 msgid "Selected"
-msgstr ""
+msgstr "Seçildi"
 
 msgid "Uploading..."
-msgstr ""
+msgstr "Yükleniyor..."
 
 msgid "No Records found"
-msgstr ""
-
-msgid "Do you want to download the excel file?"
-msgstr ""
-
-msgid "Do you want to download the template?"
-msgstr ""
-
-msgid "No rows are selected from the records."
-msgstr ""
-
-msgid "Do you really want to delete all the selected records?"
-msgstr ""
-
-msgid "Do you really want to archive all the selected records?"
-msgstr ""
-
-msgid "Do you really want to approve all the selected requests?"
-msgstr ""
-
-msgid "Do you really want to unarchive all the selected records?"
-msgstr ""
+msgstr "Kayıt bulunamadı"
 
 msgid "Ok"
 msgstr "Tamam"
 
+msgid "Do you want to download the excel file?"
+msgstr "Excel dosyasını indirmek istiyor musunuz?"
+
+msgid "Do you want to download the template?"
+msgstr "Şablonu indirmek istiyor musunuz?"
+
+msgid "No rows are selected from the records."
+msgstr "Kayıtlardan satır seçilmedi."
+
+msgid "Do you really want to delete all the selected records?"
+msgstr "Seçilen tüm kayıtları silmek istediğinizden emin misiniz?"
+
+msgid "Do you really want to archive all the selected records?"
+msgstr "Seçilen tüm kayıtları arşivlemek istediğinizden emin misiniz?"
+
+msgid "Do you really want to approve all the selected requests?"
+msgstr "Seçilen tüm talepleri onaylamak istediğinizden emin misiniz?"
+
+msgid "Do you really want to unarchive all the selected records?"
+msgstr "Seçilen tüm kayıtların arşivini kaldırmak istediğinizden emin misiniz?"
+
 msgid "Total vacancy is %(vacancy)s."
 msgstr "Toplam boşluk %(vacancy)s."
 
-msgid "Are you sure to change the candidate from %(from)s stage to %(to)s stage"
-msgstr "Adayı %(from)s aşamasından %(to)s aşamasına değiştireceğinizden emin misiniz?"
+msgid ""
+"Are you sure to change the candidate from %(from)s stage to %(to)s stage"
+msgstr ""
+"Adayı %(from)s aşamasından %(to)s aşamasına değiştireceğinizden emin misiniz?"
 
-msgid "Stage updated"
-msgstr "Aşama güncellendi"
+msgid "Retry"
+msgstr "Tekrar Dene"
 
-msgid "Confirm Stage Change"
-msgstr "Aşama Değişikliğini Onayla"
+msgid "Something went wrong while loading this data."
+msgstr "Bu veriler yüklenirken bir şeyler yanlış gitti."
 
-msgid "The candidate is being moved from %(from)s to the %(to)s stage. Do you want to proceed?"
-msgstr "Aday %(from)s aşamasından %(to)s aşamasına taşınıyor. Devam etmek istiyor musunuz?"
+msgid "Request failed (status %(status)s)."
+msgstr "Talep başarısız oldu (durum %(status)s)."
 
-msgid "Don't show this again in this session"
-msgstr "Bu oturumda bunu bir daha gösterme"
+msgid "The request took too long to respond."
+msgstr "Talebin yanıtlanması çok uzun sürdü."
 
-msgid "Cannot Change Stage"
-msgstr "Aşama Değiştirilemiyor"
+#~ msgid "Do you really want to delete all the selected attendances?"
+#~ msgstr "Gerçekten seçilen tüm katılımları silmek istiyor musunuz?"
 
-msgid "This move is not allowed."
-msgstr "Bu harekete izin verilmiyor."
+#~ msgid "Do you really want to delete this employee?"
+#~ msgstr "Bu çalışanı gerçekten silmek istiyor musunuz?"
 
-msgid "Do you really want to delete all the selected attendances?"
-msgstr "Gerçekten seçilen tüm katılımları silmek istiyor musunuz?"
-msgid "Do you really want to delete this employee?"
-msgstr "Bu çalışanı gerçekten silmek istiyor musunuz?"
-msgid "No rows are selected for deleting attendances."
-msgstr "Yoklamaların silinmesi için hiçbir satır seçilmedi."
-
-
-msgid "Add Stage"
-msgstr "Aşama ekle"
-msgid "Add announcement"
-msgstr "Duyuru ekle"
-msgid "Add candidate"
-msgstr "Aday ekle"
-msgid "Add candidate to stage option"
-msgstr "Adayı aşamaya ekleme seçeneği"
-msgid "Add new recruitment"
-msgstr "Yeni işe alım ekle"
-msgid "Add new stage to recruitment"
-msgstr "İşe alıma yeni aşama ekle"
-msgid "All your company and base configurations"
-msgstr "Tüm şirket ve temel yapılandırmalarınız"
-msgid "App"
-msgstr "Uygulama"
-msgid "Approve or Reject Options"
-msgstr "Onayla veya Reddet seçenekleri"
-msgid "Candidate"
-msgstr "Aday"
-msgid "Candidate change stage option"
-msgstr "Aday aşama değiştirme seçeneği"
-msgid "Candidate management options"
-msgstr "Aday yönetim seçenekleri"
-msgid "Candidate rating option"
-msgstr "Aday puanlama seçeneği"
-msgid "Candidate record"
-msgstr "Aday kaydı"
-msgid "Change Stage"
-msgstr "Aşamayı değiştir"
-msgid "Company"
-msgstr "Şirket"
-msgid "Create Quick Requests"
-msgstr "Hızlı talepler oluştur"
-msgid "Create announcement from dashboard"
-msgstr "Gösterge panelinden duyuru oluştur"
-msgid "Dashboard"
-msgstr "Gösterge paneli"
-msgid "Dashboard Actions"
-msgstr "Gösterge paneli işlemleri"
-msgid "Dashboard Tiles"
-msgstr "Gösterge paneli kutucukları"
-msgid "Filter"
-msgstr "Filtre"
-msgid "Filter Tag"
-msgstr "Filtre etiketi"
-msgid "Filter tag option"
-msgstr "Filtre etiketi seçeneği"
-msgid "Horilla Dashboard Tiles"
-msgstr "Horilla gösterge paneli kutucukları"
-msgid "Horilla Hr Apps. eg Dashboard"
-msgstr "Horilla IK uygulamaları, örn. Gösterge paneli"
-msgid "Horilla dashboard section"
-msgstr "Horilla gösterge paneli bölümü"
-msgid "Language"
-msgstr "Dil"
-msgid "Mark Attendance"
-msgstr "Yoklama işaretle"
-msgid "Multi-Company"
-msgstr "Çoklu şirket"
-msgid "Multi-Company options"
-msgstr "Çoklu şirket seçenekleri"
-msgid "Multi-Language options"
-msgstr "Çoklu dil seçenekleri"
-msgid "New Recruitment"
-msgstr "Yeni işe alım"
-msgid "Notification"
-msgstr "Bildirim"
-msgid "Notifications section"
-msgstr "Bildirimler bölümü"
-msgid "Options"
-msgstr "Seçenekler"
-msgid "Pipeline"
-msgstr "İş hattı"
-msgid "Pipeline filter option"
-msgstr "İş hattı filtre seçeneği"
-msgid "Profile"
-msgstr "Profil"
-msgid "Profile and change password options"
-msgstr "Profil ve şifre değiştirme seçenekleri"
-msgid "Quick Actions"
-msgstr "Hızlı işlemler"
-msgid "Quick Filters"
-msgstr "Hızlı filtreler"
-msgid "Rating"
-msgstr "Puanlama"
-msgid "Recruitment"
-msgstr "İşe alım"
-msgid "Recruitment pipeline management"
-msgstr "İşe alım hattı yönetimi"
-msgid "Recruitment stage"
-msgstr "İşe alım aşaması"
-msgid "Search"
-msgstr "Ara"
-msgid "Search in candidate, recruitment and stage"
-msgstr "Aday, işe alım ve aşamada ara"
-msgid "Selected settings view"
-msgstr "Seçili ayarlar görünümü"
-msgid "Settings"
-msgstr "Ayarlar"
-msgid "Settings Options"
-msgstr "Ayar seçenekleri"
-msgid "Settings View"
-msgstr "Ayarlar görünümü"
-msgid "Settings configurations"
-msgstr "Ayar yapılandırmaları"
-msgid "Settings menu bar"
-msgstr "Ayarlar menü çubuğu"
-msgid "Stage"
-msgstr "Aşama"
-msgid "Toggle View"
-msgstr "Görünümü değiştir"
-msgid "Toggle view type"
-msgstr "Görünüm türünü değiştir"
-msgid "Used to mark your attendance"
-msgstr "Yoklamanızı işaretlemek için kullanılır"
-msgid "Your current company access"
-msgstr "Mevcut şirket erişiminiz"
+#~ msgid "No rows are selected for deleting attendances."
+#~ msgstr "Yoklamaların silinmesi için hiçbir satır seçilmedi."

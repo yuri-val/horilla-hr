@@ -7,6 +7,10 @@
 
     <br>
     <style>
+    .cancel_requested--dot {
+        background-color: #8b5cf6;
+    }
+
         .cancelled--dot{
             background-color:grey;
           }
@@ -25,12 +29,12 @@
             border-radius: 5px 0 0 4px;
 
           }
-         .status-cancelled {
-            border-left: 4px solid grey !important;
-            border-radius: 5px 0 0 4px;
+    .status-cancel_requested {
+        border-left: 4px solid #8b5cf6 !important;
+        border-radius: 5px 0 0 4px;
+    }
 
-          }
-          .status-requested{
+                   .status-requested{
             border-left: 4px solid orange !important;
             border-radius: 5px 0 0 4px;
 
@@ -246,14 +250,20 @@
         $("#LeaveForm [type=submit]").hide();
         var button = `
     <div class="oh-modal__dialog-footer p-0 mt-3">
-      <button id="buttonID" class="oh-btn oh-btn--secondary oh-btn--shadow">{% trans 'Save'|escapejs %}</button>
+      <button type="button" id="buttonID" class="oh-btn oh-btn--secondary oh-btn--shadow">{% trans 'Save'|escapejs %}</button>
     </div>
     `;
         $("#LeaveForm .row").after(button);
 
+    {% if not "recruitment"|app_installed %}
+        $("#buttonID").on("click", function (event) {
+            $("#LeaveForm [type=submit]").click();
+        });
+    {% endif %}
+
     {% if "recruitment"|app_installed %}
         $(document).ready(function () {
-            $("#buttonID").on("click", function () {
+            $("#buttonID").on("click", function (event) {
                 event.preventDefault();
                 event.stopPropagation();
                 var startDate = $("#LeaveForm [name = start_date]").val();

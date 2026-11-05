@@ -3,16 +3,6 @@
 <div class="flex items-center gap-2 flex-wrap">
     {% if perms.base.change_holidays %}
         <a
-            hx-get="{% url 'holiday-update' instance.id %}?{{pd}}"
-            hx-target="#genericModalBody"
-            data-toggle="oh-modal-toggle"
-            data-target="#genericModal"
-            class="oh-btn oh-btn--light-bkg oh-btn--secondary w-24 px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300"
-        >
-            <ion-icon name="create-outline"></ion-icon>
-            {% trans 'Edit' %}
-        </a>
-        <a
             hx-get="{% url 'duplicate-holiday' instance.id %}?{{pd}}"
             hx-target="#genericModalBody"
             data-toggle="oh-modal-toggle"
@@ -21,6 +11,16 @@
         >
             <ion-icon name="copy-outline"></ion-icon>
             {% trans 'Duplicate' %}
+        </a>
+        <a
+            hx-get="{% url 'holiday-update' instance.id %}?{{pd}}"
+            hx-target="#genericModalBody"
+            data-toggle="oh-modal-toggle"
+            data-target="#genericModal"
+            class="oh-btn oh-btn--light-bkg w-24 px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300"
+        >
+            <ion-icon name="create-outline"></ion-icon>
+            {% trans 'Edit' %}
         </a>
     {% endif %}
 

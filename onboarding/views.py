@@ -33,6 +33,7 @@ from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils.translation import gettext as __
 from django.utils.translation import gettext_lazy as _
+from django.utils.translation import gettext_noop
 from django.views.decorators.http import require_http_methods, require_POST
 
 from base.backends import ConfiguredEmailBackend
@@ -50,6 +51,7 @@ from horilla import settings
 from horilla.decorators import hx_request_required, login_required, permission_required
 from horilla.group_by import group_by_queryset as general_group_by
 from horilla.http.response import HorillaRedirect
+from horilla.methods import get_session_key
 from horilla_auth.models import HorillaUser
 from horilla_documents.models import Document
 from notifications.signals import notify
@@ -131,11 +133,7 @@ def stage_save(form, recruitment, request, rec_id):
     notify.send(
         request.user.employee_get,
         recipient=users,
-        verb="You are chosen as onboarding stage manager",
-        verb_ar="لقد تم اختيارك كمدير مرحلة التدريب.",
-        verb_de="Sie wurden als Onboarding-Stage-Manager ausgewählt.",
-        verb_es="Ha sido seleccionado/a como responsable de etapa de incorporación.",
-        verb_fr="Vous avez été choisi(e) en tant que responsable de l'étape d'intégration.",
+        verb=gettext_noop("You are chosen as onboarding stage manager"),
         icon="people-circle",
         redirect=reverse("onboarding-view"),
     )
@@ -177,11 +175,7 @@ def stage_update(request, stage_id, recruitment_id):
             notify.send(
                 request.user.employee_get,
                 recipient=users,
-                verb="You are chosen as onboarding stage manager",
-                verb_ar="لقد تم اختيارك كمدير مرحلة التدريب.",
-                verb_de="Sie wurden als Onboarding-Stage-Manager ausgewählt.",
-                verb_es="Ha sido seleccionado/a como responsable de etapa de incorporación.",
-                verb_fr="Vous avez été choisi(e) en tant que responsable de l'étape d'intégration.",
+                verb=gettext_noop("You are chosen as onboarding stage manager"),
                 icon="people-circle",
                 redirect=reverse("onboarding-view"),
             )
@@ -322,11 +316,7 @@ def task_creation(request):
             notify.send(
                 request.user.employee_get,
                 recipient=users,
-                verb="You are chosen as an onboarding task manager",
-                verb_ar="لقد تم اختيارك كمدير مهام التدريب.",
-                verb_de="Sie wurden als Onboarding-Aufgabenmanager ausgewählt.",
-                verb_es="Ha sido seleccionado/a como responsable de tareas de incorporación.",
-                verb_fr="Vous avez été choisi(e) en tant que responsable des tâches d'intégration.",
+                verb=gettext_noop("You are chosen as an onboarding task manager"),
                 icon="people-circle",
                 redirect=reverse("onboarding-view"),
             )
@@ -374,11 +364,7 @@ def task_update(
             notify.send(
                 request.user.employee_get,
                 recipient=users,
-                verb="You are chosen as an onboarding task manager",
-                verb_ar="لقد تم اختيارك كمدير مهام التدريب.",
-                verb_de="Sie wurden als Onboarding-Aufgabenmanager ausgewählt.",
-                verb_es="Ha sido seleccionado/a como responsable de tareas de incorporación.",
-                verb_fr="Vous avez été choisi(e) en tant que responsable des tâches d'intégration.",
+                verb=gettext_noop("You are chosen as an onboarding task manager"),
                 icon="people-circle",
                 redirect=reverse("onboarding-view"),
             )
@@ -1148,32 +1134,29 @@ def user_creation(request, token):
     GET : return user creation form template
     POST : return user_save function
     """
+    onboarding_portal = OnboardingPortal.objects.filter(token=token).first()
+    if not onboarding_portal or onboarding_portal.used is True:
+        return render(request, "404.html")
+    if onboarding_portal.count == 3:
+        return redirect("employee-bank-details", token)
+    candidate = onboarding_portal.candidate_id
+    user = HorillaUser.objects.filter(username=candidate.email).first()
+    form = UserCreationForm(instance=user)
     try:
-        onboarding_portal = OnboardingPortal.objects.get(token=token)
-        if not onboarding_portal or onboarding_portal.used is True:
-            return render(request, "404.html")
-        if onboarding_portal.count == 3:
-            return redirect("employee-bank-details", token)
-        candidate = onboarding_portal.candidate_id
-        user = HorillaUser.objects.filter(username=candidate.email).first()
-        form = UserCreationForm(instance=user)
-        try:
-            if request.method == "POST":
-                form = UserCreationForm(request.POST, instance=user)
-                if form.is_valid():
-                    return user_save(form, onboarding_portal, request, token)
-        except Exception:
-            messages.error(request, _("User with email-id already exists.."))
-        return render(
-            request,
-            "onboarding/user_creation.html",
-            {
-                "form": form,
-                "company": onboarding_portal.candidate_id.recruitment_id.company_id,
-            },
-        )
-    except Exception as error:
-        return HttpResponse(error)
+        if request.method == "POST":
+            form = UserCreationForm(request.POST, instance=user)
+            if form.is_valid():
+                return user_save(form, onboarding_portal, request, token)
+    except Exception:
+        messages.error(request, _("User with email-id already exists.."))
+    return render(
+        request,
+        "onboarding/user_creation.html",
+        {
+            "form": form,
+            "company": onboarding_portal.candidate_id.recruitment_id.company_id,
+        },
+    )
 
 
 def user_save(form, onboarding_portal, request, token):
@@ -1190,7 +1173,7 @@ def user_save(form, onboarding_portal, request, token):
     """
     user = form.save(commit=False)
     user.username = onboarding_portal.candidate_id.email
-    session_key = request.session.session_key
+    session_key = get_session_key(request)
     portal_user[session_key] = user
     onboarding_portal.count = 1
     onboarding_portal.save()
@@ -1257,7 +1240,7 @@ def employee_creation(request, token):
         "address": candidate.address,
         "dob": candidate.dob,
     }
-    session_key = request.session.session_key
+    session_key = get_session_key(request)
     user = portal_user.get(session_key)
     if user is None:
         # Fallback for direct/opened links where in-memory portal state is absent.
@@ -1310,6 +1293,12 @@ def employee_creation(request, token):
                 return redirect("user-creation", token)
             if not getattr(user, "pk", None):
                 user.save()
+            # This user was constructed directly from the portal's account-creation
+            # form, never through authenticate(), so it has no `.backend` attribute.
+            # login() requires one whenever more than one AUTHENTICATION_BACKENDS is
+            # configured (always true here -- see horilla/settings/base.py) and
+            # otherwise raises ValueError, hard-crashing the final onboarding step.
+            user.backend = "base.auth_backends.CompanyScopedBackend"
             login(request, user)
             employee_personal_info = form.save(commit=False)
             employee_personal_info.employee_user_id = user
@@ -1324,6 +1313,9 @@ def employee_creation(request, token):
 
             employee_personal_info.is_from_onboarding = True
             employee_personal_info.save()
+
+            candidate.converted_employee_id = employee_personal_info
+            candidate.save()
 
             EmployeeWorkInformation.objects.update_or_create(
                 employee_id=employee_personal_info,
@@ -1415,11 +1407,11 @@ def employee_bank_details_save(form, request, onboarding_portal):
     GET : return welcome onboard view
     """
     employee_bank_detail = form.save(commit=False)
-    employee = Employee.objects.get(employee_user_id=request.user)
-    employee_bank_detail.employee_id = employee
     candidate = onboarding_portal.candidate_id
-    candidate.converted_employee_id = employee
-    candidate.save()
+    employee = candidate.converted_employee_id or Employee.objects.get(
+        employee_user_id__username=candidate.email
+    )
+    employee_bank_detail.employee_id = employee
     employee_bank_detail.save()
     onboarding_portal.count = 4
     onboarding_portal.used = True
@@ -1475,12 +1467,14 @@ def candidate_task_update(request, taskId):
     notify.send(
         request.user.employee_get,
         recipient=users,
-        verb=f"The task {candidate_task.onboarding_task_id} of\
-            {candidate_task.candidate_id} was updated to {candidate_task.status}.",
-        verb_ar=f"تم تحديث المهمة {candidate_task.onboarding_task_id} للمرشح {candidate_task.candidate_id} إلى {candidate_task.status}.",
-        verb_de=f"Die Aufgabe {candidate_task.onboarding_task_id} des Kandidaten {candidate_task.candidate_id} wurde auf {candidate_task.status} aktualisiert.",
-        verb_es=f"La tarea {candidate_task.onboarding_task_id} del candidato {candidate_task.candidate_id} se ha actualizado a {candidate_task.status}.",
-        verb_fr=f"La tâche {candidate_task.onboarding_task_id} du candidat {candidate_task.candidate_id} a été mise à jour à {candidate_task.status}.",
+        verb=gettext_noop(
+            "The task %(onboarding_task_id)s of %(candidate_id)s was updated to %(status)s."
+        ),
+        verb_params={
+            "onboarding_task_id": str(candidate_task.onboarding_task_id),
+            "candidate_id": str(candidate_task.candidate_id),
+            "status": str(candidate_task.status),
+        },
         icon="people-circle",
         redirect=reverse("onboarding-view"),
     )
@@ -1610,12 +1604,13 @@ def candidate_stage_update(request, candidate_id, recruitment_id):
         notify.send(
             request.user.employee_get,
             recipient=users,
-            verb=f"The stage of {candidate_stage.candidate_id} \
-                was updated to {candidate_stage.onboarding_stage_id}.",
-            verb_ar=f"تم تحديث مرحلة المرشح {candidate_stage.candidate_id} إلى {candidate_stage.onboarding_stage_id}.",
-            verb_de=f"Die Phase des Kandidaten {candidate_stage.candidate_id} wurde auf {candidate_stage.onboarding_stage_id} aktualisiert.",
-            verb_es=f"La etapa del candidato {candidate_stage.candidate_id} se ha actualizado a {candidate_stage.onboarding_stage_id}.",
-            verb_fr=f"L'étape du candidat {candidate_stage.candidate_id} a été mise à jour à {candidate_stage.onboarding_stage_id}.",
+            verb=gettext_noop(
+                "The stage of %(candidate_id)s was updated to %(onboarding_stage_id)s."
+            ),
+            verb_params={
+                "candidate_id": str(candidate_stage.candidate_id),
+                "onboarding_stage_id": str(candidate_stage.onboarding_stage_id),
+            },
             icon="people-circle",
             redirect=reverse("onboarding-view"),
         )
@@ -1732,7 +1727,7 @@ def onboard_candidate_chart(request):
 
 
 @login_required
-@permission_required("candidate.change_candidate")
+@permission_required("recruitment.change_candidate")
 @require_POST
 def update_joining(request):
     """
@@ -1759,13 +1754,23 @@ def update_joining(request):
 
     candidate_obj.joining_date = date_value
     candidate_obj.save()
+    candidate_obj.refresh_from_db()
     messages.success(
         request,
         _("{candidate}'s Date of joining updated successfully").format(
             candidate=candidate_obj.name
         ),
     )
-    return JsonResponse({"type": "success"})
+    return JsonResponse(
+        {
+            "type": "success",
+            "probation_end": (
+                candidate_obj.probation_end.isoformat()
+                if candidate_obj.probation_end
+                else ""
+            ),
+        }
+    )
 
 
 @login_required
@@ -2017,9 +2022,42 @@ def candidate_tasks_status(request):
     )
 
 
+def is_own_onboarding_task(request, candidate_task):
+    """
+    function used to check whether a candidate task belongs to the requesting employee.
+
+    Parameters:
+    request (HttpRequest): The HTTP request object.
+    candidate_task : CandidateTask object.
+
+    Returns:
+    bool : True if the task's candidate was converted into the requesting user's employee.
+    """
+    employee = candidate_task.candidate_id.converted_employee_id
+    return bool(employee and employee.employee_user_id == request.user)
+
+
 @login_required
-@all_manager_can_enter("onboarding.change_candidatetask")
 def change_task_status(request):
+    """
+    function used to update the status of a candidate task, allowed for the
+    task's own employee and for onboarding managers.
+
+    Parameters:
+    request (HttpRequest): The HTTP request object.
+
+    Returns:
+    HttpResponse : script reloading the task list.
+    """
+    candidate_task = CandidateTask.find(request.GET.get("task_id"))
+    if candidate_task and is_own_onboarding_task(request, candidate_task):
+        return apply_task_status(request)
+    return all_manager_can_enter("onboarding.change_candidatetask")(apply_task_status)(
+        request
+    )
+
+
+def apply_task_status(request):
     """
     This method is to update the candidate task
     """

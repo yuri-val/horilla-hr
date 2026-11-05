@@ -12,9 +12,14 @@ from django.urls import reverse, reverse_lazy
 from django.utils.decorators import method_decorator
 from django.utils.text import format_lazy
 from django.utils.translation import gettext_lazy as _
+from django.utils.translation import gettext_noop
 
 from employee.models import Employee
-from horilla_views.cbv_methods import login_required, permission_required
+from horilla_views.cbv_methods import (
+    EmployeeScopeMixin,
+    login_required,
+    permission_required,
+)
 from horilla_views.generic.cbv.views import (
     HorillaCardView,
     HorillaDetailedView,
@@ -25,9 +30,19 @@ from horilla_views.generic.cbv.views import (
 )
 from leave.filters import LeaveTypeFilter
 from leave.forms import AssignLeaveForm, LeaveOneAssignForm
-from leave.models import AvailableLeave, LeaveType
+from leave.models import AvailableLeave, LeaveGeneralSetting, LeaveType
 from leave.services import evaluate_leave_type_conditions
 from notifications.signals import notify
+
+
+def _exclude_disabled_compensatory_leave(queryset):
+    """Hide the Compensatory Leave type unless the feature is actually
+    enabled.
+    """
+    setting = LeaveGeneralSetting.objects.first()
+    if setting and setting.compensatory_leave:
+        return queryset
+    return queryset.exclude(is_compensatory_leave=True)
 
 
 @method_decorator(login_required, name="dispatch")
@@ -57,6 +72,15 @@ class LeaveTypeListView(HorillaListView):
 
     filter_class = LeaveTypeFilter
     model = LeaveType
+
+    def get_queryset(self, queryset=None, filtered=False, *args, **kwargs):
+        # Same signature as HorillaListView.get_queryset: subclasses (e.g. the
+        # employee Allocations "Add types" list) call it with extra arguments.
+        queryset = super().get_queryset(queryset, filtered, *args, **kwargs)
+        # Assigned back so callers that read self.queryset afterwards (like
+        # LeaveTypeAllocationList) also get the filtered queryset.
+        self.queryset = _exclude_disabled_compensatory_leave(queryset)
+        return self.queryset
 
     columns = [
         (_("Leave Type"), "name", "get_avatar"),
@@ -126,32 +150,21 @@ class LeaveTypeNavView(HorillaNavView):
         super().__init__(**kwargs)
         self.search_url = reverse("leave-type-list")
         if self.request.user.has_perm("leave.add_leavetype"):
+            # Previous (full page) workflow:
+            # self.create_attrs = f"""
+            #                         href="#"
+            #                         hx-get="{reverse_lazy('type-creation')}"
+            #                         hx-target="#ohMainContent"
+            #                         hx-select="#ohMainContent"
+            #                         hx-push-url="true"
+            #                         hx-swap="outerHTML"
+            #                     """
             self.create_attrs = f"""
-                                    href="#"
+                                    data-toggle="oh-modal-toggle"
+                                    data-target="#objectCreateModal"
                                     hx-get="{reverse_lazy('type-creation')}"
-                                    hx-target="#ohMainContent"
-                                    hx-select="#ohMainContent"
-                                    hx-push-url="true"
-                                    hx-swap="outerHTML"
+                                    hx-target="#objectCreateModalTarget"
                                 """
-            self.view_types = [
-                {
-                    "type": "list",
-                    "icon": "list-outline",
-                    "url": reverse("leave-type-list"),
-                    "attrs": f"""
-                            title='{_("List")}'
-                            """,
-                },
-                {
-                    "type": "card",
-                    "icon": "grid-outline",
-                    "url": reverse("leave-type-card-view"),
-                    "attrs": f"""
-                            title='{_("Card")}'
-                            """,
-                },
-            ]
 
     nav_title = _("Leave Types")
     filter_body_template = "cbv/leave_types/leave_type_filter.html"
@@ -189,7 +202,7 @@ class LeaveTypeDetailView(HorillaDetailedView):
         (_("Require Attachment"), "require_attachment"),
         (_("Exclude company Leaves"), "exclude_company_leave"),
         (_("Exclude Holidays"), "exclude_holiday"),
-        (_("Is Encashable"), "encashable"),
+        (_("Encashable"), "encashable"),
         (_("Conditions"), "conditions_display"),
     ]
     action_method = "detail_view_actions"
@@ -256,6 +269,9 @@ class LeaveTypeCardView(HorillaCardView):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.search_url = reverse("leave-type-card-view")
+
+    def get_queryset(self):
+        return _exclude_disabled_compensatory_leave(super().get_queryset())
 
     details = {
         "image_src": "get_avatar",
@@ -338,10 +354,20 @@ class LeaveTypeCardView(HorillaCardView):
 
 @method_decorator(login_required, name="dispatch")
 @method_decorator(permission_required(perm="leave.view_leavetype"), name="dispatch")
-class LeaveTypeAssignForm(HorillaFormView):
+class LeaveTypeAssignForm(EmployeeScopeMixin, HorillaFormView):
     """
     form view
     """
+
+    # Seeing the leave types page is not the right to give someone a leave
+    # balance. The employees named in the POST must be the caller's reports
+    # unless they hold the permission to assign leave to anyone. The pk here
+    # is a leave type, not an employee, so it is not used for the check.
+    scope_perm = "leave.add_availableleave"
+    scope_instance_field = None
+
+    def get_scope_perm(self):
+        return self.scope_perm
 
     form_class = LeaveOneAssignForm
     model = LeaveType
@@ -412,11 +438,9 @@ class LeaveTypeAssignForm(HorillaFormView):
                                 notify.send(
                                     self.request.user.employee_get,
                                     recipient=employee.employee_user_id,
-                                    verb="New leave type is assigned to you",
-                                    verb_ar="تم تعيين نوع إجازة جديد لك",
-                                    verb_de="Ihnen wurde ein neuer Urlaubstyp zugewiesen",
-                                    verb_es="Se le ha asignado un nuevo tipo de permiso",
-                                    verb_fr="Un nouveau type de congé vous a été attribué",
+                                    verb=gettext_noop(
+                                        "New leave type is assigned to you"
+                                    ),
                                     icon="people-circle",
                                     redirect=reverse("user-request-view"),
                                 )
@@ -428,7 +452,7 @@ class LeaveTypeAssignForm(HorillaFormView):
                 else:
                     messages.info(
                         self.request,
-                        _("Compensatory leave type cant assigned manually"),
+                        _("Compensatory leave type can't assigned manually"),
                     )
 
             return self.HttpResponse()

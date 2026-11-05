@@ -1,6 +1,7 @@
 from django.contrib.auth.models import Group
 from django.urls import path, re_path
 from django.utils.translation import gettext_lazy as _
+from django.views.generic import RedirectView
 
 from base import announcement
 from base import dashboard as dashboard_module
@@ -68,14 +69,19 @@ urlpatterns = [
     path("", views.home, name="home-page"),
     path("dashboard/", dashboard_module.main_dashboard_view, name="dashboard"),
     path(
+        "dashboard/api/ticket-priority/",
+        dashboard_module.dashboard_ticket_priority,
+        name="dashboard-ticket-priority",
+    ),
+    path(
+        "dashboard/api/overdue-tickets/",
+        dashboard_module.dashboard_overdue_tickets,
+        name="dashboard-overdue-tickets",
+    ),
+    path(
         "dashboard/api/kpi/",
         dashboard_module.dashboard_kpi_data,
         name="dashboard-kpi-data",
-    ),
-    path(
-        "dashboard/api/attendance-trend/",
-        dashboard_module.dashboard_attendance_trend,
-        name="dashboard-attendance-trend",
     ),
     path(
         "dashboard/api/leave-breakdown/",
@@ -98,39 +104,9 @@ urlpatterns = [
         name="dashboard-announcements",
     ),
     path(
-        "dashboard/api/announcements/<int:pk>/",
-        dashboard_module.dashboard_announcement_detail,
-        name="dashboard-announcement-detail",
-    ),
-    path(
-        "dashboard/api/todays-leave/",
-        dashboard_module.dashboard_todays_leave,
-        name="dashboard-todays-leave",
-    ),
-    path(
-        "dashboard/api/leave-coverage/",
-        dashboard_module.dashboard_leave_coverage,
-        name="dashboard-leave-coverage",
-    ),
-    path(
-        "dashboard/api/upcoming-holidays/",
-        dashboard_module.dashboard_upcoming_holidays,
-        name="dashboard-upcoming-holidays",
-    ),
-    path(
         "dashboard/api/birthdays-anniversaries/",
         dashboard_module.dashboard_birthdays_anniversaries,
         name="dashboard-birthdays-anniversaries",
-    ),
-    path(
-        "dashboard/api/recruitment-pipeline/",
-        dashboard_module.dashboard_recruitment_pipeline,
-        name="dashboard-recruitment-pipeline",
-    ),
-    path(
-        "dashboard/api/payroll-summary/",
-        dashboard_module.dashboard_payroll_summary,
-        name="dashboard-payroll-summary",
     ),
     path(
         "dashboard/api/pending-approvals/",
@@ -143,34 +119,14 @@ urlpatterns = [
         name="dashboard-turnover",
     ),
     path(
-        "dashboard/api/employee-status/",
-        dashboard_module.dashboard_employee_status,
-        name="dashboard-employee-status",
-    ),
-    path(
         "dashboard/api/attendance-overview/",
         dashboard_module.dashboard_attendance_overview,
         name="dashboard-attendance-overview",
     ),
     path(
-        "dashboard/api/department-overtime/",
-        dashboard_module.dashboard_department_overtime,
-        name="dashboard-department-overtime",
-    ),
-    path(
         "dashboard/api/leave-trends/",
         dashboard_module.dashboard_leave_trends,
         name="dashboard-leave-trends",
-    ),
-    path(
-        "dashboard/api/leave-by-department/",
-        dashboard_module.dashboard_leave_by_department,
-        name="dashboard-leave-by-department",
-    ),
-    path(
-        "dashboard/api/department-leave-days/",
-        dashboard_module.dashboard_department_leave_days,
-        name="dashboard-department-leave-days",
     ),
     path(
         "dashboard/api/hiring-timeline/",
@@ -188,46 +144,60 @@ urlpatterns = [
         name="dashboard-save-prefs",
     ),
     path(
-        "dashboard/load-prefs/",
-        dashboard_module.load_dashboard_prefs,
-        name="dashboard-load-prefs",
-    ),
-    path(
         "dashboard/dismiss-setup-checklist/",
         dashboard_module.dismiss_setup_checklist,
         name="dashboard-dismiss-setup-checklist",
     ),
     # ── ESS Dashboard ──────────────────────────────────────────────────────────
-    path("ess/", ess_dashboard.ess_dashboard, name="ess-dashboard"),
-    path("ess/api/kpi/", ess_dashboard.ess_kpi_data, name="ess-kpi-data"),
+    path("my-dashboard/", ess_dashboard.ess_dashboard, name="ess-dashboard"),
+    # Old bookmarks of the My Dashboard page
+    path("ess/", RedirectView.as_view(pattern_name="ess-dashboard")),
+    path("my-dashboard/api/kpi/", ess_dashboard.ess_kpi_data, name="ess-kpi-data"),
     path(
-        "ess/api/leave-balance/",
+        "my-dashboard/api/leave-balance/",
         ess_dashboard.ess_leave_balance,
         name="ess-leave-balance",
     ),
     path(
-        "ess/api/leave-requests/",
+        "my-dashboard/api/leave-requests/",
         ess_dashboard.ess_leave_requests,
         name="ess-leave-requests",
     ),
     path(
-        "ess/api/attendance-calendar/",
+        "my-dashboard/api/monthly-summary/",
+        ess_dashboard.ess_monthly_summary,
+        name="ess-monthly-summary",
+    ),
+    path(
+        "my-dashboard/api/attendance-calendar/",
         ess_dashboard.ess_attendance_calendar,
         name="ess-attendance-calendar",
     ),
     path(
-        "ess/api/work-hours-week/",
-        ess_dashboard.ess_work_hours_week,
-        name="ess-work-hours-week",
+        "my-dashboard/api/work-hours-month/",
+        ess_dashboard.ess_work_hours_month,
+        name="ess-work-hours-month",
     ),
-    path("ess/api/payslips/", ess_dashboard.ess_payslips, name="ess-payslips"),
-    path("ess/api/objectives/", ess_dashboard.ess_objectives, name="ess-objectives"),
+    path("my-dashboard/api/payslips/", ess_dashboard.ess_payslips, name="ess-payslips"),
     path(
-        "ess/api/announcements/",
+        "my-dashboard/api/objectives/",
+        ess_dashboard.ess_objectives,
+        name="ess-objectives",
+    ),
+    path(
+        "my-dashboard/api/announcements/",
         ess_dashboard.ess_announcements,
         name="ess-announcements",
     ),
-    path("ess/api/upcoming/", ess_dashboard.ess_upcoming, name="ess-upcoming"),
+    path("my-dashboard/api/upcoming/", ess_dashboard.ess_upcoming, name="ess-upcoming"),
+    path(
+        "my-dashboard/api/birthdays/", ess_dashboard.ess_birthdays, name="ess-birthdays"
+    ),
+    path(
+        "my-dashboard/api/interviews/",
+        ess_dashboard.ess_interviews,
+        name="ess-interviews",
+    ),
     path(
         "employee/work-type-request-view/",
         work_type_request.WorkRequestView.as_view(),
@@ -1921,14 +1891,9 @@ urlpatterns = [
         name="get-upcoming-holidays",
     ),
     path(
-        "duplicate-holiday/<int:obj_id>/",
-        views.object_duplicate,
+        "duplicate-holiday/<int:pk>/",
+        holidays.HolidayDuplicateFormView.as_view(),
         name="duplicate-holiday",
-        kwargs={
-            "model": Holidays,
-            "form": HolidayForm,
-            "template": "holiday/holiday_form.html",
-        },
     ),
     path("holiday-delete/<int:obj_id>/", views.holiday_delete, name="holiday-delete"),
     path(
@@ -2002,8 +1967,23 @@ urlpatterns = [
     # path("view-penalties", views.view_penalties, name="view-penalties"),
     path("view-penalties/", penalty.ViewPenaltyList.as_view(), name="view-penalties"),
     path(
+        "penalty-records-list/",
+        penalty.PenaltyRecordsList.as_view(),
+        name="penalty-records-list",
+    ),
+    path(
+        "penalty-records-nav/",
+        penalty.PenaltyRecordsNav.as_view(),
+        name="penalty-records-nav",
+    ),
+    path(
+        "penalty-records-create/",
+        penalty.PenaltyRecordsFormView.as_view(),
+        name="penalty-records-create",
+    ),
+    path(
         "delete-penalties/<int:penalty_id>/",
-        views.delete_penalities,
+        views.delete_penalties,
         name="delete-penalties",
     ),
     path(

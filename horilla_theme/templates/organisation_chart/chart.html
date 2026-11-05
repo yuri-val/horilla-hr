@@ -563,25 +563,25 @@
 
     // Auto-expand tree to specified depth on initial load
     function autoExpandLevels(depth) {
-    	const tree = document.querySelector(".genealogy-tree");
-    	if (!tree) return;
+    	const rootUl = document.querySelector(".genealogy-tree > ul");
+    	if (!rootUl) return;
 
-    	function expandToDepth(element, currentDepth, maxDepth) {
-    		if (currentDepth >= maxDepth) return;
+    	function expandToDepth(ul, currentDepth) {
+    		if (currentDepth >= depth) return;
 
-    		const childUls = Array.from(element.querySelectorAll(":scope > li > ul"));
-    		childUls.forEach(ul => {
-    			$(ul).addClass("active").show();
-    			const parentLi = ul.closest("li");
-    			const toggle = parentLi.querySelector(".expand-toggle");
+    		Array.from(ul.children).forEach(li => {
+    			const childUl = li.querySelector(":scope > ul");
+    			if (!childUl) return;
+    			$(childUl).addClass("active").show();
+    			const toggle = li.querySelector(":scope > a .expand-toggle");
     			if (toggle) {
     				$(toggle).addClass("upArrow");
     			}
-    			expandToDepth(ul, currentDepth + 1, maxDepth);
+    			expandToDepth(childUl, currentDepth + 1);
     		});
     	}
 
-    	expandToDepth(tree, 0, depth);
+    	expandToDepth(rootUl, 0);
     }
 
     // Setup tree expand/collapse behavior
@@ -589,7 +589,7 @@
     	$(".genealogy-tree ul").hide();
     	$(".genealogy-tree > ul").show();
     	$(".genealogy-tree ul.active").show();
-    	autoExpandLevels(3);
+    	autoExpandLevels(1);
 
     	$(".genealogy-tree li").each(function () {
     		if ($(this).children("ul").length) {

@@ -1,0 +1,1080 @@
+{% load i18n %}
+{% comment %}
+The attendance calendar modal, and the conflict resolution it hosts.
+
+Lifted out of monthly_summary/table_partial.html so the payroll run review can
+open the same thing. Regularising a conflict is the fix for the one problem
+that blocks a payroll run, and sending someone to another screen to do it --
+then back, to run the review again -- is the sort of round trip that gets
+skipped.
+
+The JavaScript has to live here rather than in calendar_modal.html because
+scripts inserted through innerHTML do not execute; the modal's cells call these
+functions by name. Context (employee, dates, resolve URL) is read from the
+#cal-data element the modal template injects.
+
+Include this once per page, then call:
+
+    window.openAttendanceCalendar(url)
+
+where url is `attendance-monthly-summary-calendar` with employee_id, from_date
+and to_date.
+{% endcomment %}
+<style>
+@keyframes ms-spin { to { transform: rotate(360deg); } }
+</style>
+
+<!-- â"€â"€ Calendar modal overlay â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€ -->
+<div id="cal-modal-overlay"
+     style="display:none;position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,.45);
+            align-items:center;justify-content:center;">
+  <div id="cal-modal-inner"
+       style="background:#fff;border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.25);
+              width:min(96vw,1240px);max-height:94vh;overflow:hidden;display:flex;
+              flex-direction:column;position:relative;">
+    <button id="cal-modal-close"
+            onclick="document.getElementById('cal-modal-overlay').style.display='none'"
+            style="position:absolute;top:10px;right:12px;background:none;border:none;
+                   color:#6c757d;cursor:pointer;z-index:1;padding:4px;border-radius:6px;
+                   display:flex;align-items:center;justify-content:center;
+                   transition:background .15s,color .15s;"
+            onmouseenter="this.style.background='#f1f5f9';this.style.color='#374151';"
+            onmouseleave="this.style.background='none';this.style.color='#6c757d';">
+      <ion-icon name="close-outline" style="font-size:1.4rem;pointer-events:none;"></ion-icon>
+    </button>
+    <div id="cal-modal-content" style="display:flex;flex-direction:column;overflow:hidden;flex:1;min-height:0;"></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var overlay = document.getElementById('cal-modal-overlay');
+  var content = document.getElementById('cal-modal-content');
+
+  // Set when a resolution is saved. When the calendar closes the page is told,
+  // so one that shows the summary (the payroll run review) can refresh itself.
+  var calChanged = false;
+  new MutationObserver(function () {
+    if (overlay.style.display === 'none' && calChanged) {
+      calChanged = false;
+      document.dispatchEvent(new CustomEvent('attendance-calendar-saved'));
+    }
+  }).observe(overlay, { attributes: true, attributeFilter: ['style'] });
+
+  // Close on backdrop click
+  overlay.addEventListener('click', function (e) {
+    if (e.target === overlay) overlay.style.display = 'none';
+  });
+
+  // Close on Escape
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') overlay.style.display = 'none';
+  });
+
+  // ``openDate`` (YYYY-MM-DD): once the calendar is up, open that day's regularise popover.
+  window.openAttendanceCalendar = function (url, openDate) {
+    standalone = false;
+    document.querySelectorAll('[data-standalone]').forEach(function (el) { el.remove(); });
+    // Hide the metric hover popover if visible
+    var pop = document.getElementById('ms-pop');
+    if (pop) pop.style.display = 'none';
+
+    content.innerHTML = '<div style="padding:28px 24px;color:#6c757d;font-size:.85rem;display:flex;align-items:center;gap:10px;">'
+      + '<span style="width:16px;height:16px;border:2px solid #dee2e6;border-top-color:#6366f1;border-radius:50%;display:inline-block;animation:ms-spin .6s linear infinite;flex-shrink:0;"></span>'
+      + ' Loading calendar...</div>';
+
+    overlay.style.display = 'flex';
+
+    fetch(url, { headers: { 'HX-Request': 'true', 'X-Requested-With': 'XMLHttpRequest' } })
+      .then(function (r) { return r.text(); })
+      .then(function (html) {
+        content.innerHTML = html;
+        if (openDate) {
+          setTimeout(function () {
+            var cell = content.querySelector('.cal-cell[data-date="' + openDate + '"]');
+            if (cell && !cell.classList.contains('cal-future')) cell.click();
+          }, 80);
+        }
+      })
+      .catch(function () {
+        content.innerHTML = '<p style="padding:24px;color:#dc3545;">Failed to load calendar.</p>';
+      });
+  };
+
+  // ── Day popover on its own (the day-wise grid) ──────────────────────────────
+  // A day cell opens the regularise popover next to it, without the calendar. The popover's
+  // own code reads its context from #cal-data and lives in #cal-resolve-panel, so those two
+  // are made here, marked data-standalone, and removed again when the popover is done.
+  var standalone = false;
+
+  function _standaloneRemove() {
+    document.querySelectorAll('[data-standalone]').forEach(function (el) { el.remove(); });
+  }
+
+  // Called when a save has gone through: tidy up, then tell the page so it can refresh itself.
+  function _standaloneDone() {
+    if (!standalone) return;
+    standalone = false;
+    content.innerHTML = '';
+    window.msCalClosePanel();
+    _standaloneRemove();
+    document.dispatchEvent(new CustomEvent('attendance-calendar-saved'));
+  }
+
+  window.msOpenDayPopover = function (cell) {
+    var table = cell.closest('[data-resolve-url]');
+    if (!table) return;
+    _standaloneRemove();
+    content.innerHTML = '';   // no calendar behind it: only the popover's own elements exist
+    standalone = true;
+
+    var data = document.createElement('div');
+    data.id = 'cal-data';
+    data.dataset.standalone = '1';
+    data.style.display = 'none';
+    data.dataset.emp = cell.dataset.employee;
+    data.dataset.from = cell.dataset.from;
+    data.dataset.to = cell.dataset.to;
+    data.dataset.resolveUrl = table.dataset.resolveUrl;
+    data.dataset.bulkResolveUrl = table.dataset.bulkResolveUrl;
+    data.dataset.calendarUrl = table.dataset.calendarPageUrl;  // not data-calendar-url: that would open the calendar
+    document.body.appendChild(data);
+
+    var panel = document.createElement('div');
+    panel.id = 'cal-resolve-panel';
+    panel.dataset.standalone = '1';
+    document.body.appendChild(panel);
+
+    window.msCalLoadResolve(cell, cell.dataset.date, cell.dataset.conflictType || '', '');
+  };
+
+  document.addEventListener('click', function (e) {
+    var cell = e.target.closest && e.target.closest('[data-day-popover]');
+    if (!cell) return;
+    e.preventDefault();
+    window.msOpenDayPopover(cell);
+  });
+
+  // Row click â†’ open calendar  (metric cell hover still shows popover separately)
+  // Anything carrying data-calendar-url opens it: a summary table row, or the
+  // "Fix attendance" button on the payroll run review. Delegated from the
+  // document so rows swapped in by HTMX are covered without re-binding.
+  document.addEventListener('click', function (e) {
+    var trigger = e.target.closest && e.target.closest('[data-calendar-url]');
+    if (!trigger) return;
+    e.preventDefault();
+    window.openAttendanceCalendar(trigger.dataset.calendarUrl, trigger.dataset.openDate);
+  });
+
+  // â"€â"€ Conflict resolution helpers (called from calendar cell onclick attrs) â"€
+  // NOTE: functions must live here, NOT in calendar_modal.html, because
+  // scripts inside innerHTML do not execute in browsers.
+  // Context (employee, dates, URL) is read from #cal-data injected by the template.
+
+  function _getCalData() {
+    var el = document.getElementById('cal-data');
+    if (!el) return null;
+    return {
+      empId:          el.dataset.emp,
+      fromDate:       el.dataset.from,
+      toDate:         el.dataset.to,
+      resolveUrl:     el.dataset.resolveUrl,
+      bulkResolveUrl: el.dataset.bulkResolveUrl,
+      calendarUrl:    el.dataset.calendarUrl,
+    };
+  }
+
+  function _calSpinner(msg) {
+    return '<div style="padding:14px 20px;font-size:.8rem;color:#92400e;display:flex;align-items:center;gap:8px;">'
+      + '<span style="width:14px;height:14px;border:2px solid #fb923c;border-top-color:#92400e;border-radius:50%;display:inline-block;animation:ms-spin .6s linear infinite;flex-shrink:0;"></span>'
+      + ' ' + (msg || 'Loading...') + '</div>';
+  }
+
+  // Position the popover (position:fixed, viewport-relative) just under the
+  // clicked cell. Fixed rather than absolute so it escapes the overflow:auto
+  // clip on .cal-body / #cal-modal-content — an absolutely-positioned popover
+  // nested inside those gets cut off at their scroll boundary instead of
+  // floating over the rest of the calendar.
+  function _positionResolvePanel(panel, cellEl) {
+    if (!cellEl) return;
+    var modalInner = document.getElementById('cal-modal-inner');
+    // Inside the calendar: its own box. On its own (the day-wise grid): the visible window,
+    // not the document's box, which is as tall as the whole scrolled page.
+    var inner = modalInner ? modalInner.getBoundingClientRect() : null;
+    // The modal's box exists even while the modal is closed, then it measures 0 x 0.
+    var bounds = inner && inner.width > 0
+      ? inner
+      : { left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight };
+    var eRect = cellEl.getBoundingClientRect();
+
+    var panelWidth  = panel.offsetWidth  || 340;
+    var panelHeight = panel.offsetHeight || 160;
+
+    var left = eRect.left;
+    var maxLeft = bounds.right - panelWidth - 8;
+    var minLeft = bounds.left + 8;
+    if (left > maxLeft) left = maxLeft;
+    if (left < minLeft) left = minLeft;
+
+    var top = eRect.bottom + 6;
+    var maxTop = bounds.bottom - panelHeight - 8;
+    if (top > maxTop) {
+      // No room below the cell — flip above it instead.
+      var above = eRect.top - panelHeight - 6;
+      top = above > bounds.top ? above : Math.max(bounds.top + 8, maxTop);
+    }
+
+    panel.style.left = left + 'px';
+    panel.style.top  = top + 'px';
+  }
+
+  // The popover is placed once, at the height it has when it opens. Opening the History
+  // accordion makes it taller, which pushed its bottom off the screen with the scrolling part
+  // out of reach. Re-fit it whenever History is toggled: slide it up just enough to stay in
+  // view, and bring the opened list into sight. "toggle" does not bubble, hence capture.
+  document.addEventListener('toggle', function (e) {
+    var details = e.target;
+    if (!details || !details.matches || !details.matches('.crp-hist')) return;
+    var panel = document.getElementById('cal-resolve-panel');
+    if (!panel || panel.style.display === 'none') return;
+    var rect = panel.getBoundingClientRect();
+    var overflow = rect.bottom - (window.innerHeight - 8);
+    if (overflow > 0) {
+      panel.style.top = Math.max(8, rect.top - overflow) + 'px';
+    }
+    if (details.open && details.scrollIntoView) {
+      details.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+  }, true);
+
+  // Closes the popover (single-day or bulk) and, if a multi-selection is
+  // active, clears it too — used by every close path (outside click, scroll,
+  // the panel's own ✕/Cancel buttons) so none of them can leave the calendar
+  // in a half-closed state (popover gone but cells still highlighted, or
+  // vice versa).
+  window.msCalClosePanel = function () {
+    setTimeout(function () { if (window.msCalSweepTooltips) window.msCalSweepTooltips(); }, 0);
+    var floating = document.getElementById('crp-tip-float');
+    if (floating) floating.remove();
+    if (window._crpDdOpen) window._crpDdOpen();
+    var panel = document.getElementById('cal-resolve-panel');
+    if (panel) {
+      panel.style.display = 'none';
+      panel.innerHTML = '';
+      panel.className = '';
+    }
+    _msCalClearSelection();
+  };
+
+  // Click outside the popover (and not on another day cell, which opens
+  // its own popover) closes it.
+  document.addEventListener('mousedown', function (e) {
+    var panel = document.getElementById('cal-resolve-panel');
+    if (!panel || panel.style.display === 'none' || !panel.innerHTML) return;
+    if (panel.contains(e.target)) return;
+    // The status lists float outside the popover; picking from one is not an outside click.
+    if (e.target.closest && e.target.closest('.crp-dd-list')) return;
+    // Nor is answering a confirmation raised from the popover: closing it here emptied the form
+    // before the save it was confirming could read it.
+    if (e.target.closest && e.target.closest('.swal2-container')) return;
+    if (e.target.closest && e.target.closest('.cal-cell:not(.cal-empty):not(.cal-out-of-range)')) return;
+    window.msCalClosePanel();
+  });
+
+  // Scrolling the calendar (or the modal around it) would leave a
+  // position:fixed popover visually detached from the cell it's anchored to
+  // — close it rather than let it drift. Capture phase: 'scroll' does not
+  // bubble, but capture still reaches descendants' scroll containers.
+  document.addEventListener('scroll', function (e) {
+    var panel = document.getElementById('cal-resolve-panel');
+    if (!panel || panel.style.display === 'none') return;
+    if (panel.contains(e.target)) return;
+    // The status lists float outside the panel: scrolling one is not scrolling the calendar.
+    if (e.target.closest && e.target.closest('.crp-dd-list')) return;
+    window.msCalClosePanel();
+  }, true);
+
+  // ── Multi-select: Ctrl/Cmd-click toggles a day; Shift-click selects the
+  // range between the last click and this one, and moves the reference point
+  // to here — so holding Shift through several clicks grows the selection
+  // segment by segment (day 5 -> day 10, then that click -> day 15, ...)
+  // rather than always re-measuring from wherever Shift was first pressed.
+  // Releasing the modifier key opens the bulk "mark all as" popover.
+  var msCalSelection = new Set();       // Set of 'YYYY-MM-DD' strings
+  var msCalAnchorDate = null;           // reference point for the next shift-click
+  var msCalLastTouchedCell = null;      // for anchoring the bulk popover
+
+  function _msCalAllDayCells() {
+    var body = document.querySelector('.cal-body');
+    if (!body) return [];
+    return Array.prototype.slice.call(
+      body.querySelectorAll('.cal-cell[data-date]:not(.cal-empty):not(.cal-out-of-range)')
+    );
+  }
+
+  function _msCalSetSelected(cellEl, selected) {
+    var d = cellEl.dataset.date;
+    if (!d) return;
+    if (selected) {
+      msCalSelection.add(d);
+      cellEl.classList.add('cal-cell-selected');
+    } else {
+      msCalSelection.delete(d);
+      cellEl.classList.remove('cal-cell-selected');
+    }
+  }
+
+  function _msCalClearSelection() {
+    if (!msCalSelection.size) return;
+    _msCalAllDayCells().forEach(function (c) { c.classList.remove('cal-cell-selected'); });
+    msCalSelection.clear();
+    msCalAnchorDate = null;
+    msCalLastTouchedCell = null;
+  }
+
+  // Adjusting the selection while a popover (single-day or bulk) is open
+  // dismisses it without touching the selection itself — it reopens, for
+  // the new selection, once the modifier key is released.
+  function _msCalHidePanelKeepingSelection() {
+    var panel = document.getElementById('cal-resolve-panel');
+    if (!panel) return;
+    panel.style.display = 'none';
+    panel.innerHTML = '';
+    panel.className = '';
+  }
+
+  function _msCalToggleSelect(cellEl) {
+    _msCalHidePanelKeepingSelection();
+    _msCalSetSelected(cellEl, !msCalSelection.has(cellEl.dataset.date));
+    msCalAnchorDate = cellEl.dataset.date;
+    msCalLastTouchedCell = cellEl;
+  }
+
+  function _msCalRangeSelect(cellEl) {
+    _msCalHidePanelKeepingSelection();
+    var cells = _msCalAllDayCells();
+    var toIdx = cells.indexOf(cellEl);
+    if (toIdx === -1) return;
+    var fromIdx = msCalAnchorDate
+      ? cells.findIndex(function (c) { return c.dataset.date === msCalAnchorDate; })
+      : toIdx;
+    if (fromIdx === -1) fromIdx = toIdx;
+    var lo = Math.min(fromIdx, toIdx), hi = Math.max(fromIdx, toIdx);
+    for (var i = lo; i <= hi; i++) { _msCalSetSelected(cells[i], true); }
+    // The reference point for the NEXT shift-click moves to here, so holding
+    // Shift through a chain of clicks selects each successive segment
+    // (day 5 -> day 10, then that click -> day 15, ...) instead of always
+    // re-measuring the whole span from the very first click.
+    msCalAnchorDate = cellEl.dataset.date;
+    msCalLastTouchedCell = cellEl;
+  }
+
+  window.msCalCellClick = function (e, cellEl, date, conflictType, detail) {
+    var withCtrl  = e && (e.ctrlKey || e.metaKey);
+    var withShift = e && e.shiftKey;
+
+    if (withCtrl)  { _msCalToggleSelect(cellEl); return; }
+    if (withShift) { _msCalRangeSelect(cellEl);  return; }
+
+    // Plain click — a fresh single-day action, so any multi-selection in
+    // progress is abandoned.
+    _msCalClearSelection();
+    msCalLoadResolve(cellEl, date, conflictType, detail);
+  };
+
+  // Only once BOTH Ctrl/Cmd and Shift are released does the bulk popover
+  // appear — while either is still held, the user may still be extending
+  // the selection.
+  document.addEventListener('keyup', function (e) {
+    if (e.key !== 'Control' && e.key !== 'Shift' && e.key !== 'Meta') return;
+    if (e.ctrlKey || e.shiftKey || e.metaKey) return;
+    if (msCalSelection.size > 0) { window.msCalOpenBulkPanel(); }
+  });
+
+  window.msCalOpenBulkPanel = function () {
+    var ctx = _getCalData();
+    if (!ctx || !ctx.bulkResolveUrl) return;
+    var panel = document.getElementById('cal-resolve-panel');
+    if (!panel) return;
+    var anchorCell = msCalLastTouchedCell || document.querySelector('.cal-cell-selected');
+
+    panel.className = '';
+    panel.style.display = 'block';
+    panel.innerHTML = _calSpinner('Loading...');
+    _positionResolvePanel(panel, anchorCell);
+
+    var params = new URLSearchParams();
+    params.set('employee_id', ctx.empId);
+    params.set('from_date', ctx.fromDate);
+    params.set('to_date', ctx.toDate);
+    msCalSelection.forEach(function (d) { params.append('dates', d); });
+
+    fetch(ctx.bulkResolveUrl + '?' + params.toString(), {
+      headers: { 'HX-Request': 'true', 'X-Requested-With': 'XMLHttpRequest' }
+    }).then(function (r) { return r.text(); })
+      .then(function (html) {
+        panel.innerHTML = html;
+        if (typeof htmx !== 'undefined') { htmx.process(panel); }
+        if (window.msCalEnhanceSelects) { window.msCalEnhanceSelects(); }
+        _positionResolvePanel(panel, anchorCell);
+      })
+      .catch(function () { panel.innerHTML = '<p style="padding:12px;color:#dc3545;">Failed to load.</p>'; });
+  };
+
+  // The bulk popover's status choice: a split shows its two halves, as the single day does.
+  window.msCalBulkChoiceChange = function () {
+    var choice = document.getElementById('crpb-choice');
+    var box = document.getElementById('crp-split-box');
+    if (!choice) return;
+    if (box) { box.style.display = choice.value === 'split' ? '' : 'none'; }
+    if (window.msCalSplitPreview) { window.msCalSplitPreview(); }
+    if (window.msCalSyncSelects) { window.msCalSyncSelects(); }
+    if (window.msCalBulkUpdateSave) { window.msCalBulkUpdateSave(); }
+  };
+
+  // Save is on once a status is chosen, or once overtime has been approved: it is then what
+  // refreshes the calendar.
+  window.msCalBulkUpdateSave = function () {
+    var choice = document.getElementById('crpb-choice');
+    var save = document.getElementById('crpb-save');
+    if (!save) return;
+    save.disabled = !(choice && choice.value) && save.dataset.approved !== '1';
+  };
+
+  // Approving overtime does not redraw the calendar: it is sent quietly, the button is turned
+  // off, and the calendar is refreshed by Save (or when the calendar is closed).
+  window.msCalBulkApproveOt = function (btn) {
+    var ctx = _getCalData();
+    if (!ctx || !ctx.bulkResolveUrl || !msCalSelection.size || btn.disabled) return;
+    var label = btn.querySelector('span');
+    var csrf = document.cookie.replace(/(?:(?:^|.*;\s*)csrftoken\s*=\s*([^;]*).*$)|^.*$/, '$1');
+    btn.disabled = true;
+    label.textContent = btn.dataset.approving;
+    var body = new URLSearchParams();
+    body.set('employee_id', ctx.empId);
+    body.set('from_date', ctx.fromDate);
+    body.set('to_date', ctx.toDate);
+    body.set('resolution', 'approve_ot');
+    body.set('quiet', '1');
+    msCalSelection.forEach(function (d) { body.append('dates', d); });
+    fetch(ctx.bulkResolveUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'HX-Request': 'true',
+        'X-Requested-With': 'XMLHttpRequest',
+        'X-CSRFToken': csrf,
+      },
+      body: body.toString(),
+    }).then(function (r) { if (!r.ok) throw new Error('failed'); return r.json(); })
+      .then(function () {
+        label.textContent = btn.dataset.done;
+        calChanged = true;
+        var save = document.getElementById('crpb-save');
+        if (save) { save.dataset.approved = '1'; window.msCalBulkUpdateSave(); }
+      })
+      .catch(function () {
+        btn.disabled = false;
+        label.textContent = 'Approve Overtime';
+      });
+  };
+
+  window.msCalBulkSave = function () {
+    var choice = document.getElementById('crpb-choice');
+    if (!choice) return;
+    // Nothing chosen: overtime was approved, so this only refreshes the calendar.
+    if (!choice.value) { window.msCalBulkResolvePost(''); return; }
+    if (choice.value === 'split') {
+      var a = document.getElementById('crp-split-a');
+      var b = document.getElementById('crp-split-b');
+      if (!a || !b) return;
+      window.msCalBulkResolvePost('split:' + a.value + '+' + b.value);
+    } else {
+      window.msCalBulkResolvePost(choice.value);
+    }
+  };
+
+  window.msCalBulkResolvePost = function (resolution) {
+    var ctx = _getCalData();
+    if (!ctx || !ctx.bulkResolveUrl || !msCalSelection.size) return;
+
+    var csrf = document.cookie.replace(/(?:(?:^|.*;\s*)csrftoken\s*=\s*([^;]*).*$)|^.*$/, '$1');
+
+    content.innerHTML = '<div style="padding:28px 24px;color:#6c757d;font-size:.85rem;display:flex;align-items:center;gap:10px;">'
+      + '<span style="width:16px;height:16px;border:2px solid #dee2e6;border-top-color:#6366f1;border-radius:50%;display:inline-block;animation:ms-spin .6s linear infinite;flex-shrink:0;"></span>'
+      + ' Saving and refreshing...</div>';
+
+    var body = new URLSearchParams();
+    body.set('employee_id', ctx.empId);
+    body.set('from_date', ctx.fromDate);
+    body.set('to_date', ctx.toDate);
+    body.set('resolution', resolution);
+    msCalSelection.forEach(function (d) { body.append('dates', d); });
+
+    // The DOM this Set/anchor pointed at is about to be replaced wholesale
+    // by the fresh calendar render below, so reset the selection state now
+    // rather than leave it referencing detached elements.
+    msCalSelection = new Set();
+    msCalAnchorDate = null;
+    msCalLastTouchedCell = null;
+
+    fetch(ctx.bulkResolveUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'HX-Request': 'true',
+        'X-Requested-With': 'XMLHttpRequest',
+        'X-CSRFToken': csrf,
+      },
+      body: body.toString(),
+    }).then(function (r) { return r.text(); })
+      .then(function (html) { content.innerHTML = html; calChanged = true; _standaloneDone(); })
+      .catch(function () {
+        content.innerHTML = '<p style="padding:24px;color:#dc3545;">Failed to save.</p>';
+      });
+  };
+
+  window.msCalLoadResolve = function (cellEl, date, conflictType, detail) {
+    var ctx = _getCalData();
+    if (!ctx) return;
+    var panel = document.getElementById('cal-resolve-panel');
+    if (!panel) return;
+
+    // Apply visual theme based on conflict type
+    panel.className = '';
+    if (conflictType === 'paid_leave' || conflictType === 'unpaid_leave') {
+      panel.className = 'panel-conflict';
+    } else if (conflictType === 'holiday_ot' || conflictType === 'week_off_ot') {
+      panel.className = 'panel-ot';
+    }
+
+    panel.style.display = 'block';
+    panel.innerHTML = _calSpinner('Loading...');
+    if (cellEl && cellEl.scrollIntoView) {
+      cellEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+    _positionResolvePanel(panel, cellEl);
+
+    var params = new URLSearchParams({
+      employee_id:   ctx.empId,
+      date:          date,
+      from_date:     ctx.fromDate,
+      to_date:       ctx.toDate,
+      conflict_type: conflictType || '',
+    });
+    fetch(ctx.resolveUrl + '?' + params.toString(), {
+      headers: { 'HX-Request': 'true', 'X-Requested-With': 'XMLHttpRequest' }
+    }).then(function (r) { return r.text(); })
+      .then(function (html) {
+        panel.innerHTML = html;
+        // Register HTMX on dynamically-inserted content (innerHTML bypass)
+        if (typeof htmx !== 'undefined') { htmx.process(panel); }
+        // If the panel reveals a resolved banner, switch to green theme
+        if (panel.querySelector && panel.querySelector('[data-resolved]')) {
+          panel.className = 'panel-resolved';
+        }
+        // A new day starts at the top: the frame is reused between days, and a scroll
+        // position left over from the last one hid the top of this one under its header.
+        panel.scrollTop = 0;
+        if (window.msCalEnhanceSelects) { window.msCalEnhanceSelects(); }
+        if (window.msCalChoiceChange) { window.msCalChoiceChange(); }
+        var scroller = panel.querySelector('.crp-scroll');
+        if (scroller) { scroller.scrollTop = 0; }
+        // Real content is a different height than the loading spinner —
+        // recompute so the flip-above-the-cell logic sees the true size.
+        _positionResolvePanel(panel, cellEl);
+      })
+      .catch(function () { panel.innerHTML = '<p style="padding:12px;color:#dc3545;">Failed to load.</p>'; });
+  };
+
+  // Split the day: each half is its own status. The bar under the selects shows
+  // the two colours, the same ones as the buttons and the calendar cell.
+  window.msCalSplitPreview = function () {
+    var a = document.getElementById('crp-split-a');
+    var b = document.getElementById('crp-split-b');
+    var bar = document.getElementById('crp-split-bar');
+    if (!a || !b || !bar) return;
+    var colour = function (select) { return select.options[select.selectedIndex].dataset.color; };
+    bar.style.background = 'linear-gradient(90deg, ' + colour(a) + ' 50%, ' + colour(b) + ' 50%)';
+    if (window.msCalChoiceChange && !window._crpChoiceBusy) {
+      window._crpChoiceBusy = true;
+      window.msCalChoiceChange();
+      window._crpChoiceBusy = false;
+    }
+  };
+
+  // The status pickers carry a colour on every row, which a native list cannot, so each
+  // select[data-dd] is hidden and driven through a button and a list built from its options.
+  window.msCalEnhanceSelects = function () {
+    document.querySelectorAll('select[data-dd]').forEach(function (sel) {
+      if (sel.dataset.ddReady) return;
+      sel.dataset.ddReady = '1';
+      sel.classList.add('crp-dd-src');
+      var wrap = document.createElement('div');
+      wrap.className = 'crp-dd';
+      sel.parentNode.insertBefore(wrap, sel);
+      wrap.appendChild(sel);
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'crp-dd-btn';
+      btn.innerHTML = '<span class="crp-dd-dot"></span><span class="crp-dd-label"></span>';
+      var list = document.createElement('div');
+      list.className = 'crp-dd-list';
+      // The list is moved out to <body> while open and positioned from the button, so the
+      // popover's scrolling body (and its fixed header) can neither clip nor cover it.
+      function closeList() {
+        wrap.classList.remove('open');
+        list.classList.remove('is-open');
+        list.style.cssText = '';
+        if (list.parentNode !== wrap) wrap.appendChild(list);
+        if (window._crpDdOpen === closeList) window._crpDdOpen = null;
+      }
+      function openList() {
+        if (window._crpDdOpen) window._crpDdOpen();
+        wrap.classList.add('open');
+        document.body.appendChild(list);
+        list.classList.add('is-open');
+        var r = btn.getBoundingClientRect();
+        var below = window.innerHeight - r.bottom - 12;
+        var above = r.top - 12;
+        var natural = Math.min(250, list.scrollHeight);
+        var down = below >= natural || below >= above;
+        var maxH = Math.min(250, list.scrollHeight, down ? below : above);
+        list.style.cssText = 'position:fixed;z-index:100020;left:' + r.left + 'px;width:' + r.width + 'px;max-height:'
+          + maxH + 'px;' + (down ? 'top:' + (r.bottom + 4) + 'px' : 'bottom:' + (window.innerHeight - r.top + 4) + 'px');
+        window._crpDdOpen = closeList;
+      }
+      var dotStyle = function (colour) {
+        return colour === 'split' ? 'linear-gradient(90deg,#86efac 50%,#fca5a5 50%)' : (colour || '#e5e7eb');
+      };
+      var addItem = function (opt) {
+        var item = document.createElement('div');
+        item.className = 'crp-dd-item' + (opt.disabled ? ' dis' : '');
+        item.dataset.value = opt.value;
+        var dot = document.createElement('span');
+        dot.className = 'crp-dd-dot';
+        dot.style.background = dotStyle(opt.dataset.color);
+        var label = document.createElement('span');
+        label.textContent = opt.textContent;
+        item.appendChild(dot);
+        item.appendChild(label);
+        item.addEventListener('click', function () {
+          if (opt.disabled) return;
+          sel.value = opt.value;
+          closeList();
+          sel.dispatchEvent(new Event('change'));
+        });
+        list.appendChild(item);
+      };
+      Array.prototype.forEach.call(sel.children, function (child) {
+        if (child.tagName === 'OPTGROUP') {
+          var head = document.createElement('div');
+          head.className = 'crp-dd-group';
+          head.textContent = child.label;
+          list.appendChild(head);
+          Array.prototype.forEach.call(child.children, addItem);
+        } else {
+          addItem(child);
+        }
+      });
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        if (wrap.classList.contains('open')) { closeList(); } else { openList(); }
+      });
+      wrap.insertBefore(btn, sel);
+      wrap.appendChild(list);
+    });
+    window.msCalSyncSelects();
+  };
+
+  // Show each picker's current choice, with its colour.
+  window.msCalSyncSelects = function () {
+    document.querySelectorAll('.crp-dd').forEach(function (wrap) {
+      var sel = wrap.querySelector('select');
+      var btn = wrap.querySelector('.crp-dd-btn');
+      if (!sel || !btn) return;
+      var opt = sel.options[sel.selectedIndex];
+      if (!opt) return;
+      var colour = opt.dataset.color;
+      if (colour === 'split') {
+        var a = document.getElementById('crp-split-a');
+        var b = document.getElementById('crp-split-b');
+        colour = a && b
+          ? 'linear-gradient(90deg, ' + a.options[a.selectedIndex].dataset.color + ' 50%, ' + b.options[b.selectedIndex].dataset.color + ' 50%)'
+          : '#e5e7eb';
+      }
+      btn.querySelector('.crp-dd-dot').style.background = colour || '#e5e7eb';
+      btn.querySelector('.crp-dd-label').textContent = opt.textContent;
+      wrap.querySelectorAll('.crp-dd-item').forEach(function (item) {
+        item.classList.toggle('sel', item.dataset.value === sel.value);
+      });
+    });
+  };
+
+  document.addEventListener('click', function () { if (window._crpDdOpen) window._crpDdOpen(); });
+  document.addEventListener('scroll', function (e) {
+    var inList = e.target && e.target.closest && e.target.closest('.crp-dd-list');
+    if (!inList && window._crpDdOpen) window._crpDdOpen();
+  }, true);
+
+  // The one status choice: a split shows its two halves, anything else applies as chosen.
+  // Apply stays off until something differs from what the day opened on.
+  window.msCalChoiceChange = function () {
+    var choice = document.getElementById('crp-choice');
+    var box = document.getElementById('crp-split-box');
+    if (!choice) return;
+    var isSplit = choice.value === 'split';
+    if (box) { box.style.display = isSplit ? '' : 'none'; }
+    var a = document.getElementById('crp-split-a');
+    var b = document.getElementById('crp-split-b');
+    if (a && b && window.msCalSplitPreview) { window.msCalSplitPreview(); }
+    if (window.msCalSyncSelects) { window.msCalSyncSelects(); }
+    if (window.msCalUpdateSave) { window.msCalUpdateSave(); }
+  };
+
+  window.msCalResolveChoice = function (conflictType) {
+    var choice = document.getElementById('crp-choice');
+    if (!choice || !choice.value) return;
+    if (choice.value === 'split') { window.msCalResolveSplit(conflictType); }
+    else { window.msCalResolvePost(choice.value, conflictType); }
+  };
+
+  window.msCalResolveSplit = function (conflictType) {
+    var a = document.getElementById('crp-split-a');
+    var b = document.getElementById('crp-split-b');
+    if (!a || !b) return;
+    window.msCalResolvePost('split:' + a.value + '+' + b.value, conflictType);
+  };
+
+  window.msCalResolvePost = function (resolution, conflictType) {
+    var ctx = _getCalData();
+    var dateInput = document.getElementById('cal-resolve-date');
+    if (!ctx || !dateInput) return;
+
+    var csrf = document.cookie.replace(/(?:(?:^|.*;\s*)csrftoken\s*=\s*([^;]*).*$)|^.*$/, '$1');
+
+    content.innerHTML = '<div style="padding:28px 24px;color:#6c757d;font-size:.85rem;display:flex;align-items:center;gap:10px;">'
+      + '<span style="width:16px;height:16px;border:2px solid #dee2e6;border-top-color:#6366f1;border-radius:50%;display:inline-block;animation:ms-spin .6s linear infinite;flex-shrink:0;"></span>'
+      + ' Saving and refreshing...</div>';
+
+    fetch(ctx.resolveUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'HX-Request': 'true',
+        'X-Requested-With': 'XMLHttpRequest',
+        'X-CSRFToken': csrf,
+      },
+      body: new URLSearchParams({
+        employee_id:   ctx.empId,
+        date:          dateInput.value,
+        from_date:     ctx.fromDate,
+        to_date:       ctx.toDate,
+        resolution:    resolution,
+        conflict_type: conflictType,
+      })
+    }).then(function (r) { return r.text(); })
+      .then(function (html) { content.innerHTML = html; calChanged = true; _standaloneDone(); })
+      .catch(function () {
+        content.innerHTML = '<p style="padding:24px;color:#dc3545;">Failed to save resolution.</p>';
+      });
+  };
+  // ── The panel's one Save: status and hours together ───────────────────────
+  // Hours are read as H:MM (or decimal hours) and checked before anything is sent.
+  function _crpParseHours(raw) {
+    raw = (raw || '').trim();
+    if (!raw) return NaN;
+    if (raw.indexOf(':') >= 0) {
+      var parts = raw.split(':');
+      if (!/^\d+$/.test(parts[0]) || !/^\d{1,2}$/.test(parts[1] || '')) return NaN;
+      if (parseInt(parts[1], 10) >= 60) return NaN;
+      return parseInt(parts[0], 10) * 3600 + parseInt(parts[1], 10) * 60;
+    }
+    if (!/^\d+(\.\d+)?$/.test(raw)) return NaN;
+    return Math.round(parseFloat(raw) * 3600);
+  }
+
+  function _crpStatusChanged() {
+    var choice = document.getElementById('crp-choice');
+    if (!choice) return false;
+    var a = document.getElementById('crp-split-a');
+    var b = document.getElementById('crp-split-b');
+    var changed = choice.value !== choice.dataset.initial;
+    if (choice.value === 'split' && !changed && a && b) {
+      changed = a.value !== choice.dataset.initialA || b.value !== choice.dataset.initialB;
+    }
+    return changed && !!choice.value;
+  }
+
+  function _crpHoursChanged() {
+    var input = document.getElementById('crp-hours-input');
+    return !!input && input.value.trim() !== input.dataset.initial;
+  }
+
+  // Regular / overtime / total for the hours typed, by the rule the attendance breakdown
+  // uses: on a holiday or week off it is all overtime, otherwise regular stops at the shift
+  // and overtime at the cap. Anything beyond the cap is shown apart.
+  function _crpFmt(secs) {
+    return Math.floor(secs / 3600) + ':' + ('0' + Math.floor((secs % 3600) / 60)).slice(-2);
+  }
+  window.msCalHoursCompute = function () {
+    var calc = document.getElementById('crp-hours-calc');
+    var input = document.getElementById('crp-hours-input');
+    if (!calc || !input) return;
+    var reg = document.getElementById('crp-calc-reg');
+    var ot = document.getElementById('crp-calc-ot');
+    var total = document.getElementById('crp-calc-total');
+    var excessEl = document.getElementById('crp-calc-excess');
+    var secs = _crpParseHours(input.value);
+    if (isNaN(secs) || secs > 24 * 3600) {
+      reg.value = ot.value = total.value = '—';
+      if (excessEl) { excessEl.style.display = 'none'; excessEl.textContent = ''; }
+      return;
+    }
+    var effMin = parseInt(calc.dataset.effMin, 10) || 28800;
+    var cutoff = parseInt(calc.dataset.otCutoff, 10) || 0;
+    var isOtDay = calc.dataset.isOtDay === '1';
+    var regSec, otSec;
+    if (isOtDay) {
+      regSec = 0;
+      otSec = Math.min(secs, cutoff > 0 ? effMin + cutoff : secs);
+    } else {
+      regSec = Math.min(secs, effMin);
+      var potential = Math.max(0, secs - effMin);
+      otSec = cutoff > 0 ? Math.min(potential, cutoff) : potential;
+    }
+    var excess = Math.max(0, secs - regSec - otSec);
+    reg.value = _crpFmt(regSec);
+    ot.value = _crpFmt(otSec);
+    total.value = _crpFmt(secs);
+    if (excessEl) {
+      excessEl.style.display = excess > 0 ? '' : 'none';
+      excessEl.textContent = excess > 0 ? ('▿ ' + _crpFmt(excess) + ' ' + (calc.dataset.excessText || '')) : '';
+    }
+  };
+
+  // Save stays off until something differs from what the panel opened on.
+  window.msCalUpdateSave = function () {
+    var save = document.getElementById('crp-save');
+    if (window.msCalHoursCompute) { window.msCalHoursCompute(); }
+    var input = document.getElementById('crp-hours-input');
+    var error = document.getElementById('crp-hours-error');
+    if (input && error) {
+      input.classList.remove('is-invalid');
+      error.style.display = 'none';
+    }
+    // An unresolved leave clash can be settled as it stands, so Save stays on for it.
+    if (save) { save.disabled = !(_crpStatusChanged() || _crpHoursChanged() || save.dataset.conflict === '1'); }
+  };
+
+  function _crpHoursError(message) {
+    var input = document.getElementById('crp-hours-input');
+    var error = document.getElementById('crp-hours-error');
+    if (input) { input.classList.add('is-invalid'); input.focus(); }
+    if (error) { error.textContent = message; error.style.display = ''; }
+  }
+
+  window.msCalRefreshCalendar = function () {
+    var ctx = _getCalData();
+    if (!ctx || !ctx.calendarUrl) return;
+    window.msCalClosePanel();
+    content.innerHTML = '<div style="padding:28px 24px;color:#6c757d;font-size:.85rem;">Saving and refreshing...</div>';
+    fetch(ctx.calendarUrl + '?employee_id=' + ctx.empId + '&from_date=' + ctx.fromDate + '&to_date=' + ctx.toDate, {
+      headers: { 'HX-Request': 'true', 'X-Requested-With': 'XMLHttpRequest' },
+    }).then(function (r) { return r.text(); })
+      .then(function (html) { content.innerHTML = html; calChanged = true; _standaloneDone(); });
+  };
+
+  window.msCalSaveDay = function (conflictType) {
+    var ctx = _getCalData();
+    var dateInput = document.getElementById('cal-resolve-date');
+    var foot = document.querySelector('#cal-resolve-panel .crp-foot');
+    var input = document.getElementById('crp-hours-input');
+    if (!ctx || !dateInput || !foot) return;
+    var saveBtn = document.getElementById('crp-save');
+    var settling = !!saveBtn && saveBtn.dataset.conflict === '1';
+    var choiceEl = document.getElementById('crp-choice');
+    // Settling a clash saves the status on show, even when it was not changed.
+    var statusChanged = (_crpStatusChanged() || settling) && !!(choiceEl && choiceEl.value);
+    var hoursChanged = _crpHoursChanged();
+    if (!statusChanged && !hoursChanged) return;
+
+    var seconds = null;
+    if (hoursChanged) {
+      seconds = _crpParseHours(input.value);
+      if (isNaN(seconds)) { _crpHoursError(foot.dataset.badformat); return; }
+      if (seconds > 24 * 3600) { _crpHoursError(foot.dataset.over24); return; }
+    }
+
+    var csrf = document.cookie.replace(/(?:(?:^|.*;\s*)csrftoken\s*=\s*([^;]*).*$)|^.*$/, '$1');
+    var send = function () {
+      var finish = function () {
+        if (statusChanged) { window.msCalResolveChoice(conflictType); }
+        else { window.msCalRefreshCalendar(); }
+      };
+      if (!hoursChanged) { finish(); return; }
+      fetch(window._MS_HOURS_EDIT_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'X-CSRFToken': csrf,
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        body: new URLSearchParams({
+          employee_id: ctx.empId, date: dateInput.value, from_date: ctx.fromDate, to_date: ctx.toDate,
+          hours: input.value.trim(), computed_sec: '0', panel: '1',
+        }).toString(),
+      }).then(function (r) {
+        if (r.ok) { finish(); return; }
+        return r.text().then(function (message) { _crpHoursError(message); });
+      });
+    };
+
+    var checkHours = function () {
+    // Past 15 hours in a day is possible but unusual: ask before saving it.
+    if (hoursChanged && seconds > 15 * 3600) {
+      var label = Math.floor(seconds / 3600) + 'h ' + ('0' + Math.floor((seconds % 3600) / 60)).slice(-2) + 'm';
+      if (window.Swal) {
+        Swal.fire({
+          title: foot.dataset.warnTitle,
+          text: foot.dataset.warnText + ' ' + label + ' ' + foot.dataset.warnTail,
+          icon: 'warning',
+          showCancelButton: true,
+          confirmButtonText: foot.dataset.warnYes,
+          cancelButtonText: foot.dataset.warnNo,
+          confirmButtonColor: '#e54f38',
+          // The calendar modal sits above the library's default layer.
+          didOpen: function () { Swal.getContainer().style.zIndex = '100030'; },
+        }).then(function (result) { if (result.isConfirmed) send(); });
+        return;
+      }
+      if (!window.confirm(foot.dataset.warnTitle + ': ' + label)) return;
+    }
+    send();
+    };
+
+    // Settling a clash asks first, naming what the day will be counted as.
+    if (settling) {
+      var shown = choiceEl.options[choiceEl.selectedIndex].text.trim();
+      var message = foot.dataset.conflictText + ' ' + shown + '. ' + foot.dataset.conflictTail;
+      if (window.Swal) {
+        Swal.fire({
+          title: foot.dataset.conflictTitle,
+          text: message,
+          icon: 'question',
+          showCancelButton: true,
+          confirmButtonText: foot.dataset.conflictYes,
+          cancelButtonText: foot.dataset.warnNo,
+          confirmButtonColor: '#e54f38',
+          didOpen: function () { Swal.getContainer().style.zIndex = '100030'; },
+        }).then(function (result) { if (result.isConfirmed) checkHours(); });
+        return;
+      }
+      if (!window.confirm(foot.dataset.conflictTitle + ' ' + message)) return;
+    }
+    checkHours();
+  };
+  // The minimum-hours tooltip floats beside the popover instead of inside its scrolling body,
+  // where it would be clipped. It is built from the hidden bubble next to the info icon.
+  function _crpTipHide() {
+    var old = document.getElementById('crp-tip-float');
+    if (old) old.remove();
+  }
+  function _crpTipShow(tip) {
+    _crpTipHide();
+    var source = tip.querySelector('.crp-tip-body');
+    var panel = document.getElementById('cal-resolve-panel');
+    if (!source || !panel) return;
+    var bubble = document.createElement('div');
+    bubble.id = 'crp-tip-float';
+    bubble.className = 'crp-tip-float';
+    bubble.innerHTML = source.innerHTML;
+    document.body.appendChild(bubble);
+    var gap = 12;
+    var p = panel.getBoundingClientRect();
+    var icon = tip.getBoundingClientRect();
+    var w = bubble.offsetWidth;
+    var h = bubble.offsetHeight;
+    var onRight = p.right + gap + w <= window.innerWidth - 8;
+    bubble.classList.add(onRight ? 'right' : 'left');
+    bubble.style.left = (onRight ? p.right + gap : Math.max(8, p.left - gap - w)) + 'px';
+    var top = Math.min(Math.max(8, icon.top - 12), window.innerHeight - h - 8);
+    bubble.style.top = top + 'px';
+    bubble.style.setProperty('--arrow-top', Math.max(10, Math.min(h - 20, icon.top + icon.height / 2 - top - 5)) + 'px');
+  }
+  document.addEventListener('mouseover', function (e) {
+    var tip = e.target.closest && e.target.closest('.crp-tip');
+    if (tip) _crpTipShow(tip);
+  });
+  document.addEventListener('mouseout', function (e) {
+    var tip = e.target.closest && e.target.closest('.crp-tip');
+    if (tip && !(e.relatedTarget && tip.contains(e.relatedTarget))) _crpTipHide();
+  });
+  document.addEventListener('focusin', function (e) {
+    var tip = e.target.closest && e.target.closest('.crp-tip');
+    if (tip) _crpTipShow(tip);
+  });
+  document.addEventListener('focusout', function (e) {
+    if (e.target.closest && e.target.closest('.crp-tip')) _crpTipHide();
+  });
+  // The popover closing, or scrolling, must not leave the bubble behind.
+  document.addEventListener('scroll', _crpTipHide, true);
+
+  // Hovering a summary chip highlights the days that count in it and dims every other day.
+  // A split or half day carries two groups, so it lights up under both of its chips.
+  function _calHighlight(group) {
+    document.querySelectorAll('#cal-modal-content .cal-cell[data-date]').forEach(function (cell) {
+      var on = (cell.dataset.groups || '').split(' ').indexOf(group) >= 0;
+      cell.classList.toggle('cal-hl', on);
+      cell.classList.toggle('cal-dim', !on);
+      cell.style.background = '';
+      // A day drawn in two halves lights only the half that belongs to the chip; the
+      // other half is greyed out so the cell reads as half of this status.
+      if (on && cell.dataset.halves) {
+        var halves = cell.dataset.halves.split(',').map(function (p) { return p.split('|'); });
+        if (halves.length === 2 && (halves[0][0] === group) !== (halves[1][0] === group)) {
+          var faded = '#e5e7eb';
+          var first = halves[0][0] === group ? halves[0][1] : faded;
+          var second = halves[1][0] === group ? halves[1][1] : faded;
+          cell.style.background = 'linear-gradient(135deg, ' + first + ' 50%, ' + second + ' 50%)';
+        }
+      }
+    });
+  }
+  function _calHighlightOff() {
+    document.querySelectorAll('#cal-modal-content .cal-cell.cal-dim, #cal-modal-content .cal-cell.cal-hl').forEach(function (cell) {
+      cell.classList.remove('cal-dim', 'cal-hl');
+      cell.style.background = '';
+    });
+  }
+  document.addEventListener('mouseover', function (e) {
+    var chip = e.target.closest && e.target.closest('.cal-summary-item[data-group]');
+    if (chip) _calHighlight(chip.dataset.group);
+  });
+  document.addEventListener('mouseout', function (e) {
+    var chip = e.target.closest && e.target.closest('.cal-summary-item[data-group]');
+    if (chip && !(e.relatedTarget && chip.contains(e.relatedTarget))) _calHighlightOff();
+  });
+
+  // The app turns every title into a jQuery UI tooltip, and jQuery UI only closes one when the
+  // pointer leaves its element. When the element is removed or hidden under the pointer -- a day
+  // popover closing, the calendar being refreshed, the modal closing -- no leave ever comes and
+  // the bubble stays on screen. Sweep out any bubble whose element is gone or no longer shown.
+  function _calSweepTooltips() {
+    document.querySelectorAll('.ui-tooltip').forEach(function (bubble) {
+      var holder = bubble.id ? document.querySelector('[aria-describedby~="' + bubble.id + '"]') : null;
+      var gone = !holder || !holder.isConnected || !holder.getClientRects().length;
+      if (gone) bubble.remove();
+    });
+  }
+  window.msCalSweepTooltips = _calSweepTooltips;
+  var _calSweepQueued = false;
+  document.addEventListener('mousemove', function () {
+    if (_calSweepQueued) return;
+    _calSweepQueued = true;
+    setTimeout(function () { _calSweepQueued = false; _calSweepTooltips(); }, 50);
+  });
+  document.addEventListener('click', function () { setTimeout(_calSweepTooltips, 0); }, true);
+
+})();
+</script>

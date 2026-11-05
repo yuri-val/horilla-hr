@@ -1,10 +1,15 @@
 import calendar
+import logging
 from datetime import date, datetime, timedelta
 
+from django.db import IntegrityError
 from django.urls import reverse
+from django.utils.translation import gettext_noop
 
 from horilla.scheduling import register_job
 from notifications.signals import notify
+
+logger = logging.getLogger(__name__)
 
 
 def update_rotating_work_type_assign(rotating_work_type, new_date):
@@ -46,11 +51,7 @@ def update_rotating_work_type_assign(rotating_work_type, new_date):
         notify.send(
             bot,
             recipient=employee.employee_user_id,
-            verb="Your Work Type has been changed.",
-            verb_ar="لقد تغير نوع عملك.",
-            verb_de="Ihre Art der Arbeit hat sich geändert.",
-            verb_es="Su tipo de trabajo ha sido cambiado.",
-            verb_fr="Votre type de travail a été modifié.",
+            verb=gettext_noop("Your Work Type has been changed."),
             icon="infinite",
             redirect=reverse("employee-profile"),
         )
@@ -159,11 +160,7 @@ def update_rotating_shift_assign(rotating_shift, new_date):
         notify.send(
             bot,
             recipient=employee.employee_user_id,
-            verb="Your shift has been changed.",
-            verb_ar="تم تغيير التحول الخاص بك.",
-            verb_de="Ihre Schicht wurde geändert.",
-            verb_es="Tu turno ha sido cambiado.",
-            verb_fr="Votre quart de travail a été modifié.",
+            verb=gettext_noop("Your shift has been changed."),
             icon="infinite",
             redirect=reverse("employee-profile"),
         )
@@ -224,17 +221,16 @@ def rotate_shift():
     rotating_shifts = RotatingShiftAssign.objects.filter(is_active=True)
     today = datetime.now().date()
     r_shifts = rotating_shifts.filter(start_date__lte=today)
-    rotating_shifts_modified = None
     for r_shift in r_shifts:
         emp_shift = rotating_shifts.filter(
             employee_id=r_shift.employee_id, start_date__lte=today
         ).exclude(id=r_shift.id)
-        rotating_shifts_modified = rotating_shifts.exclude(
-            id__in=emp_shift.values_list("id", flat=True)
-        )
         emp_shift.update(is_active=False)
 
-    for rotating_shift in rotating_shifts_modified:
+    # Re-read the active assignments: the superseded ones were just
+    # deactivated. (A variable only set inside the loop above left nothing to
+    # iterate when no assignment had started, raising TypeError every run.)
+    for rotating_shift in rotating_shifts:
         based_on = rotating_shift.based_on
         # after day condition
         if based_on == "after":
@@ -276,11 +272,7 @@ def switch_shift():
                 notify.send(
                     bot,
                     recipient=employee.employee_user_id,
-                    verb="Shift Changes notification",
-                    verb_ar="التحول تغيير الإخطار",
-                    verb_de="Benachrichtigung über Schichtänderungen",
-                    verb_es="Notificación de cambios de turno",
-                    verb_fr="Notification des changements de quart de travail",
+                    verb=gettext_noop("Shift Changes notification"),
                     icon="refresh",
                     redirect=reverse("employee-profile"),
                 )
@@ -317,11 +309,9 @@ def undo_shift():
                 notify.send(
                     bot,
                     recipient=employee.employee_user_id,
-                    verb="Shift changes notification, Requested date expired.",
-                    verb_ar="التحول يغير الإخطار ، التاريخ المطلوب انتهت صلاحيته.",
-                    verb_de="Benachrichtigung über Schichtänderungen, gewünschtes Datum abgelaufen.",
-                    verb_es="Notificación de cambios de turno, Fecha solicitada vencida.",
-                    verb_fr="Notification de changement d'équipe, la date demandée a expiré.",
+                    verb=gettext_noop(
+                        "Shift changes notification, Requested date expired."
+                    ),
                     icon="refresh",
                     redirect=reverse("employee-profile"),
                 )
@@ -356,11 +346,7 @@ def switch_work_type():
             notify.send(
                 bot,
                 recipient=employee.employee_user_id,
-                verb="Work Type Changes notification",
-                verb_ar="إخطار تغييرات نوع العمل",
-                verb_de="Benachrichtigung über Änderungen des Arbeitstyps",
-                verb_es="Notificación de cambios de tipo de trabajo",
-                verb_fr="Notification de changement de type de travail",
+                verb=gettext_noop("Work Type Changes notification"),
                 icon="swap-horizontal",
                 redirect=reverse("employee-profile"),
             )
@@ -397,11 +383,9 @@ def undo_work_type():
             notify.send(
                 bot,
                 recipient=employee.employee_user_id,
-                verb="Work type changes notification, Requested date expired.",
-                verb_ar="إعلام بتغيير نوع العمل ، انتهاء صلاحية التاريخ المطلوب.",
-                verb_de="Benachrichtigung über Änderungen des Arbeitstyps, angefordertes Datum abgelaufen.",
-                verb_es="Notificación de cambios de tipo de trabajo, fecha solicitada vencida.",
-                verb_fr="Notification de changement de type de travail, la date demandée a expiré.",
+                verb=gettext_noop(
+                    "Work type changes notification, Requested date expired."
+                ),
                 icon="swap-horizontal",
                 redirect=reverse("employee-profile"),
             )
@@ -427,7 +411,15 @@ def recurring_holiday():
         elif end_date == (today - timedelta(days=1)).date():
             recurring_holiday.start_date = new_start_date
             recurring_holiday.end_date = new_end_date
-        recurring_holiday.save()
+        try:
+            recurring_holiday.save()
+        except IntegrityError:
+            # Another holiday already occupies the rolled-over date range
+            # for this company; keep this one unchanged.
+            logger.warning(
+                "Recurring holiday %s not rolled over: duplicate date range",
+                recurring_holiday.pk,
+            )
 
 
 def sync_roster_shifts():
@@ -457,6 +449,55 @@ def sync_roster_shifts():
             pass
 
 
+def clear_expired_sessions():
+    """
+    Delete expired sessions. Django keeps them until `clearsessions` runs, and
+    nothing ran it, so the session table only grew: an expired session can
+    never be used again, but its row (and the user id in it) stayed for good.
+    """
+    from importlib import import_module
+
+    from django.conf import settings
+    from django.utils import timezone
+
+    store = import_module(settings.SESSION_ENGINE).SessionStore
+    # Database-backed engines (db, cached_db) can say how many rows go;
+    # cache and cookie engines expire sessions by themselves.
+    model = store.get_model_class() if hasattr(store, "get_model_class") else None
+    expired = (
+        model.objects.filter(expire_date__lt=timezone.now()).count() if model else None
+    )
+    try:
+        store.clear_expired()
+    except NotImplementedError:
+        logger.info(
+            "Session engine %s cannot clear expired sessions",
+            settings.SESSION_ENGINE,
+        )
+        return
+    if model:
+        logger.info("Cleared %s expired sessions", expired)
+
+
+def trim_scheduler_history():
+    """
+    Delete scheduler job-run history older than HORILLA_SCHEDULER_HISTORY_DAYS.
+    django_apscheduler records a row for every run of every job and never
+    removes them, so with jobs that run every minute the table grows by
+    thousands of rows a day.
+    """
+    from django.conf import settings
+    from django.utils import timezone
+    from django_apscheduler.models import DjangoJobExecution
+
+    # At least a day: 0 or a negative value would delete the whole history
+    # at every run (the cutoff would be now or later).
+    days = max(getattr(settings, "HORILLA_SCHEDULER_HISTORY_DAYS", 7), 1)
+    cutoff = timezone.now() - timedelta(days=days)
+    deleted, _ = DjangoJobExecution.objects.filter(run_time__lte=cutoff).delete()
+    logger.info("Deleted %s scheduler job runs older than %s days", deleted, days)
+
+
 # The job1..job6 ids are historical and deliberately preserved so existing
 # jobstore rows are replaced rather than duplicated. Note job5/job6 are swapped
 # relative to declaration order -- that is how they have always been persisted.
@@ -470,3 +511,19 @@ register_job(undo_work_type, "interval", job_id="job6", hours=4)
 register_job(switch_work_type, "interval", job_id="job5", hours=4)
 register_job(recurring_holiday, "interval", hours=4)
 register_job(sync_roster_shifts, "interval", hours=4)
+register_job(
+    clear_expired_sessions,
+    "cron",
+    job_id="clear_expired_sessions",
+    hour=3,
+    minute=0,
+    misfire_grace_time=3600 * 6,
+)
+register_job(
+    trim_scheduler_history,
+    "cron",
+    job_id="trim_scheduler_history",
+    hour=3,
+    minute=15,
+    misfire_grace_time=3600 * 6,
+)

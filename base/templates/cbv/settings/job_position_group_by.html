@@ -1,0 +1,211 @@
+{% load i18n static %}
+
+{% comment %}
+Page-specific grouped layout for the Job Position settings page. The list
+view's model is Department (each department groups its own job positions),
+so this is a bespoke template rather than a reuse of the generic Group By
+partials -- there's no "field" toggle here, it's always grouped by
+department. One shared column header (Job Position/Actions) sits above
+restyled per-department accordion groups, matching the performance-detail-
+page standard used elsewhere. Bulk-select was dropped: departments used to
+be individually selectable rows, but they're now accordion group headers,
+not rows, so there's no natural checkbox target for them any more.
+{% endcomment %}
+
+<div id="{{ view_id|safe }}">
+    <button
+        class="reload-record"
+        id="{{ view_id|safe }}Reload"
+        hidden
+        hx-get="{{ request.path }}?{{ saved_filters.urlencode }}"
+        hx-target="#{{ view_id|safe }}"
+        hx-swap="outerHTML"
+    ></button>
+    {% if show_filter_tags %}
+        {% include "generic/filter_tags.html" %}
+    {% endif %}
+
+    {% if queryset %}
+        {% if queryset.has_next or queryset.has_previous %}
+            <div class="flex flex-nowrap items-center justify-end gap-2 mb-2">
+                <div class="hlv-pagination inline-flex items-center h-8 gap-0.5 bg-white border border-primary-500 rounded-md px-1 flex-shrink-0">
+                    <button
+                        type="button"
+                        class="w-7 h-7 flex items-center justify-center rounded text-xs leading-none transition duration-300 {% if queryset.has_previous %}text-[#666] hover:bg-[#f5f5f5]{% else %}text-[#ccc] cursor-not-allowed{% endif %}"
+                        {% if queryset.has_previous %}
+                        hx-target="#{{ view_id }}"
+                        hx-get="{{ search_url }}?{{ request.GET.urlencode }}&page=1"
+                        {% endif %}
+                    >
+                        <i class="fa-solid fa-angles-left"></i>
+                    </button>
+                    <button
+                        type="button"
+                        class="w-7 h-7 flex items-center justify-center rounded text-xs leading-none transition duration-300 {% if queryset.has_previous %}text-[#666] hover:bg-[#f5f5f5]{% else %}text-[#ccc] cursor-not-allowed{% endif %}"
+                        {% if queryset.has_previous %}
+                        hx-target="#{{ view_id }}"
+                        hx-get="{{ search_url }}?{{ request.GET.urlencode }}&page={{ queryset.previous_page_number }}"
+                        {% endif %}
+                    >
+                        <i class="fa-solid fa-angle-left"></i>
+                    </button>
+                    <div class="flex items-center gap-1 px-1 h-7 text-xs text-[#666] leading-none">
+                        <input
+                            type="number"
+                            name="page"
+                            min="1"
+                            max="{{ queryset.paginator.num_pages }}"
+                            value="{{ queryset.number }}"
+                            title="{% trans 'Enter a page number and press Enter' %}"
+                            class="w-9 h-6 m-0 py-0 px-1 text-center text-xs leading-6 border border-[#e6e6e6] rounded outline-none focus:border-primary-600 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                            hx-get="{{ search_url }}?{{ request.GET.urlencode }}"
+                            hx-target="#{{ view_id }}"
+                            hx-trigger="keyup[keyCode==13] changed, blur changed"
+                            onclick="this.select()"
+                        >
+                        <span class="inline-flex items-center h-6 leading-none whitespace-nowrap">/ {{ queryset.paginator.num_pages }}</span>
+                    </div>
+                    <button
+                        type="button"
+                        class="w-7 h-7 flex items-center justify-center rounded text-xs leading-none transition duration-300 {% if queryset.has_next %}text-[#666] hover:bg-[#f5f5f5]{% else %}text-[#ccc] cursor-not-allowed{% endif %}"
+                        {% if queryset.has_next %}
+                        hx-target="#{{ view_id }}"
+                        hx-get="{{ search_url }}?{{ request.GET.urlencode }}&page={{ queryset.next_page_number }}"
+                        {% endif %}
+                    >
+                        <i class="fa-solid fa-angle-right"></i>
+                    </button>
+                    <button
+                        type="button"
+                        class="w-7 h-7 flex items-center justify-center rounded text-xs leading-none transition duration-300 {% if queryset.has_next %}text-[#666] hover:bg-[#f5f5f5]{% else %}text-[#ccc] cursor-not-allowed{% endif %}"
+                        {% if queryset.has_next %}
+                        hx-target="#{{ view_id }}"
+                        hx-get="{{ search_url }}?{{ request.GET.urlencode }}&page={{ queryset.paginator.num_pages }}"
+                        {% endif %}
+                    >
+                        <i class="fa-solid fa-angles-right"></i>
+                    </button>
+                </div>
+            </div>
+        {% endif %}
+
+        {% comment %}
+        One column header shared by every department's own job-position
+        table below, instead of each expanded accordion repeating its own.
+        px-2 matches the px-2 each group's own table wrapper uses below.
+        {% endcomment %}
+        <div class="bg-white border border-[#EAE8E3] rounded-lg mb-1.5 overflow-hidden px-2">
+            <table class="fixed-table w-full table-fixed border-separate">
+                <colgroup>
+                    <col>
+                    <col style="width:120px">
+                </colgroup>
+                <thead>
+                    <tr class="border-b border-[#ececec]">
+                        <th class="text-sm font-medium text-left px-3 py-1.5">{% trans "Job Position" %}</th>
+                        <th class="text-sm font-medium text-center px-3 py-1.5">{% trans "Actions" %}</th>
+                    </tr>
+                </thead>
+            </table>
+        </div>
+
+        <div class="accordion-wrapper space-y-1.5">
+            {% for department in queryset %}
+                {% with positions=department.job_position.all %}
+                {% comment %}
+                No overflow-hidden on the card itself -- if this department
+                ever grows a header action, an absolutely positioned dropdown
+                would need to pop out past the collapsed header's own bottom
+                edge (see the same fix on the Survey Template / Asset
+                Category pages). rounded-t-lg on the header keeps the
+                rounded-corner look when collapsed; the table wrapper below
+                gets its own rounded-b-lg overflow-hidden for the bottom
+                corners instead.
+                {% endcomment %}
+                <div class="oh-accordion bg-white border border-[#EAE8E3] rounded-lg {% if forloop.first %}oh-accordion--show{% endif %}">
+                    <div class="oh-accordion-header no-after rounded-t-lg w-full flex justify-between items-center px-3.5 py-2 transition-colors">
+                        <div class="flex items-center gap-2.5">
+                            <span
+                                class="inline-flex items-center justify-center rounded-full font-semibold min-w-[22px] h-[22px] px-1.5 text-[11px] bg-primary-600 text-white"
+                                title="{{ positions|length }} {% trans 'Job Positions' %}"
+                            >{{ positions|length }}</span>
+                            <span class="text-[13.5px] font-semibold text-gray-700">{{ department.department }}</span>
+                        </div>
+                        <span class="w-6 h-6 flex items-center justify-center rounded-full hover:bg-[#F3F2EE] transition-colors shrink-0">
+                            <ion-icon name="chevron-down-outline" class="icon text-sm text-gray-600"></ion-icon>
+                        </span>
+                    </div>
+
+                    <div class="oh-accordion-body bg-white text-sm text-gray-700">
+                        {% if positions %}
+                            <div class="px-2 py-2 rounded-b-lg overflow-hidden">
+                                <table class="fixed-table w-full table-fixed border-separate">
+                                    <colgroup>
+                                        <col>
+                                        <col style="width:120px">
+                                    </colgroup>
+                                    <tbody>
+                                        {% for job in positions %}
+                                            <tr class="border-b border-[#ebebeb]" id="jobPositionDiv{{ job.id }}">
+                                                <td class="text-sm text-left px-3 py-1.5 text-[#666]">
+                                                    <div class="flex gap-2 items-center">
+                                                        <img
+                                                            src="https://ui-avatars.com/api/?name={{ job }}&background=random"
+                                                            class="rounded-full"
+                                                            alt=""
+                                                            width="24"
+                                                        >
+                                                        <span class="truncate">{{ job.job_position|capfirst }}</span>
+                                                    </div>
+                                                </td>
+                                                <td class="text-sm text-left px-3 py-1.5 text-[#666]">
+                                                    <div class="flex items-center justify-center gap-1">
+                                                        {% if perms.base.change_jobposition %}
+                                                            <a
+                                                                hx-get="{% url 'job-position-update-form' job.pk %}"
+                                                                hx-target="#genericModalBody"
+                                                                data-toggle="oh-modal-toggle"
+                                                                data-target="#genericModal"
+                                                                class="oh-btn oh-btn--light-bkg oh-btn--sq-sm"
+                                                                title="{% trans 'Edit' %}"
+                                                            >
+                                                                <ion-icon name="create-outline"></ion-icon>
+                                                            </a>
+                                                        {% endif %}
+                                                        {% if perms.base.delete_jobposition %}
+                                                            <a
+                                                                hx-get="{% url 'generic-delete' %}?model=base.jobposition&pk={{ job.pk }}"
+                                                                data-toggle="oh-modal-toggle"
+                                                                data-target="#deleteConfirmation"
+                                                                hx-target="#deleteConfirmationBody"
+                                                                class="oh-btn oh-btn--danger oh-btn--sq-sm"
+                                                                title="{% trans 'Remove' %}"
+                                                            >
+                                                                <ion-icon name="trash-outline"></ion-icon>
+                                                            </a>
+                                                        {% endif %}
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        {% else %}
+                            <div class="flex flex-col items-center justify-center py-4">
+                                <img src="/static/horilla_theme/assets/img/no-records.svg" alt="" width="120" class="mb-2 opacity-80">
+                                <p class="text-[#666] text-sm">{% trans "No job positions in this department" %}</p>
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endwith %}
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="oh-empty">
+            <img src="{% static 'images/ui/search.svg' %}" class="oh-404__image" alt="{% trans 'Page not found. 404.' %}">
+            <h1 class="oh-empty__title">{% trans "No Records found." %}</h1>
+        </div>
+    {% endif %}
+</div>

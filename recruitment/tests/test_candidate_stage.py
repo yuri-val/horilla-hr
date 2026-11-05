@@ -5,7 +5,7 @@ from django.test import TestCase
 
 from base.models import Department, JobPosition
 from horilla.testkit import make_company
-from recruitment.models import Candidate, Recruitment, Stage
+from recruitment.models import Candidate, Recruitment, RejectedCandidate, Stage
 
 
 class CandidateStageProgressionTests(TestCase):
@@ -32,7 +32,7 @@ class CandidateStageProgressionTests(TestCase):
         self.hired, _ = Stage.objects.get_or_create(
             recruitment_id=self.rec,
             stage="Hired",
-            defaults={"stage_type": "hired", "sequence": 10},
+            defaults={"stage_type": "shortlisted", "sequence": 10},
         )
 
     def _pdf(self, name="resume.pdf"):
@@ -58,11 +58,24 @@ class CandidateStageProgressionTests(TestCase):
         cand.refresh_from_db()
         self.assertTrue(cand.hired)
 
-    def test_candidate_canceled_moves_to_cancelled_stage(self):
+    def test_candidate_in_the_cancelled_stage_is_flagged_canceled(self):
+        cancelled = Stage.objects.create(
+            recruitment_id=self.rec,
+            stage="Rejected Candidates",
+            stage_type="cancelled",
+            sequence=50,
+        )
         cand = self._make_candidate(self.applied)
-        cand.canceled = True
+        self.assertFalse(cand.canceled)
+        cand.stage_id = cancelled
         cand.resume = self._pdf("resume3.pdf")
         cand.save()
+        cand.refresh_from_db()
+        self.assertTrue(cand.canceled)
+
+    def test_rejecting_a_candidate_moves_them_to_the_rejected_stage(self):
+        cand = self._make_candidate(self.applied)
+        RejectedCandidate.objects.create(candidate_id=cand, description="Not a fit")
         cand.refresh_from_db()
         self.assertEqual(cand.stage_id.stage_type, "cancelled")
         self.assertTrue(cand.canceled)

@@ -2,11 +2,14 @@
 recruitment/cbv/pipeline.py
 """
 
+import json
 from typing import Any
 
 from django.contrib import messages
 from django.core.cache import cache as CACHE
-from django.db.models import Q
+from django.db.models import Count, Q
+from django.http import HttpResponse as DjangoHttpResponse
+from django.http import JsonResponse
 from django.urls import reverse, reverse_lazy
 from django.utils.decorators import method_decorator
 from django.utils.http import urlencode
@@ -33,6 +36,35 @@ from recruitment.templatetags.recruitmentfilters import (
 )
 
 
+def stage_cache_version(rec_id):
+    """
+    Return the cache version number for a recruitment's stages, creating it
+    on first use.
+    """
+    key = f"stage_cache_version{rec_id}"
+    version = CACHE.get(key)
+    if version is None:
+        version = 1
+        CACHE.set(key, version, timeout=None)
+    return version
+
+
+def pipeline_content_url(rec_id, view_type, params):
+    """
+    Return the URL of a recruitment's board (kanban or stage lists) carrying
+    the filter query from params.
+    """
+    query = params.copy()
+    for key in ("referrer", "open_tab", "view"):
+        query.pop(key, None)
+    if view_type == "list":
+        query["view"] = view_type
+        path = reverse("get-stages-recruitment", kwargs={"rec_id": rec_id})
+    else:
+        path = reverse("candidate-card-cbv", kwargs={"pk": rec_id})
+    return f"{path}?{query.urlencode()}"
+
+
 @method_decorator(login_required, name="dispatch")
 @method_decorator(
     manager_can_enter(perm="recruitment.view_recruitment"), name="dispatch"
@@ -47,14 +79,9 @@ class PipelineView(TemplateView):
 
 def recruitment_pipeline_actions(request, rec):
     """
-    Recruitment-level actions (Add Stage/Edit/Resume Shortlisting/Manage
-    Stage Order/Close-Reopen/Delete) for the given recruitment - shared
-    between RecruitmentTabView (which used to put these in the tab bar's
-    kebab) and RecruitmentPipelineContentShell (which renders them inline
-    in the pipeline content's own header instead). Each RecruitmentTabView
-    tab is a distinct recruitment record, so these are naturally scoped to
-    that specific record, not to "whichever tab happens to be open" - there
-    is no page-level Actions button that could mean that.
+    Return the actions (Add Stage, Edit, Resume Shortlisting, Manage Stage
+    Order, Close/Reopen, Delete) the user is allowed to perform on the
+    given recruitment.
     """
     change_perm = request.user.has_perm("recruitment.change_recruitment")
     add_cand_perm = request.user.has_perm("recruitment.add_candidate")
@@ -108,29 +135,19 @@ def recruitment_pipeline_actions(request, rec):
             },
         )
 
-    if add_stage_perm or rec_manager_perm or change_perm:
-        actions.append(
-            {
-                "action": _("Manage Stage Order"),
-                "attrs": f"""
-                    data-toggle="oh-modal-toggle"
-                    data-target="#genericModal"
-                    hx-get="{reverse("rec-update-stage-seq", kwargs={"pk": rec.pk})}"
-                    hx-target="#genericModalBody"
-                    style="cursor: pointer;"
-                """,
-            }
-        )
-
     if change_perm or rec_manager_perm:
         if rec.closed:
             actions.append(
                 {
                     "action": _("Reopen"),
                     "attrs": f"""
-                        href="{reverse("recruitment-reopen-pipeline", kwargs={"rec_id": rec.pk})}"
+                        hx-get="{reverse("recruitment-reopen-pipeline", kwargs={"rec_id": rec.pk})}"
+                        hx-target="#pipelineTabStrip"
+                        hx-include="#filterForm"
+                        hx-swap="innerHTML"
+                        hx-confirm="{_("Are you sure you want to reopen this recruitment?")}"
+                        hx-on::after-request="if(event.detail.successful){{$('#reloadMessagesButton').click();}}"
                         style="cursor: pointer;"
-                        onclick="return confirm('Are you sure you want to reopen this recruitment?');"
                     """,
                 },
             )
@@ -139,21 +156,32 @@ def recruitment_pipeline_actions(request, rec):
                 {
                     "action": _("Close"),
                     "attrs": f"""
-                        href="{reverse("recruitment-close-pipeline", kwargs={"rec_id": rec.pk})}"
+                        hx-get="{reverse("recruitment-close-pipeline", kwargs={"rec_id": rec.pk})}"
+                        hx-target="#pipelineTabStrip"
+                        hx-include="#filterForm"
+                        hx-swap="innerHTML"
+                        hx-confirm="{_("Are you sure you want to close this recruitment?")}"
+                        hx-on::after-request="if(event.detail.successful){{$('#reloadMessagesButton').click();}}"
                         style="cursor: pointer;"
-                        onclick="return confirm('Are you sure you want to close this recruitment?');"
                     """,
                 },
             )
 
     if delete_perm:
+        delete_query = urlencode(
+            {
+                "model": "recruitment.Recruitment",
+                "pk": rec.pk,
+                "redirect_url": reverse("cbv-pipeline"),
+            }
+        )
         actions.append(
             {
                 "action": _("Delete"),
                 "attrs": f"""
                     data-toggle="oh-modal-toggle"
                     data-target="#deleteConfirmation"
-                    hx-get="{reverse('generic-delete')}?model=recruitment.Recruitment&pk={rec.pk}"
+                    hx-get="{reverse('generic-delete')}?{delete_query}"
                     hx-target="#deleteConfirmationBody"
                     style="cursor: pointer;"
                 """,
@@ -172,17 +200,19 @@ class RecruitmentTabView(HorillaTabView):
     """
 
     filter_class = filters.RecruitmentFilter
+    template_name = "cbv/pipeline/recruitment_tabs.html"
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        recruitments = self.filter_class(self.request.GET).qs.filter(
-            is_active=True, closed=False
-        )
+        recruitments = self.filter_class(self.request.GET).qs.filter(is_active=True)
+        if self.request.GET.get("closed") in (None, "", "unknown"):
+            recruitments = recruitments.filter(closed=False)
+        recruitments = recruitments.order_by("-id")
         view_type = self.request.GET.get("view")
         if not view_type and self.request.user and self.request.user.is_authenticated:
             active_view = (
                 ActiveView.objects.filter(created_by=self.request.user)
-                .filter(Q(path=self.request.path) | Q(path=reverse("cbv-pipeline")))
+                .filter(Q(path=self.request.path) | Q(path=reverse("cbv-pipeline-nav")))
                 .first()
             )
             if active_view and active_view.type:
@@ -202,28 +232,61 @@ class RecruitmentTabView(HorillaTabView):
         )
         self.tabs = []
         view_perm = self.request.user.has_perm("recruitment.view_recruitment")
-        stage_qs = GetStages.filter_class(self.request.GET).qs
+
+        # Candidates on each recruitment's board (the same set the stage
+        # columns list), not how many stages it has.
+        candidate_counts = dict(
+            filters.CandidateFilter(self.request.GET)
+            .qs.filter(
+                is_active=True,
+                stage_id__recruitment_id__in=recruitments.values_list("pk", flat=True),
+            )
+            .order_by()
+            .values("stage_id__recruitment_id")
+            .annotate(total=Count("id", distinct=True))
+            .values_list("stage_id__recruitment_id", "total")
+        )
+        employee = getattr(self.request.user, "employee_get", None)
+        if employee:
+            recruitment_manager_ids = set(
+                recruitments.model.recruitment_managers.through.objects.filter(
+                    employee_id=employee.id,
+                    recruitment_id__in=recruitments.values_list("pk", flat=True),
+                ).values_list("recruitment_id", flat=True)
+            )
+            stage_manager_recruitment_ids = set(
+                models.Stage.stage_managers.through.objects.filter(
+                    employee_id=employee.id,
+                    stage__recruitment_id__in=recruitments.values_list("pk", flat=True),
+                ).values_list("stage__recruitment_id", flat=True)
+            )
+        else:
+            recruitment_manager_ids = set()
+            stage_manager_recruitment_ids = set()
+
         for rec in recruitments:
-            stage_manage_perm = stage_manages(self.request.user, rec)
+            stage_manage_perm = (
+                rec.pk in stage_manager_recruitment_ids
+                or rec.pk in recruitment_manager_ids
+            )
             tab = {}
             tab["title"] = rec
             url = reverse("recruitment-pipeline-shell", kwargs={"rec_id": rec.pk})
 
-            if view_type == "list":
-                url += f"?view={view_type}"
+            url += f"?view={view_type}"
             tab["url"] = url
+            tab["rec_id"] = rec.pk
+            tab["content_url"] = pipeline_content_url(
+                rec.pk, view_type, self.request.GET
+            )
 
             self.query_params["view"] = view_type
-            tab["badge_label"] = _("Stages")
-            tab["badge"] = stage_qs.filter(recruitment_id=rec.pk).count()
+            tab["badge_label"] = _("Candidates")
+            tab["badge"] = candidate_counts.get(rec.pk, 0)
             if stage_manage_perm or view_perm:
                 self.tabs.append(tab)
 
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        context["show_filter_tags"] = True
-
-        return context
+    show_filter_tags = False
 
 
 @method_decorator(login_required, name="dispatch")
@@ -232,10 +295,8 @@ class RecruitmentTabView(HorillaTabView):
 )
 class RecruitmentPipelineContentShell(TemplateView):
     """
-    Shell rendered for a single recruitment's pipeline tab - shows the
-    recruitment-level actions (previously the tab bar's own kebab) above
-    an htmx-loaded embed of the existing list/kanban content, so the tab
-    bar itself can drop its per-tab actions dropdown.
+    Render the pipeline tab of a single recruitment: its navigation bar
+    and the candidate list or kanban content.
     """
 
     template_name = "cbv/pipeline/recruitment_pipeline_shell.html"
@@ -248,19 +309,67 @@ class RecruitmentPipelineContentShell(TemplateView):
             )
         return super().dispatch(request, *args, **kwargs)
 
+    def saved_view_type(self):
+        """
+        Return the list/card view type the user last chose, or None.
+        """
+        user = self.request.user
+        if not (user and user.is_authenticated):
+            return None
+        active_view = ActiveView.objects.filter(
+            created_by=user, path=reverse("cbv-pipeline-nav")
+        ).first()
+        return active_view.type if active_view else None
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         rec = models.Recruitment.objects.entire().get(pk=self.kwargs.get("rec_id"))
-        view_type = self.request.GET.get("view")
-        content_url = reverse("candidate-card-cbv", kwargs={"pk": rec.pk})
-        if view_type == "list":
-            content_url = (
-                reverse("get-stages-recruitment", kwargs={"rec_id": rec.pk})
-                + f"?view={view_type}"
-            )
-        context["actions"] = recruitment_pipeline_actions(self.request, rec)
-        context["content_url"] = content_url
+        view_type = self.request.GET.get("view") or self.saved_view_type() or "card"
+        context["content_url"] = pipeline_content_url(
+            rec.pk, view_type, self.request.GET
+        )
+        context["rec_id"] = rec.pk
+        context["nav_url"] = reverse(
+            "recruitment-pipeline-tab-nav", kwargs={"rec_id": rec.pk}
+        )
         return context
+
+
+@method_decorator(login_required, name="dispatch")
+@method_decorator(
+    manager_can_enter(perm="recruitment.view_recruitment"), name="dispatch"
+)
+class RecruitmentCandidateNav(HorillaNavView):
+    """
+    Bar of a recruitment's pipeline tab with the Add candidate button and the
+    recruitment actions.
+    """
+
+    template_name = "generic/inline_nav.html"
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        rec_id = self.request.resolver_match.kwargs.get("rec_id")
+        self.search_swap_target = f"#pipelineTabContent{rec_id}"
+
+        rec = models.Recruitment.objects.filter(pk=rec_id).first()
+        if rec:
+            self.nav_title = str(rec)
+        if rec and (
+            self.request.user.has_perm("recruitment.add_candidate")
+            or self.request.user.has_perm("recruitment.change_recruitment")
+            or recruitment_manages(self.request.user, rec)
+        ):
+            self.create_label = _("Add")
+            self.create_attrs = f"""
+                hx-get="{reverse_lazy('add-candidate-to-stage')}?{urlencode({'rec_id': rec_id})}"
+                hx-target="#genericModalBody"
+                data-target="#genericModal"
+                data-toggle="oh-modal-toggle"
+            """
+
+        if rec:
+            self.actions = recruitment_pipeline_actions(self.request, rec)
 
 
 @method_decorator(login_required, name="dispatch")
@@ -278,44 +387,55 @@ class GetStages(TemplateView):
     template_name = "cbv/pipeline/stages.html"
     stages = None
 
+    @staticmethod
+    def cache_key_for(session_key, rec_id, querystring=""):
+        """
+        Return the cache key for one recruitment's stages, built from the
+        session, recruitment id, query string and stage cache version.
+        """
+        return (
+            f"{session_key}pipeline{rec_id}{querystring}"
+            f"v{stage_cache_version(rec_id)}"
+        )
+
     def get(self, request, *args, **kwargs):
         """
         get method
         """
         rec_id = kwargs["rec_id"]
-        cache = CACHE.get(request.session.session_key + "pipeline")
+        cache_key = self.cache_key_for(
+            request.session.session_key, rec_id, request.GET.urlencode()
+        )
+        cache = CACHE.get(cache_key)
         if cache is None:
             cache = {
                 "stages": self.filter_class(request.GET).qs.order_by("sequence"),
                 "candidates": False,
             }
-            CACHE.set(request.session.session_key + "pipeline", cache, timeout=600)
+            CACHE.set(cache_key, cache, timeout=600)
         if not cache.get("candidates"):
             cache["candidates"] = CandidateList.filter_class(
                 self.request.GET
             ).qs.filter(is_active=True)
-            # Same 600s as the write above: re-setting without it made the
-            # entry immortal.
-            CACHE.set(request.session.session_key + "pipeline", cache, timeout=600)
+            CACHE.set(cache_key, cache, timeout=600)
 
         self.stages = cache["stages"].filter(recruitment_id=rec_id)
+        self._candidates_qs = cache.get("candidates")
         return super().get(request, *args, **kwargs)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         stages_list = list(self.stages)
-        cache_key = self.request.session.session_key + "pipeline"
-        cache = CACHE.get(cache_key) or {}
-        candidates_qs = cache.get("candidates")
+        candidates_qs = getattr(self, "_candidates_qs", None)
         if candidates_qs is False or candidates_qs is None:
             candidates_qs = CandidateList.filter_class(self.request.GET).qs.filter(
                 is_active=True
             )
 
-        from django.db.models import Count
-
+        stage_ids = [s.id for s in stages_list]
         counts = (
-            candidates_qs.filter(stage_id__in=[s.id for s in stages_list])
+            candidates_qs.filter(stage_id__in=stage_ids)
+            .order_by()
             .values("stage_id")
             .annotate(total=Count("id"))
         )
@@ -330,6 +450,33 @@ class GetStages(TemplateView):
         context["view_id"] = get_short_uuid(6, "hsv")
         context["rec_id"] = kwargs["rec_id"]
         return context
+
+
+def stage_reload_script(stage_ids):
+    """
+    JS that refreshes the candidate lists of the given pipeline stages.
+
+    A stage already on screen reloads its own list. A stage that never loaded
+    (an empty one is rendered collapsed and only fetched when opened) has no
+    list to reload, so its body is fetched and opened instead; otherwise its
+    count badge, and the tab's total, stay stale.
+    """
+    stage_ids_js = json.dumps(sorted(filter(None, stage_ids)))
+    if stage_ids_js == "[]":
+        return ""
+    return (
+        "(function(ids){ids.forEach(function(id){"
+        "var key='/candidate-lists-cbv/'+id+'/';"
+        "var $list=$('[data-list-path*=\"'+key+'\"]');"
+        "if($list.length){$list.find('.reload-record').click();return;}"
+        "$('.oh-tabs__movable-body[hx-get*=\"'+key+'\"]').each(function(){"
+        "var body=this;$(body).removeClass('d-none');"
+        "$(body).closest('.oh-tabs__movable')"
+        ".find('.movable-toggle-icon,.oh-tabs__movable-fold-icon')"
+        ".attr('name','chevron-up-outline');"
+        "htmx.ajax('GET',body.getAttribute('hx-get'),{target:body,swap:'innerHTML'});"
+        "});});})(" + stage_ids_js + ");"
+    )
 
 
 @method_decorator(login_required, name="dispatch")
@@ -350,6 +497,8 @@ class CandidateList(HorillaListView):
     filter_keys_to_remove = ["rec_id", "obj_id"]
     records_per_page = 10
     records_count_in_tab = False
+
+    template_name = "cbv/pipeline/candidate_list.html"
 
     custom_empty_template = "cbv/pipeline/empty.html"
     header_attrs = {
@@ -391,6 +540,30 @@ class CandidateList(HorillaListView):
         "hired_date",
     ]
 
+    def bulk_reload_state(self, instance_ids):
+        """
+        Stages the selected candidates are in before the bulk update moves them.
+        """
+        return set(
+            models.Candidate.objects.filter(pk__in=instance_ids).values_list(
+                "stage_id", flat=True
+            )
+        )
+
+    def bulk_reload_script(self, request, instance_ids, reload_state):
+        """
+        Reload only the stages the bulk update touched (the ones the candidates
+        left and the one they moved to). The default reloads every list on the
+        page, which on a recruitment with many stages re-renders them all.
+        """
+        stage_ids = {stage_id for stage_id in reload_state or () if stage_id}
+        new_stage = request.POST.get("stage_id")
+        if new_stage and new_stage.isdigit():
+            stage_ids.add(int(new_stage))
+        if not stage_ids:
+            return super().bulk_reload_script(request, instance_ids, reload_state)
+        return stage_reload_script(stage_ids)
+
     row_attrs = """
         class="cursor-pointer"
         onclick="window.location.href = '{get_profile_url}?next=' + encodeURIComponent(window.location.pathname + window.location.search)"
@@ -399,7 +572,7 @@ class CandidateList(HorillaListView):
     actions = [
         {
             "action": _("Schedule Interview"),
-            "icon": "time-outline",
+            "icon": "calendar-outline",
             "attrs": """
                 class="oh-btn oh-btn--light-bkg oh-btn--sq-sm"
                 hx-get = "{get_schedule_interview}"
@@ -506,7 +679,42 @@ class CandidateList(HorillaListView):
         context = super().get_context_data(**kwargs)
         if not self.bulk_update_accessibility():
             context["actions"] = []
+        context["stage"] = models.Stage.objects.filter(
+            pk=self.kwargs.get("stage_id")
+        ).first()
+        if hasattr(context["queryset"], "object_list"):
+            context["queryset"].object_list = list(context["queryset"].object_list)
+            self._attach_last_sent_mail(context["queryset"].object_list)
+        else:
+            self._attach_last_sent_mail(list(context["queryset"]))
         return context
+
+    @staticmethod
+    def _attach_last_sent_mail(candidates: list) -> None:
+        """
+        Attach the latest sent email log to each candidate, using a single
+        query for all of them.
+        """
+        from base.models import EmailLog
+
+        if not candidates:
+            return
+        emails = {candidate.email for candidate in candidates if candidate.email}
+        if not emails:
+            return
+        email_q = Q()
+        for email in emails:
+            email_q |= Q(to__icontains=email)
+        logs_newest_first = EmailLog.objects.filter(email_q).order_by("-created_at")
+        latest_by_email = {}
+        for log in logs_newest_first:
+            for email in emails:
+                if email in latest_by_email:
+                    continue
+                if email in log.to:
+                    latest_by_email[email] = log
+        for candidate in candidates:
+            candidate.get_last_sent_mail = latest_by_email.get(candidate.email)
 
     def get(self, request, *args, **kwargs):
         self.selected_instances_key_id = f"selectedCandidateRecords{kwargs['stage_id']}"
@@ -514,7 +722,16 @@ class CandidateList(HorillaListView):
 
     def get_queryset(self, *args, **kwargs):
         if self.queryset is None:
-            cache_key = self.request.session.session_key + "pipeline"
+            rec_id = self.kwargs.get("rec_id")
+            cache_key = (
+                GetStages.cache_key_for(
+                    self.request.session.session_key,
+                    rec_id,
+                    self.request.GET.urlencode(),
+                )
+                if rec_id
+                else self.request.session.session_key + "pipeline"
+            )
             cache = CACHE.get(cache_key)
             if cache is None:
                 cache = {
@@ -529,7 +746,17 @@ class CandidateList(HorillaListView):
                 )
             CACHE.set(cache_key, cache, timeout=600)
 
-            queryset = cache["candidates"].filter(stage_id=self.kwargs["stage_id"])
+            queryset = (
+                cache["candidates"]
+                .filter(stage_id=self.kwargs["stage_id"])
+                .select_related(
+                    "stage_id",
+                    "stage_id__recruitment_id",
+                    "recruitment_id",
+                    "job_position_id",
+                )
+                .annotate(interview_count=Count("candidate_interview", distinct=True))
+            )
             super().get_queryset(queryset=queryset, filtered=True)
 
         return self.queryset
@@ -541,12 +768,15 @@ class CandidateList(HorillaListView):
 )
 class CandidateCard(HorillaKanbanView):
     model = models.Candidate
+    # The tab badge counts candidates (set server-side), not stage columns
+    records_count_in_tab = False
     filter_class = filters.CandidateFilter
     group_filter_class = filters.StageFilter
     group_key = "stage_id"
     records_per_page = 10
     filter_keys_to_remove = ["rec_id", "obj_id"]
     group_label_key = "stage"
+    empty_group_label = _("stages")
 
     kanban_attrs = """
         onclick="window.location.href = '{get_profile_url}?next=' + encodeURIComponent(window.location.pathname + window.location.search)"
@@ -559,48 +789,7 @@ class CandidateCard(HorillaKanbanView):
         "position": "{job_position_id__job_position}",
     }
 
-    group_actions = [
-        {
-            "action": _("Add Candidate"),
-            "accessibility": "recruitment.accessibility.add_candidate_accessibility",
-            "attrs": """
-                hx-target="#objectCreateModalTarget"
-                hx-get="{get_add_candidate_url}"
-                data-toggle="oh-modal-toggle"
-                data-target="#objectCreateModal"
-            """,
-        },
-        {
-            "action": _("Edit"),
-            "accessibility": "recruitment.accessibility.edit_stage_accessibility",
-            "attrs": """
-                hx-target="#genericModalBody"
-                hx-get="{get_stage_update_url}"
-                data-toggle="oh-modal-toggle"
-                data-target="#genericModal"
-            """,
-        },
-        {
-            "action": _("Bulk Mail"),
-            "accessibility": "recruitment.accessibility.edit_stage_accessibility",
-            "attrs": """
-                hx-target="#objectCreateModalTarget"
-                hx-get="{get_send_email_url}"
-                data-toggle="oh-modal-toggle"
-                data-target="#objectCreateModal"
-            """,
-        },
-        {
-            "action": _("Delete"),
-            "accessibility": "recruitment.accessibility.delete_stage_accessibility",
-            "attrs": """
-                hx-target="#deleteConfirmationBody"
-                hx-get="{get_delete_url}"
-                data-toggle="oh-modal-toggle"
-                data-target="#deleteConfirmation"
-            """,
-        },
-    ]
+    group_actions = []
 
     actions = [
         {
@@ -716,6 +905,26 @@ class CandidateCard(HorillaKanbanView):
 
         return related_groups
 
+    def kanban_move_item(self):
+        """
+        Move the dragged candidate, and tell the board when the move filled
+        the recruitment's vacancy (the kanban script shows it as a popup).
+        """
+        response = super().kanban_move_item()
+        if response.status_code != 200:
+            return response
+        stage = self.resolve_kanban_group(self.request.POST.get("groupId"))
+        if (
+            stage
+            and stage.stage_type == "shortlisted"
+            and stage.recruitment_id.is_vacancy_filled()
+        ):
+            payload = json.loads(response.content)
+            payload["message"] = str(_("Vacancy is filled"))
+            payload["vacancy"] = stage.recruitment_id.vacancy
+            return JsonResponse(payload)
+        return response
+
 
 @method_decorator(login_required, name="dispatch")
 @method_decorator(
@@ -723,25 +932,27 @@ class CandidateCard(HorillaKanbanView):
 )
 class PipelineNav(HorillaNavView):
     """
-    HorillaNavView
+    Search, view type, filter and Create for the recruitment pipeline page.
     """
 
-    search_url = reverse_lazy("cbv-pipeline-tab")
     nav_title = _("Pipeline")
-    search_swap_target = "#pipelineContainer"
+    search_swap_target = "#pipelineTabStrip"
     filter_body_template = "cbv/pipeline/pipeline_filter.html"
     filter_instance = filters.RecruitmentFilter()
     filter_form_context_name = "form"
-    apply_first_filter = False
-    # Modern slide-over filter panel (generic/horilla_nav.html's own
-    # {% if modern_filter %} branch) -- same treatment as every other
-    # panel this session. The three underlying filters
-    # (RecruitmentFilter/StageFilter/CandidateFilter) each carry their own
-    # ajax_fields for the FK/M2M pickers this combined panel renders.
     modern_filter = True
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
+        self.search_url = str(reverse_lazy("cbv-pipeline-tab"))
+        self.search_in = [
+            ("title", _("Recruitment")),
+            ("candidate", _("Candidate")),
+            ("stage", _("Stage")),
+            ("job_position_id", _("Job Position")),
+            ("company_id", _("Company")),
+            ("recruitment_managers", _("Recruitment Managers")),
+        ]
         if self.request.user.has_perm("recruitment.add_recruitment"):
             self.create_attrs = f"""
                 hx-get="{reverse_lazy('recruitment-create')}?{urlencode({'pipeline': 'true'})}"
@@ -752,22 +963,20 @@ class PipelineNav(HorillaNavView):
         else:
             self.create_attrs = None
 
-        rec_id = self.request.GET.get("obj_id", "")
-        id_suffix = f"&obj_id={rec_id}" if rec_id else ""
         self.view_types = [
             {
                 "type": "list",
                 "icon": "list-outline",
-                "url": f'{reverse_lazy("cbv-pipeline-tab")}?view=list{id_suffix}',
-                "attrs": f"""
+                "url": f'{reverse_lazy("cbv-pipeline-tab")}?view=list',
+                "attrs": """
                     title ='List'
                 """,
             },
             {
                 "type": "card",
                 "icon": "grid-outline",
-                "url": f'{reverse_lazy("cbv-pipeline-tab")}?view=card{id_suffix}',
-                "attrs": f"""
+                "url": f'{reverse_lazy("cbv-pipeline-tab")}?view=card',
+                "attrs": """
                     title ='Card'
                 """,
             },
@@ -798,10 +1007,36 @@ class ChangeStage(HorillaFormView):
     form_class = forms.StageChangeForm
 
     def form_valid(self, form):
-        if form.is_valid():
-            messages.success(self.request, _("Stage Updated"))
-            form.save()
+        if not form.is_valid():
+            messages.info(self.request, _("Stage not updated"))
             return self.HttpResponse()
-        messages.info(self.request, _("Stage not updated"))
 
-        return self.HttpResponse()
+        messages.success(self.request, _("Stage Updated"))
+        previous_stage_id = (
+            models.Candidate.objects.filter(pk=form.instance.pk)
+            .values_list("stage_id", flat=True)
+            .first()
+        )
+        candidate = form.save()
+        return self.reload_stages_response({previous_stage_id, candidate.stage_id_id})
+
+    def reload_stages_response(self, stage_ids):
+        """
+        Build the response returned after a candidate's stage is changed.
+
+        The response script reloads the candidate tables of the given stages,
+        refreshes the messages area and closes the open modal.
+
+        Args:
+            stage_ids: ids of the stages whose candidate lists changed
+                (the one the candidate left and the one it moved to).
+        """
+        script_id = get_short_uuid(4, "chgstage")
+        return DjangoHttpResponse(
+            f"<script id='{script_id}'>"
+            "$('#reloadMessagesButton').click();"
+            f"$('#{script_id}').closest('.oh-modal--show').first()"
+            ".removeClass('oh-modal--show');"
+            f"{stage_reload_script(stage_ids)}"
+            "</script>"
+        )

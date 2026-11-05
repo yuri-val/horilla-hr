@@ -2,13 +2,16 @@
 This page handles the cbv methods of employee individual view
 """
 
+from datetime import date
+
 from django.contrib import messages
 from django.http import HttpResponse
 from django.shortcuts import redirect, render
-from django.urls import reverse_lazy
+from django.urls import reverse, reverse_lazy
 from django.utils.decorators import method_decorator
 from django.utils.translation import gettext_lazy as _
 from django.views import View
+from django.views.generic import TemplateView
 
 from base import views as base_views
 from base.cbv.mail_log_tab import MailLogTabList
@@ -16,8 +19,14 @@ from base.cbv.work_shift_tab import WorkAndShiftTabView
 from base.context_processors import enable_profile_edit
 from base.forms import AddToUserGroupForm
 from employee import views
-from employee.cbv.document_request import DocumentIndividualTabList
+from employee.cbv.document_request import DocumentIndividualTabShell
 from employee.filters import EmployeeFilter
+from employee.history import (
+    get_employee_entries_by_keys,
+    get_employee_history_models,
+    get_employee_history_search,
+    get_employee_model_history,
+)
 from employee.models import Employee
 from horilla import settings
 from horilla.http.response import HorillaRedirect
@@ -43,6 +52,10 @@ class EmployeeProfileView(HorillaProfileView):
     def get_queryset(self):
         return Employee.objects.entire()
 
+    def get_status_ribbon(self, instance):
+        if not instance.is_active:
+            return {"label": _("Archived"), "variant": "secondary"}
+
     def dispatch(self, request, *args, **kwargs):
 
         if not request.user.is_authenticated:
@@ -55,6 +68,7 @@ class EmployeeProfileView(HorillaProfileView):
             )
 
         employee = request.user.employee_get
+        pk = obj_id
 
         if request.user.has_perm("employee.change_employee"):
             self.actions = [
@@ -72,13 +86,114 @@ class EmployeeProfileView(HorillaProfileView):
                     """,
                 },
                 {
-                    "divider": True,
+                    "title": _("Export Individual Data"),
+                    "src": f"/{settings.STATIC_URL}images/ui/document.png",
+                    "accessibility": "employee.cbv.accessibility.export_data_accessibility",
+                    "attrs": f"""
+                        href="#"
+                        hx-get="{reverse('export-data-employee', args=[pk])}"
+                        hx-target="#export-content"
+                        hx-swap="innerHTML"
+                        data-toggle="oh-modal-toggle"
+                        data-target="#dataExport"
+                    """,
+                },
+                {
+                    "title": _("Allocations"),
+                    "src": f"/{settings.STATIC_URL}images/ui/batch.png",
+                    "accessibility": "employee.cbv.accessibility.allocations_accessibility",
+                    "attrs": f"""
+                        href="#"
+                        hx-get="{reverse('allocation-view', args=[pk])}"
+                        hx-target="#allocationModalBody"
+                        data-toggle="oh-modal-toggle"
+                        data-target="#allocationModal"
+                    """,
+                },
+                {
+                    "title": _("Send Mail"),
+                    "src": f"/{settings.STATIC_URL}images/ui/email.png",
+                    "accessibility": "employee.cbv.accessibility.send_mail_accessibility",
+                    "attrs": f"""
+                        href="#"
+                        hx-get="{reverse('send-mail-employee', args=[pk])}"
+                        hx-target="#mail-content"
+                        hx-swap="innerHTML"
+                        data-toggle="oh-modal-toggle"
+                        data-target="#sendMailModal"
+                    """,
                 },
                 {
                     "title": _("Send password reset link"),
                     "src": f"/{settings.STATIC_URL}images/ui/key.png",
                     "accessibility": "employee.cbv.accessibility.password_reset_accessibility",
                     "attrs": """onclick="$('#reset-button').click();" """,
+                },
+                {
+                    "title": _("Reset Password"),
+                    "src": f"/{settings.STATIC_URL}images/ui/key.png",
+                    "accessibility": "employee.cbv.accessibility.admin_reset_password_accessibility",
+                    "attrs": f"""
+                        href="#"
+                        hx-post="{reverse('employee-reset-password-admin', args=[pk])}"
+                        hx-target="#genericModalBody"
+                        hx-swap="innerHTML"
+                        hx-confirm="{_('This will immediately invalidate the current password. Continue?')}"
+                        hx-on::after-request="if (event.detail.successful) document.getElementById('genericModal').classList.add('oh-modal--show')"
+                    """,
+                },
+                {
+                    "title": _("Send Invitation"),
+                    "src": f"/{settings.STATIC_URL}images/ui/invite-user.svg",
+                    "accessibility": "employee.cbv.accessibility.admin_reset_password_accessibility",
+                    "attrs": f"""
+                        href="#"
+                        hx-post="{reverse('employee-send-invitation', args=[pk])}"
+                        hx-target="#relatedModel"
+                        hx-confirm="{_('Send an invitation email to this employee?')}"
+                    """,
+                },
+                {
+                    "divider": True,
+                },
+                {
+                    "title": _("Archive"),
+                    "src": f"/{settings.STATIC_URL}images/ui/restrict.png",
+                    "accessibility": "employee.cbv.accessibility.archive_accessibility",
+                    "attrs": f"""
+                        href="#"
+                        hx-post="{reverse('employee-archive', args=[pk])}"
+                        hx-target="#relatedModel"
+                        hx-confirm="{_('Do you want to archive this employee?')}"
+                        hx-on::after-request="if (!document.querySelector('#relatedModel .oh-modal')) window.location.reload();"
+                    """,
+                    "variant": "danger",
+                },
+                {
+                    "title": _("Un-Archive"),
+                    "src": f"/{settings.STATIC_URL}images/ui/restrict.png",
+                    "accessibility": "employee.cbv.accessibility.un_archive_accessibility",
+                    "attrs": f"""
+                        href="#"
+                        hx-post="{reverse('employee-archive', args=[pk])}"
+                        hx-target="#relatedModel"
+                        hx-confirm="{_('Do you want to un-archive this employee?')}"
+                        hx-on::after-request="window.location.reload();"
+                    """,
+                    "variant": "success",
+                },
+                {
+                    "title": _("Delete"),
+                    "src": f"/{settings.STATIC_URL}images/ui/delete.svg",
+                    "accessibility": "employee.cbv.accessibility.delete_accessibility",
+                    "attrs": f"""
+                        href="#"
+                        hx-get="{reverse('generic-delete')}?model=employee.Employee&pk={pk}"
+                        hx-target="#deleteConfirmationBody"
+                        data-toggle="oh-modal-toggle"
+                        data-target="#deleteConfirmation"
+                    """,
+                    "variant": "danger",
                 },
                 {
                     "divider": True,
@@ -98,7 +213,7 @@ class EmployeeProfileView(HorillaProfileView):
                     "variant": "success",
                 },
             ]
-        elif employee.pk == kwargs.get("pk") and enable_profile_edit(request).get(
+        elif employee.pk == kwargs.get("pk") and not enable_profile_edit(request).get(
             "profile_edit_enabled"
         ):
             self.actions = [
@@ -117,6 +232,13 @@ class EmployeeProfileView(HorillaProfileView):
             ]
 
         return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["send_mail_url"] = reverse(
+            "send-mail-employee", args=[self.kwargs.get("pk")]
+        )
+        return context
 
 
 class UserProfileView(EmployeeProfileView):
@@ -165,6 +287,80 @@ class EmployeeRelatedDetailView(HorillaDetailedView):
         return context
 
 
+@method_decorator(login_required, name="dispatch")
+class EmployeeHistoryTabView(TemplateView):
+    """
+    Lets the viewer pick which of the employee's linked models to show
+    history for, filtered and sorted by date.
+    """
+
+    template_name = "tabs/history.html"
+    default_model = "employee.employeeworkinformation"
+
+    def _parse_date(self, value):
+        try:
+            return date.fromisoformat(value) if value else None
+        except ValueError:
+            return None
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        employee = Employee.objects.get(id=self.kwargs.get("pk"))
+        model_options = get_employee_history_models()
+
+        selected_model = self.request.GET.get("model") or self.default_model
+        if selected_model not in {m["key"] for m in model_options}:
+            selected_model = self.default_model
+
+        date_from = self._parse_date(self.request.GET.get("date_from"))
+        date_to = self._parse_date(self.request.GET.get("date_to"))
+        sort = self.request.GET.get("sort") or "-date"
+        if sort not in {"date", "-date"}:
+            sort = "-date"
+
+        search = (self.request.GET.get("search") or "").strip()
+        selected_view = self.request.GET.get("view") == "selected"
+        if selected_view:
+            entries = get_employee_entries_by_keys(
+                employee, self.request.GET.getlist("selected"), sort=sort
+            )
+            tracking_status = "simple_history"
+        elif search:
+            entries = get_employee_history_search(
+                employee,
+                model_options,
+                search,
+                date_from=date_from,
+                date_to=date_to,
+                sort=sort,
+            )
+            tracking_status = "simple_history"
+        else:
+            entries, tracking_status = get_employee_model_history(
+                employee,
+                selected_model,
+                date_from=date_from,
+                date_to=date_to,
+                sort=sort,
+            )
+
+        context.update(
+            {
+                "selected_view": selected_view,
+                "search": search,
+                "employee": employee,
+                "model_options": model_options,
+                "selected_model": selected_model,
+                "date_from": date_from,
+                "date_to": date_to,
+                "sort": sort,
+                "entries": entries,
+                "tracking_status": tracking_status,
+            }
+        )
+        return context
+
+
 EmployeeProfileView.add_tab(
     tabs=[
         {
@@ -189,7 +385,7 @@ EmployeeProfileView.add_tab(
         },
         {
             "title": _("Documents"),
-            "view": DocumentIndividualTabList.as_view(),
+            "view": DocumentIndividualTabShell.as_view(),
             "accessibility": "employee.cbv.accessibility.document_accessibility",
         },
         {
@@ -199,7 +395,7 @@ EmployeeProfileView.add_tab(
         },
         {
             "title": _("History"),
-            "view": views.history_tab,
+            "view": EmployeeHistoryTabView.as_view(),
             "accessibility": "employee.cbv.accessibility.history_accessibility",
         },
     ]

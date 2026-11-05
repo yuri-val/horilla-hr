@@ -5,20 +5,33 @@ import logging
 from collections import defaultdict
 from urllib.parse import parse_qs, urlparse
 
+import numpy as np
 import pandas as pd
 from django.contrib import messages
 from django.core import serializers
+from django.core.paginator import Paginator
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
+from django.utils.translation import gettext_noop
 from django.views.decorators.http import require_http_methods
 
-from base.methods import filtersubordinates, get_key_instances, has_export_access
+from base.auth_backends import company_scoped_active, get_allowed_company_ids
+from base.import_template_data import import_template_frame, write_import_xlsx
+from base.methods import (
+    filtersubordinates,
+    get_key_instances,
+    get_pagination,
+    get_session_company,
+    has_export_access,
+)
+from base.views import generate_error_report
 from horilla.decorators import hx_request_required, login_required, permission_required
 from horilla.http import HorillaRedirect
+from horilla.http.response import with_bulk_result
 from horilla.methods import handle_no_permission
 from notifications.signals import notify
 from project.methods import (
@@ -35,6 +48,9 @@ from .forms import *
 from .methods import (
     is_project_manager_or_super_user,
     is_projectmanager_or_member_or_perms,
+    process_project_records,
+    project_import_error_template,
+    valid_project_import_headers,
 )
 from .models import *
 
@@ -276,11 +292,13 @@ def change_project_status(request, project_id):
                         notify.send(
                             request.user.employee_get,
                             recipient=employee.employee_user_id,
-                            verb=f"The status of the project '{project}' has been changed to {project.get_status_display()}.",
-                            verb_ar=f"تم تغيير حالة المشروع '{project}' إلى {project.get_status_display()}.",
-                            verb_de=f"Der Status des Projekts '{project}' wurde auf {project.get_status_display()} geändert.",
-                            verb_es=f"El estado del proyecto '{project}' ha sido cambiado a {project.get_status_display()}.",
-                            verb_fr=f"Le statut du projet '{project}' a été changé en {project.get_status_display()}.",
+                            verb=gettext_noop(
+                                "The status of the project '%(project)s' has been changed to %(get_status_display)s."
+                            ),
+                            verb_params={
+                                "project": str(project),
+                                "get_status_display": str(project.get_status_display()),
+                            },
                             redirect=reverse(
                                 "task-view",
                                 kwargs={"project_id": project.id},
@@ -357,156 +375,104 @@ def convert_nan(field, dicts):
 
 
 @login_required
-def project_import(request):
+@permission_required("project.add_project")
+def project_import_template(request):
     """
-    This method is used to import Project instances and creates related objects
+    Download the project import template.
     """
-    data_frame = pd.DataFrame(
-        columns=[
-            "Title",
-            "Manager Badge id",
-            "Status",
-            "Start Date",
-            "End Date",
-            "Description",
-        ]
-    )
-    # Export the DataFrame to an Excel file
+    data_frame = import_template_frame("project")
     response = HttpResponse(content_type="application/ms-excel")
     response["Content-Disposition"] = 'attachment; filename="project_template.xlsx"'
-    data_frame.to_excel(response, index=False)
-
-    if request.method == "POST" and request.FILES.get("file") is not None:
-        file = request.FILES["file"]
-        data_frame = pd.read_excel(file)
-        project_dicts = data_frame.to_dict("records")
-        error_lists = []
-        for project in project_dicts:
-            try:
-                # getting datas from imported file
-                title = project["Title"]
-                manager_badge_id = convert_nan("Manager Badge id", project)
-                status = project["Status"]
-                start_date = project["Start Date"]
-                end_date = project["End Date"]
-                description = project["Description"]
-
-                # checcking all the imported values
-                is_save = True
-                # getting employee using badge id, for manager
-                if manager_badge_id:
-                    ids = manager_badge_id.split(",")
-                    error_ids = []
-                    managers = []
-                    for id in ids:
-                        if Employee.objects.filter(badge_id=id).exists():
-                            employee = Employee.objects.filter(badge_id=id).first()
-                            managers.append(employee)
-                        else:
-                            error_ids.append(id)
-                            is_save = False
-                    if error_ids:
-                        ids = ",".join(map(str, error_ids))
-                        project["Manager error"] = f"{ids} - This id not exists"
-                    # if Employee.objects.filter(badge_id=manager_badge_id).exists():
-                    #     manager = Employee.objects.filter(
-                    #         badge_id=manager_badge_id
-                    #     ).first()
-                    # else:
-                    #     project["Manager error"] = (
-                    #         f"{manager_badge_id} - This badge not exist"
-                    #     )
-                    #     is_save = False
-
-                if status:
-                    if status not in [stat for stat, _ in Project.PROJECT_STATUS]:
-                        project["Status error"] = (
-                            f"{status} not available in Project status"
-                        )
-                        is_save = False
-                else:
-                    project["Status error"] = "Status is a required field"
-                    is_save = False
-
-                format = "%Y-%m-%d"
-                if start_date:
-
-                    # using try-except to check for truth value
-                    try:
-                        res = bool(
-                            datetime.datetime.strptime(
-                                start_date.strftime("%Y-%m-%d"), format
-                            )
-                        )
-                    except Exception as e:
-                        res = False
-                    if res == False:
-                        project["Start date error"] = (
-                            "Date must be in 'YYYY-MM-DD' format"
-                        )
-                        is_save = False
-                else:
-                    project["Start date error"] = "Start date is a required field"
-                    is_save = False
-
-                if end_date:
-                    # using try-except to check for truth value
-                    try:
-                        res = bool(
-                            datetime.datetime.strptime(
-                                end_date.strftime("%Y-%m-%d"), format
-                            )
-                        )
-                        if end_date < start_date:
-                            project["end date error"] = (
-                                "End date must be greater than Start date"
-                            )
-                            is_save = False
-                    except ValueError:
-                        res = False
-                    if res == False:
-                        project["end date error"] = (
-                            "Date must be in 'YYYY-MM-DD' format"
-                        )
-                        is_save = False
-
-                if is_save == True:
-                    # creating new project
-                    if Project.objects.filter(title=title).exists():
-                        project_obj = Project.objects.filter(title=title).first()
-                    else:
-                        project_obj = Project(title=title)
-                    project_obj.start_date = start_date.strftime("%Y-%m-%d")
-                    project_obj.end_date = end_date.strftime("%Y-%m-%d")
-                    project_obj.status = status
-                    project_obj.description = description
-                    project_obj.save()
-                    for manager in managers:
-                        project_obj.managers.add(manager)
-                    project_obj.save()
-                else:
-                    error_lists.append(project)
-
-            except Exception as e:
-                error_lists.append(project)
-        if error_lists:
-            res = defaultdict(list)
-            for sub in error_lists:
-                for key in sub:
-                    res[key].append(sub[key])
-            data_frame = pd.DataFrame(error_lists, columns=error_lists[0].keys())
-            # Create an HTTP response object with the Excel file
-            response = HttpResponse(content_type="application/ms-excel")
-            response["Content-Disposition"] = 'attachment; filename="ImportError.xlsx"'
-            data_frame.to_excel(response, index=False)
-            return response
-        return HttpResponse("Imported successfully")
+    write_import_xlsx(data_frame, response)
     return response
 
 
 @login_required
+@hx_request_required
+@permission_required("project.add_project")
+def project_import(request):
+    """
+    Import Project instances from a CSV/Excel file (same flow as the employee
+    import). GET renders the import modal, POST processes the uploaded file.
+    """
+    template = "project/project_import.html"
+    if request.method == "GET":
+        return render(request, template)
+
+    file = request.FILES.get("file")
+    if not file:
+        return render(request, template, {"error_message": _("No file uploaded.")})
+    try:
+        extension = file.name.split(".")[-1].lower()
+        if extension == "csv":
+            data_frame = pd.read_csv(file)
+        elif extension in ["xls", "xlsx"]:
+            data_frame = pd.read_excel(file)
+        else:
+            return render(
+                request,
+                template,
+                {
+                    "error_message": _(
+                        "Unsupported file format. Please upload a CSV or Excel file."
+                    )
+                },
+            )
+        valid, error_message = valid_project_import_headers(data_frame)
+        if not valid:
+            return render(request, template, {"error_message": error_message})
+
+        allowed_ids = None
+        if company_scoped_active() and not request.user.is_superuser:
+            allowed_ids = set(get_allowed_company_ids(request.user) or [])
+        created_count, error_list = process_project_records(
+            data_frame.astype(object).replace({np.nan: None}),
+            selected_company=get_session_company(request),
+            allowed_ids=allowed_ids,
+        )
+    except Exception as exception:
+        logger.error(f"Project import error: {exception}")
+        return render(
+            request,
+            template,
+            {
+                "error_message": _(
+                    "Failed to read file. Please ensure it is a valid CSV or Excel file. : {}"
+                ).format(exception)
+            },
+        )
+
+    path_info = (
+        generate_error_report(
+            error_list, project_import_error_template(), "ProjectsImportError.xlsx"
+        )
+        if error_list
+        else None
+    )
+    messages.success(
+        request,
+        _("%(created_count)s projects imported.") % {"created_count": created_count},
+    )
+    result = render_to_string(
+        "employee/employee_import_result.html",
+        {
+            "created_count": created_count,
+            "total_count": created_count + len(error_list),
+            "error_count": len(error_list),
+            "model": _("Projects"),
+            "path_info": path_info,
+        },
+        request,
+    )
+    result += (
+        "<script>$('#objectCreateModalTarget').css('max-width', '440px');</script>"
+    )
+    return HttpResponse(result)
+
+
+@login_required
 # @permission_required("project.view_project")
-# @require_http_methods(["POST"])
+@require_http_methods(["POST"])
 def project_bulk_export(request):
     """
     This method is used to export bulk of Project instances
@@ -534,7 +500,11 @@ def project_bulk_export(request):
     for project in projects:
         data = {
             "Title": f"{project.title}",
-            "Managers": f"{',' .join([manager.employee_first_name + ' ' + manager.employee_last_name for manager in project.managers.all()]) if project.managers.exists() else ''}",
+            # (an employee may have no last name)
+            "Managers": ", ".join(
+                f"{manager.employee_first_name or ''} {manager.employee_last_name or ''}".strip()
+                for manager in project.managers.all()
+            ),
             "Status": f"{project.status}",
             "Start Date": f'{project.start_date.strftime("%Y-%m-%d")}',
             "End Date": f'{project.end_date.strftime("%Y-%m-%d") if project.end_date else ""}',
@@ -620,24 +590,19 @@ def project_bulk_archive(request):
         )
         return HttpResponse("<script>$('#applyFilter').click();</script>")
 
+    done = failed = 0
     for project_id in ids:
         project = Project.objects.filter(id=project_id).first()
         if project and is_project_manager_or_super_user(request, project):
             project.is_active = is_active
             project.save()
-            messages.success(
-                request,
-                _("%(project)s is %(message)s successfully.")
-                % {"project": project, "message": message},
-            )
+            done += 1
         else:
-            messages.warning(
-                request,
-                _("Permission denied or project not found: ID %(project_id)s")
-                % {"project_id": project_id},
-            )
+            failed += 1
 
-    return HttpResponse("<script>$('#applyFilter').click();</script>")
+    return with_bulk_result(
+        HttpResponse("<script>$('#applyFilter').click();</script>"), done, failed
+    )
 
 
 @login_required
@@ -711,6 +676,45 @@ def project_archive(request, project_id):
 # Task views
 
 
+def paginate_stage_tasks(request, stages, tasks, order_by, scroll=False):
+    """
+    Give each stage one page of its tasks as `stage.page_obj`.
+
+    Every stage pages on its own: the page number is read from the
+    `stage_page_<stage id>` query parameter, so moving one stage to its next
+    page leaves the others where they are. Returns the stages as a list.
+
+    With `scroll` (the card view) pages are loaded as the column is scrolled
+    instead: every stage starts at its first page, only the stage named by
+    `cards_stage` is asked for a later one, and `stage.next_page_url` is the
+    request that fetches the page after it (unset on the last page).
+    """
+    per_page = get_pagination()
+    tasks = tasks.distinct()
+    stages = list(stages)
+    scrolled_stage = request.GET.get("cards_stage")
+    for stage in stages:
+        stage_tasks = tasks.filter(stage=stage).order_by(*order_by)
+        number = request.GET.get(f"stage_page_{stage.id}")
+        if scroll and scrolled_stage != str(stage.id):
+            number = 1
+        stage.page_obj = Paginator(stage_tasks, per_page).get_page(number)
+        stage.next_page_url = None
+        if scroll and stage.page_obj.has_next():
+            query = request.GET.copy()
+            for key in [key for key in query if key.startswith("stage_page_")]:
+                del query[key]
+            query["view"] = "card"
+            query["cards_stage"] = stage.id
+            query[f"stage_page_{stage.id}"] = stage.page_obj.next_page_number()
+            stage.next_page_url = (
+                reverse("task-filter", kwargs={"project_id": stage.project_id})
+                + "?"
+                + query.urlencode()
+            )
+    return stages
+
+
 @login_required
 @project_update_permission()
 def task_view(request, project_id, **kwargs):
@@ -720,15 +724,21 @@ def task_view(request, project_id, **kwargs):
     form = TaskAllFilter().form
     for field, value in form.fields.items():
         if form.fields.get(field) and form.fields[field].widget.attrs.get("id"):
-            del form.fields[field].widget.attrs["id"]
             form.fields[field].widget.attrs["class"] = "w-100 oh-select oh-select2"
     view_type = "card"
     project = Project.objects.get(id=project_id)
     stages = ProjectStage.objects.filter(project=project).order_by("sequence")
     tasks = Task.objects.filter(project=project)
     form.fields["stage"].queryset = ProjectStage.objects.filter(project=project.id)
-    if request.GET.get("view") == "list" or request.GET.get("view") == None:
+    if request.GET.get("view") == "list":
         view_type = "list"
+    stages = paginate_stage_tasks(
+        request,
+        stages,
+        tasks,
+        ("-id",) if view_type == "list" else ("sequence", "-id"),
+        scroll=view_type != "list",
+    )
     context = {
         "view_type": view_type,
         "tasks": tasks,
@@ -777,7 +787,7 @@ def quick_create_task(request, stage_id):
                 "hx_target": hx_target,
             },
         )
-    messages.info(request, _("You dont have permission."))
+    messages.info(request, _("You don't have permission."))
     return HorillaRedirect(request)
 
 
@@ -811,7 +821,7 @@ def create_task(request, stage_id):
             "task/new/forms/create_task.html",
             context={"form": form, "stage_id": stage_id},
         )
-    messages.info(request, _("You dont have permission."))
+    messages.info(request, _("You don't have permission."))
     return HorillaRedirect(request)
 
 
@@ -851,7 +861,7 @@ def create_task_in_project(request, project_id):
         return render(
             request, "task/new/forms/create_task_project.html", context=context
         )
-    messages.info(request, _("You dont have permission."))
+    messages.info(request, _("You don't have permission."))
     return HorillaRedirect(request)
 
 
@@ -934,12 +944,10 @@ def task_filter(request, project_id):
     For filtering task
     """
     templete = "task/new/task_kanban_view.html"
-    if (
-        request.GET.get("view") == "list"
-        or request.GET.get("view") == None
-        or request.GET.get("view") == ""
-    ):
+    order_by = ("sequence", "-id")
+    if request.GET.get("view") == "list":
         templete = "task/new/task_list_view.html"
+        order_by = ("-id",)
     tasks = TaskFilter(request.GET).qs.filter(project_id=project_id)
     stages = (
         ProjectStage.objects.filter(project_id=project_id).order_by("sequence")
@@ -948,11 +956,29 @@ def task_filter(request, project_id):
         # .distinct()
         # .order_by("sequence")
     )
+    is_card_view = templete == "task/new/task_kanban_view.html"
+    cards_stage = request.GET.get("cards_stage", "")
+    scroll_request = is_card_view and cards_stage.isdigit()
+    if scroll_request:
+        # Infinite scroll: only the next page of one stage's cards.
+        stages = stages.filter(id=cards_stage)
+    stages = paginate_stage_tasks(request, stages, tasks, order_by, scroll=is_card_view)
+    if scroll_request:
+        if not stages:
+            return HttpResponse("")
+        return render(
+            request,
+            "task/new/_kanban_stage_cards.html",
+            {"stage": stages[0], "project_id": project_id},
+        )
     previous_data = request.environ["QUERY_STRING"]
     data_dict = parse_qs(previous_data)
     get_key_instances(Task, data_dict)
     if data_dict.get("project"):
         del data_dict["project"]
+    # Page numbers are not filters, so they get no filter tag.
+    for key in [key for key in data_dict if key.startswith("stage_page_")]:
+        del data_dict[key]
     context = {
         "tasks": tasks.distinct(),
         "stages": stages,
@@ -990,7 +1016,7 @@ def task_stage_change(request, task_id):
         or request.user.employee_get in task.task_members.all()
         or request.user.employee_get in project.managers.all()
     ):
-        messages.info(request, _("You dont have permission."))
+        messages.info(request, _("You don't have permission."))
         return HttpResponse("<script>$('#reloadMessagesButton').click();</script>")
 
     task.stage = stage
@@ -999,6 +1025,7 @@ def task_stage_change(request, task_id):
 
     stages = ProjectStage.objects.filter(project=project).order_by("sequence")
     tasks = Task.objects.filter(project=project)
+    stages = paginate_stage_tasks(request, stages, tasks, ("-id",))
     context = {
         "tasks": tasks.distinct(),
         "stages": stages,
@@ -1118,7 +1145,7 @@ def drag_and_drop_task(request):
         messages.success(request, message)
         return JsonResponse({"change": change})
     change = True
-    messages.info(request, _("You dont have permission."))
+    messages.info(request, _("You don't have permission."))
     return JsonResponse({"change": change})
 
 
@@ -1254,19 +1281,16 @@ def task_all_bulk_archive(request):
     is_active = False
     if request.GET.get("is_active") == "True":
         is_active = True
+    done = failed = 0
     for task_id in ids:
         task = Task.objects.filter(id=task_id).first()
         if not task:
-            continue  # Skip if task not found
+            failed += 1
+            continue
         task.is_active = is_active
         task.save()
-        message = _("archived")
-        if is_active:
-            message = _("un-archived")
-        messages.success(
-            request, _("%(task)s is %(message)s") % {"task": task, "message": message}
-        )
-    return JsonResponse({"message": "Success"})
+        done += 1
+    return with_bulk_result(JsonResponse({"message": "Success"}), done, failed)
 
 
 @login_required
@@ -1426,7 +1450,7 @@ def get_stages(request):
         form.fields["stage"].choices = (
             [("", _("Select Stage"))]
             + [(stage.id, stage.title) for stage in stages]
-            + [("dynamic_create", _("Dynamic Create"))]
+            + [("dynamic_create", _("Create %(label)s") % {"label": _("Stage")})]
         )
         # project = Project.objects.filter(id = project_id).first()
         # if (
@@ -1633,7 +1657,9 @@ def get_tasks_in_timesheet(request):
         form.fields["task_id"].queryset = tasks
         form.fields["task_id"].choices = list(form.fields["task_id"].choices)
         if employee in project.managers.all() or request.user.is_superuser:
-            form.fields["task_id"].choices.append(("dynamic_create", "Dynamic create"))
+            form.fields["task_id"].choices.append(
+                ("dynamic_create", _("Create %(label)s") % {"label": _("Task")})
+            )
         task_id = request.GET.get("task_id")
         if task_id:
             form.fields["task_id"].initial = task_id
@@ -1788,7 +1814,7 @@ def time_sheet_update(request, time_sheet_id):
             },
         )
     else:
-        messages.error(request, _("You dont have permission."))
+        messages.error(request, _("You don't have permission."))
         return HorillaRedirect(request)
 
 

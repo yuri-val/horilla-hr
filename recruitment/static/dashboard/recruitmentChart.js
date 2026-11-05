@@ -154,7 +154,7 @@ $(document).ready(function () {
 				data: {
 					labels: labels,
 					datasets: [{
-						label: "Hired Candidates",
+						label: gettext("Hired Candidates"),
 						data: values,
 						backgroundColor: colors,
 						borderRadius: 20,

@@ -249,6 +249,11 @@ class HorillaFilterSet(FilterSet):
             ("istartswith", _("Starts with")),
         ],
         "choice": [("exact", _("Is"))],
+        # number: plain numeric column (e.g. a day count).
+        "number": [
+            ("gte", _("Greater or Equal")),
+            ("lte", _("Lesser or Equal")),
+        ],
         # date/time_range: a real ORM-comparable field (DateField/
         # TimeField), so every standard comparison lookup makes sense --
         # unlike duration_from/till below, this isn't dispatched through
@@ -362,6 +367,7 @@ class HorillaFilterSet(FilterSet):
                 continue
             selected_values = self._data_getlist(field_name)
             field.widget = HorillaAjaxSelectWidget(
+                attrs={"id": "id_filter_" + config["key"].replace("-", "_")},
                 # reverse_lazy, not reverse: some FilterSets are
                 # instantiated at class-body time (e.g. a NavView's
                 # `filter_instance = MyFilter()`), while urls.py may
@@ -495,6 +501,11 @@ class HorillaFilterSet(FilterSet):
                     continue
                 queryset = declared_filter.filter(queryset, cleaned_value)
             else:
+                if config["type"] == "number":
+                    try:
+                        float(value)
+                    except (TypeError, ValueError):
+                        continue
                 queryset = queryset.filter(**{f'{config["field"]}__{lookup}': value})
         return queryset
 

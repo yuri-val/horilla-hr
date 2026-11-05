@@ -5,7 +5,7 @@ helpdesk/sidebar.py
 from django.urls import reverse_lazy
 from django.utils.translation import gettext_lazy as _
 
-MENU = _("Helpdesk")
+MENU = _("Tickets")
 IMG_SRC = "images/ui/headset-solid.svg"
 
 SUBMENUS = [
@@ -17,14 +17,13 @@ SUBMENUS = [
     {
         "menu": _("Tickets"),
         "redirect": reverse_lazy("ticket-view"),
-    },
-    {
-        "menu": _("FAQs"),
-        "redirect": reverse_lazy("faq-category-view"),
-        # The individual FAQ list page (faq-view/<id>/) is a sibling URL, not a
-        # sub-path of faq-category-view/, so it needs an explicit prefix here
-        # for the sidebar's path-based active-link highlighting to match it.
-        "match_prefixes": ["/helpdesk/faq-view/"],
+        # ticket-detail/<id>/ and ticket-individual-view/<id>/ are sibling URLs
+        # (not sub-paths of ticket-view/), so they need explicit prefixes for
+        # the sidebar's path-based active-link highlighting to match them.
+        "match_prefixes": [
+            "/helpdesk/ticket-detail/",
+            "/helpdesk/ticket-individual-view/",
+        ],
     },
     {
         "menu": _("Configuration"),

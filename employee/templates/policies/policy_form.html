@@ -1,0 +1,45 @@
+{% load i18n %}
+{% include "generic/horilla_form.html" %}
+
+{% if form.instance.pk %}
+    <div id="attachmentContainer" class="d-none">
+        {% include "policies/attachments.html" with policy=form.instance %}
+    </div>
+{% endif %}
+
+<script>
+    (function () {
+        function togglePolicyScopeFields() {
+            var publishToAll = $("#id_is_visible_to_all").is(":checked");
+            $("#id_employees_parent_div, #id_department_parent_div, #id_job_position_parent_div")
+                .toggle(!publishToAll);
+        }
+        $("#id_is_visible_to_all")
+            .off("change.policyScope")
+            .on("change.policyScope", togglePolicyScopeFields);
+        togglePolicyScopeFields();
+    })();
+
+    {% if form.instance.pk %}
+    (function () {
+        // Rendered after the form card by default (generic/horilla_form.html
+        // builds fields from a loop we can't inject into), so move it next
+        // to the Attachments field itself instead of leaving it as a
+        // separate section outside the form's own border.
+        var container = document.getElementById("attachmentContainer");
+        var fileField = document.getElementById("dynamic_field_attachment");
+        if (container && fileField) {
+            container.classList.remove("d-none");
+            container.classList.add("mt-2");
+            var addFilesForm = container.querySelector(".add-files-form");
+            if (addFilesForm) addFilesForm.classList.add("flex-wrap");
+            fileField.after(container);
+            // The field sits in a half-width column; let it use the full row.
+            var column = document.getElementById("id_attachment_parent_div");
+            if (column) {
+                column.className = column.className.replace(/\bcol-md-\d+\b/g, "").trim() + " col-md-12";
+            }
+        }
+    })();
+    {% endif %}
+</script>

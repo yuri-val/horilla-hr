@@ -99,6 +99,11 @@ urlpatterns = [
         exit_process.OffboardingPipelineNav.as_view(),
         name="offboarding-pipeline-nav",
     ),
+    path(
+        "offboarding-pipeline-tab-nav/<int:pk>/",
+        exit_process.OffboardingPipelineTabNav.as_view(),
+        name="offboarding-pipeline-tab-nav",
+    ),
     # path("add-employee/", views.add_employee, name="add-employee"),
     path(
         "add-employee/",
@@ -156,6 +161,21 @@ urlpatterns = [
         name="delete-offboarding-employee",
     ),
     path("delete-offboarding-task/", views.delete_task, name="delete-offboarding-task"),
+    path(
+        "employee-tasks-view/",
+        exit_process.EmployeeTasksPage.as_view(),
+        name="employee-tasks-view",
+    ),
+    path(
+        "employee-tasks-nav/",
+        exit_process.EmployeeTasksNav.as_view(),
+        name="employee-tasks-nav",
+    ),
+    path(
+        "employee-tasks-list/",
+        exit_process.EmployeeTasksList.as_view(),
+        name="employee-tasks-list",
+    ),
     # path(
     #     "offboarding-individual-view/<int:emp_id>/",
     #     views.offboarding_individual_view,
@@ -279,11 +299,6 @@ urlpatterns = [
         "dashboard-department-chart/",
         views.department_job_postion_chart,
         name="dashboard-department-chart",
-    ),
-    path(
-        "dashboard-join-chart/",
-        views.dashboard_join_chart,
-        name="dashboard-join-chart",
     ),
     path(
         "list-dashboard-task-status/",

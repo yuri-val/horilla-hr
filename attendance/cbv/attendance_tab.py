@@ -26,6 +26,20 @@ from horilla_views.generic.cbv.views import (
 )
 
 
+def _badge_count_from_individual_tab(request, pk, view_cls):
+    """
+    Same idea as attendance/cbv/attendances.py's
+    _badge_count_from_attendance_list_view, but for a profile tab's list
+    view, which is scoped to one employee (pk) instead of the whole page.
+    """
+    view = view_cls()
+    view.request = request
+    view.args = ()
+    view.kwargs = {"pk": pk}
+    view.queryset = None
+    return view.get_queryset().count()
+
+
 @method_decorator(login_required, name="dispatch")
 class AttendanceTabView(HorillaTabView):
     """
@@ -44,18 +58,33 @@ class AttendanceTabView(HorillaTabView):
         context["emp_id"] = pk
         employee = Employee.objects.get(id=pk)
         context["instance"] = employee
+
+        # Imported here, not at module level: attendances.py imports
+        # AttendanceTabView from this module, so importing it back at the
+        # top of this file would be a circular import.
+        from attendance.cbv.attendances import ValidateAttendancesIndividualTabView
+
         context["tabs"] = [
             {
                 "title": _("Requested Attendances"),
                 "url": f"{reverse('attendance-request-individual-tab-shell',kwargs={'pk': pk})}",
+                "badge": _badge_count_from_individual_tab(
+                    self.request, pk, RequestedAttendanceIndividualView
+                ),
             },
             {
                 "title": _("Validate Attendances"),
                 "url": f"{reverse('validate-attendance-individual-tab',kwargs={'pk': pk})}",
+                "badge": _badge_count_from_individual_tab(
+                    self.request, pk, ValidateAttendancesIndividualTabView
+                ),
             },
             {
                 "title": _("All Attendances"),
                 "url": f"{reverse('all-attendances-individual-tab',kwargs={'pk': pk})}",
+                "badge": _badge_count_from_individual_tab(
+                    self.request, pk, AllAttendancesList
+                ),
             },
         ]
         return context
@@ -66,6 +95,9 @@ class RequestedAttendanceIndividualView(AttendanceRequestListTab):
     """
     list view for requested attendance tab view
     """
+
+    show_saved_filters = False
+    row_status_indications = []
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
@@ -148,6 +180,8 @@ class HourAccountIndividualTabView(HourAccountList):
 
 @method_decorator(login_required, name="dispatch")
 class AllAttendancesList(MyAttendancesListView):
+
+    show_saved_filters = False
 
     def get_context_data(self, **kwargs: Any):
         context = super().get_context_data(**kwargs)

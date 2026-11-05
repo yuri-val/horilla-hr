@@ -1,0 +1,5 @@
+<script>
+    $('#objectCreateModal').removeClass('oh-modal--show');
+    htmx.ajax('GET', '{{ instance.detail_view_url }}', {target: '#genericModalBody', swap: 'innerHTML'});
+    $('#reloadMessagesButton').click();
+</script>

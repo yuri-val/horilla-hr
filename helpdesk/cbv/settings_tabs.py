@@ -61,7 +61,7 @@ class HelpdeskSettingsTabView(HorillaTabView):
                 "badge": ticket_type_count,
             },
             {
-                "title": _("Helpdesk Tags"),
+                "title": _("Ticket Tags"),
                 "url": with_query(reverse("helpdesk-settings-tags-tab")),
                 "badge": tags_count,
             },

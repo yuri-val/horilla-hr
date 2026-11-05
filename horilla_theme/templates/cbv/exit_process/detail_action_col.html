@@ -38,19 +38,6 @@
                 <ion-icon name="archive"></ion-icon>
                 {% if not instance.employee_id.is_active %}{% trans "Un Archive" %}{% else %}{% trans "Archive" %}{% endif %}
             </a>
-        {% else %}
-            <a
-                type="button"
-                hx-get="{% url 'add-employee' instance.id %}?stage_id={{instance.stage_id.id}}"
-                hx-target="#objectDetailsModalTarget"
-                data-toggle="oh-modal-toggle"
-                data-target="#objectDetailsModal"
-                title="{% trans 'Edit' %}"
-                class="oh-btn oh-btn--light-bkg px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300"
-            >
-                <ion-icon name="create-outline"></ion-icon>
-                {% trans "Edit" %}
-            </a>
         {% endif %}
         {% if instance.employee_id and instance.employee_id.get_archive_condition %}
             <a
@@ -76,6 +63,20 @@
                 <ion-icon name="people-outline"></ion-icon>
                 {% trans "Show managing records" %}
             </button>
+        {% endif %}
+        {% if instance.stage_id.type != "archived" %}
+            <a
+                type="button"
+                hx-get="{% url 'add-employee' instance.id %}?stage_id={{instance.stage_id.id}}"
+                hx-target="#objectDetailsModalTarget"
+                data-toggle="oh-modal-toggle"
+                data-target="#objectDetailsModal"
+                title="{% trans 'Edit' %}"
+                class="oh-btn oh-btn--light-bkg px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300"
+            >
+                <ion-icon name="create-outline"></ion-icon>
+                {% trans "Edit" %}
+            </a>
         {% endif %}
         {% if perms.offboarding.delete_offboardingemployee %}
             <a

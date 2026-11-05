@@ -70,6 +70,7 @@
         		if ($msg.length) $msg.click();
         	}
         	document.addEventListener("reloadPayrollContracts", function () {
+        		$("#relatedObjectModal").removeClass("oh-modal--show");
         		refreshContractsListContainer();
         	});
         	document.addEventListener("DOMContentLoaded", syncContractsNavVisibility);
@@ -121,5 +122,5 @@
         </div>
     </div>
 
-    <script src="{% static 'cbv/actions.js' %}"></script>
+    <script src="{% static 'cbv/actions.js' %}?v=2"></script>
 {% endblock content %}

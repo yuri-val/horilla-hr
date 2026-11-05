@@ -11,7 +11,6 @@ from django.urls import reverse, reverse_lazy
 from django.utils.decorators import method_decorator
 from django.utils.translation import gettext_lazy as _
 
-from attendance.cbv.tab_shell import AttendanceTabContentShell
 from base.methods import filtersubordinates, is_reportingmanager
 from horilla_views.cbv_methods import login_required
 from horilla_views.generic.cbv.views import (
@@ -19,6 +18,7 @@ from horilla_views.generic.cbv.views import (
     HorillaFormView,
     HorillaListView,
     HorillaNavView,
+    HorillaTabContentShell,
     HorillaTabView,
     TemplateView,
 )
@@ -177,13 +177,13 @@ class CompensatoryLeaveNav(_CompensatoryTabNavBase):
         self.search_swap_target = "#compensatoryListContainer"
 
 
-class MyCompensatoryTabShell(AttendanceTabContentShell):
+class MyCompensatoryTabShell(HorillaTabContentShell):
     nav_url_name = "my-compensatory-nav"
     container_id = "myCompensatoryListContainer"
     tabs_root_id = "compensatory-tab-view"
 
 
-class CompensatoryTabShell(AttendanceTabContentShell):
+class CompensatoryTabShell(HorillaTabContentShell):
     nav_url_name = "compensatory-nav"
     container_id = "compensatoryListContainer"
     tabs_root_id = "compensatory-tab-view"
@@ -370,6 +370,16 @@ class CompensatoryForm(HorillaFormView):
     def form_valid(self, form: CompensatoryLeaveForm) -> HttpResponse:
         if form.is_valid():
             if form.instance.pk:
+                if form.instance.status != "requested":
+                    messages.info(
+                        self.request,
+                        _(
+                            "Only a compensatory leave request in the 'requested' status can be edited."
+                        ),
+                    )
+                    return self.HttpResponse(
+                        "<script>window.location.reload()</script>"
+                    )
                 message = _("Compensatory Leave Updated")
             else:
                 comp_req = form.save()

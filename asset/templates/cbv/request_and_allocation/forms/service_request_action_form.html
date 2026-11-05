@@ -1,0 +1,31 @@
+{% load i18n %}
+<div class="oh-modal__dialog-header pb-0">
+    <button
+        type="button"
+        class="oh-modal_close--custom"
+        onclick="$('#objectCreateModal').removeClass('oh-modal--show')"
+    >
+        <ion-icon name="close-outline" role="img" aria-label="{% trans 'close outline' %}" class="md hydrated"></ion-icon>
+    </button>
+    <span class="oh-modal__dialog-title ml-5">
+        <h5>{{ action_title }}</h5>
+    </span>
+</div>
+<div class="oh-modal__dialog-body">
+    <form hx-post="{{ action_url }}" hx-target="#objectCreateModalTarget">
+        {% csrf_token %}
+        <div class="oh-profile-section pt-0">
+            <div class="oh-input__group">
+                <label class="oh-input__label" for="{{ service_action_form.description.id_for_label }}">
+                    {{ service_action_form.description.label }}
+                </label>
+                {{ service_action_form.description }}
+            </div>
+            <div class="oh-btn-group mt-4">
+                <button type="submit" class="oh-btn oh-btn--secondary oh-btn--shadow w-100">
+                    {% trans "Save" %}
+                </button>
+            </div>
+        </div>
+    </form>
+</div>

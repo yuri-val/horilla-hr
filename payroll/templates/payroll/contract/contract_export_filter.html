@@ -25,7 +25,7 @@
                         <div class="col-sm-12 col-md-12 col-lg-6">
                             <div class="oh-input-group">
                                 <label class="oh-label" for="select-all-fields">
-                                    <input type="checkbox" id="select-all-fields"> {% trans "Select All" %}
+                                    <input type="checkbox" id="select-all-fields" onchange="$(this).closest('form').find('input[name=selected_fields]').prop('checked', $(this).is(':checked')).change()"> {% trans "Select All" %}
                                 </label>
                             </div>
                         </div>
@@ -200,7 +200,7 @@
                                 <label
                                     class="oh-label"
                                     for="{{export_filter.form.basic_pay__lte.id_for_label}}"
-                                >{% trans "Basic Salary Less Than or Equal" %}</label>
+                                >{% trans "Contract wage at most" %}</label>
                                 {{ export_filter.form.basic_pay__lte }}
                             </div>
                         </div>
@@ -209,7 +209,7 @@
                                 <label
                                     class="oh-label"
                                     for="{{export_filter.form.basic_pay__gte.id_for_label}}"
-                                >{% trans "Basic Salary Greater or Equal" %}</label>
+                                >{% trans "Contract wage at least" %}</label>
                                 {{ export_filter.form.basic_pay__gte }}
                             </div>
                         </div>

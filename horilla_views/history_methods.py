@@ -9,7 +9,6 @@ from django.db import models
 from django.shortcuts import render
 
 from horilla.decorators import apply_decorators
-from horilla_auth.models import HorillaUser
 
 
 class Bot:
@@ -77,6 +76,49 @@ def filter_history(histories, track_fields):
     return filtered_histories
 
 
+# Pure bookkeeping fields, never useful in a "record created" field list.
+_CREATION_EXCLUDED_FIELDS = {
+    "id",
+    "created_at",
+    "updated_at",
+    "created_by_id",
+    "modified_by_id",
+    "is_active",
+}
+
+
+def _creation_diffs(create_history, instance):
+    """Field list for a "created" entry, read directly off the first snapshot."""
+    class_name = create_history.instance.__class__
+    diffs = []
+    for field in instance._meta.get_fields():
+        if (
+            not getattr(field, "concrete", False)
+            or field.many_to_many
+            or field.auto_created
+            or field.name in _CREATION_EXCLUDED_FIELDS
+        ):
+            continue
+        try:
+            new = getattr(create_history, field.name)
+        except Exception:
+            continue
+        if new in (None, ""):
+            continue
+        if isinstance(field, models.fields.CharField) and field.choices:
+            new = dict(field.choices).get(new, new)
+        diffs.append(
+            {
+                "field": get_field_label(class_name, field.name),
+                "field_name": field.name,
+                "is_fk": False,
+                "old": None,
+                "new": new,
+            }
+        )
+    return diffs
+
+
 class _SyntheticHistorySnapshot:
     """Stand-in when a live record has no simple-history rows yet."""
 
@@ -88,27 +130,33 @@ class _SyntheticHistorySnapshot:
         self.pk = None
 
 
-def _actor_from_user(user):
+def _actor_from_user(user, cache=None):
     if not user:
         return Bot()
+    if cache is not None and user.pk in cache:
+        return cache[user.pk]
     try:
-        return user.employee_get
+        actor = user.employee_get
     except Exception:
-        return Bot()
+        actor = Bot()
+    if cache is not None:
+        cache[user.pk] = actor
+    return actor
 
 
-def get_diff(instance, history_related_name):
+def get_diff(instance, history_related_name, history_list=None, actor_cache=None):
     """
-    This method is used to find the differences in the history
+    Find the differences in the history. Pass a preloaded newest-first
+    ``history_list`` to skip the per-record queries and duplicate cleanup.
     """
-    remove_duplicate_history(instance, history_related_name)
-    history = getattr(instance, history_related_name).all()
-    history_list = list(history)
+    if history_list is None:
+        remove_duplicate_history(instance, history_related_name)
+        history_list = list(getattr(instance, history_related_name).all())
     pairs = [
         [history_list[i], history_list[i + 1]] for i in range(len(history_list) - 1)
     ]
     delta_changes = []
-    create_history = history.filter(history_type="+").first()
+    create_history = next((h for h in history_list if h.history_type == "+"), None)
     for pair in pairs:
         delta = pair[0].diff_against(pair[1])
         diffs = []
@@ -140,11 +188,7 @@ def get_diff(instance, history_related_name):
             )
         if not diffs:
             continue
-        updated_by = (
-            HorillaUser.objects.get(id=pair[0].history_user.id).employee_get
-            if pair[0].history_user
-            else Bot()
-        )
+        updated_by = _actor_from_user(pair[0].history_user, actor_cache)
         delta_changes.append(
             {
                 "type": "Changes",
@@ -154,23 +198,18 @@ def get_diff(instance, history_related_name):
             }
         )
     if create_history:
-        try:
-            updated_by = create_history.history_user.employee_get
-        except Exception:
-            updated_by = Bot()
+        updated_by = _actor_from_user(create_history.history_user, actor_cache)
         delta_changes.append(
             {
                 "type": f"{create_history.instance.__class__._meta.verbose_name.capitalize()} created",
                 "pair": (create_history, create_history),
+                "changes": _creation_diffs(create_history, instance),
                 "updated_by": updated_by,
             }
         )
     if not delta_changes and history_list:
         only = history_list[0]
-        try:
-            updated_by = only.history_user.employee_get if only.history_user else Bot()
-        except Exception:
-            updated_by = Bot()
+        updated_by = _actor_from_user(only.history_user, actor_cache)
         if only.history_type == "+":
             event_type = f"{instance._meta.verbose_name.capitalize()} created"
         elif only.history_type == "-":
@@ -195,7 +234,7 @@ def get_diff(instance, history_related_name):
                     "type": f"{instance._meta.verbose_name.capitalize()} created",
                     "pair": (snapshot, snapshot),
                     "updated_by": _actor_from_user(
-                        getattr(instance, "created_by", None)
+                        getattr(instance, "created_by", None), actor_cache
                     ),
                 }
             )

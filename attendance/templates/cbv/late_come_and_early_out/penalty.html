@@ -1,0 +1,3 @@
+{% load i18n %}
+{% url "view-penalties" as penalties_url %}
+{% include "generic/penalty_badge.html" with count=instance.get_penalties_count url_base=penalties_url query="late_early_id" obj_id=instance.id %}

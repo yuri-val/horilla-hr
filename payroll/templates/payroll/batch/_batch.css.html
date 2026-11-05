@@ -1,0 +1,644 @@
+{% comment %}
+Styles shared by the run list, the run detail and the three wizard steps.
+
+One file included by each, rather than a copy per template: the wizard and the
+detail page show the same status pills and the same figures, and they drifted
+apart the moment they were written twice.
+{% endcomment %}
+<style>
+  .pb {
+    --pb-line: #e5e7eb;
+    /* A line inside a bordered box. The same weight as the box's own edge
+       makes a small table read as a grid of equal parts rather than as rows
+       within something. */
+    --pb-line-soft: #f1f2f4;
+    --pb-muted: #6b7280;
+    --pb-ink: #111827;
+    --pb-bg: #ffffff;
+    --pb-soft: #f9fafb;
+    --pb-accent: #ef4444;
+  }
+
+  /* ---- figures across the top ---- */
+  .pb__kpis {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1px;
+    background: var(--pb-line);
+    border: 1px solid var(--pb-line);
+    border-radius: 8px;
+    overflow: hidden;
+    margin-bottom: 1.25rem;
+  }
+  .pb__kpi {
+    background: var(--pb-bg);
+    padding: 0.85rem 1rem;
+  }
+  .pb__kpi-label {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--pb-muted);
+    margin-bottom: 0.3rem;
+  }
+  .pb__kpi-value {
+    font-size: 1.35rem;
+    font-weight: 600;
+    color: var(--pb-ink);
+    line-height: 1.2;
+    font-variant-numeric: tabular-nums;
+  }
+  .pb__kpi-value--warn { color: #b45309; }
+  .pb__kpi-value--bad { color: #b91c1c; }
+  .pb__kpi-note {
+    font-size: 0.72rem;
+    color: var(--pb-muted);
+    margin-top: 0.15rem;
+  }
+
+  /* ---- status pills ---- */
+  .pb__pill {
+    display: inline-block;
+    padding: 0.15rem 0.55rem;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .pb__pill--draft { background: #f3f4f6; color: #374151; }
+  .pb__pill--review { background: #fef3c7; color: #92400e; }
+  .pb__pill--approved { background: #dbeafe; color: #1e40af; }
+  .pb__pill--paid { background: #d1fae5; color: #065f46; }
+  .pb__pill--cancelled { background: #fee2e2; color: #991b1b; }
+
+  /* ---- tables ---- */
+  .pb__table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+  }
+  .pb__table th {
+    text-align: left;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--pb-muted);
+    font-weight: 600;
+    padding: 0.55rem 0.75rem;
+    border-bottom: 1px solid var(--pb-line);
+    background: var(--pb-soft);
+    position: sticky;
+    top: 0;
+    z-index: 1;
+  }
+  .pb__table td {
+    padding: 0.6rem 0.75rem;
+    border-bottom: 1px solid var(--pb-line);
+    vertical-align: middle;
+  }
+  .pb__table tbody tr:hover { background: var(--pb-soft); }
+
+  /* Figures size to their own content and the label column takes whatever is
+     left. Without this the browser handed the text-heavy first column most of
+     the width and squeezed the rest until every two-word header wrapped --
+     which is what pushed the sort arrows onto a line of their own.
+     width:1% is the usual way to say "as narrow as the content allows". */
+  .pb__num {
+    text-align: right; font-variant-numeric: tabular-nums;
+    width: 1%; white-space: nowrap;
+  }
+
+  /* Top, not middle: a row whose label cell runs to three lines of problems
+     would otherwise float its figures halfway down, level with nothing. This
+     lines them up with the name they belong to. */
+  .pb__table--top td { vertical-align: top; }
+  .pb__table--top thead th { vertical-align: bottom; }
+  .pb__row--blocked { background: #fef2f2; }
+  .pb__row--blocked:hover { background: #fee2e2; }
+
+  /* ---- wizard chrome ---- */
+  /* A card the same width as the panels beneath it, with the three steps
+     joined by a line: circle, title, caption, then a connector that fills the
+     rest of the row and turns green once the step is done. */
+  .pb__steps {
+    display: flex;
+    align-items: center;
+    padding: 1rem 1.25rem;
+    margin-bottom: 1.25rem;
+    border: 1px solid var(--pb-line);
+    border-radius: 10px;
+    background: var(--pb-bg);
+  }
+  .pb__step {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-width: 0;
+    color: var(--pb-muted);
+  }
+  .pb__step:not(:last-child) { flex: 1; }
+  .pb__step:not(:last-child)::after {
+    content: "";
+    flex: 1;
+    height: 2px;
+    margin: 0 1.25rem;
+    border-radius: 2px;
+    background: var(--pb-line);
+  }
+  .pb__step--done:not(:last-child)::after { background: #10b981; }
+  .pb__step--on, .pb__step--done { color: var(--pb-ink); }
+  .pb__step-num {
+    flex: 0 0 auto;
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    font-size: 0.85rem;
+    font-weight: 600;
+    background: #f3f4f6;
+    color: #6b7280;
+    border: 2px solid var(--pb-line);
+  }
+  .pb__step--on .pb__step-num {
+    background: var(--pb-accent); border-color: var(--pb-accent); color: #fff;
+    box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.15);
+  }
+  .pb__step--done .pb__step-num { background: #10b981; border-color: #10b981; color: #fff; }
+  .pb__step-text { min-width: 0; line-height: 1.25; white-space: nowrap; }
+  .pb__step-title { font-size: 0.9rem; font-weight: 600; }
+  .pb__step-sub { font-size: 0.75rem; color: var(--pb-muted); margin-top: 2px; }
+  body.dark .pb__step-num { background: #374151; border-color: #4b5563; color: #9ca3af; }
+  @media (max-width: 760px) {
+    .pb__steps { flex-direction: column; align-items: flex-start; gap: 0.75rem; }
+    .pb__step:not(:last-child) { flex: none; }
+    .pb__step:not(:last-child)::after { display: none; }
+    .pb__step-text { white-space: normal; }
+  }
+
+  /* ---- step 1 form ---- */
+  /* One width for the whole wizard, so moving between steps does not make the
+     page jump. */
+  .pb--wizard { max-width: 1280px; margin-left: auto; margin-right: auto; }
+  .pb__fields {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1rem 1.25rem;
+    align-items: start;
+  }
+  @media (max-width: 860px) { .pb__fields { grid-template-columns: 1fr; } }
+  .pb__field .oh-label { display: block; margin-bottom: 0.35rem; }
+  .pb__hint {
+    display: flex; align-items: flex-start; gap: 0.45rem;
+    margin-top: 1rem; padding-top: 0.85rem;
+    border-top: 1px dashed var(--pb-line);
+    font-size: 0.78rem; line-height: 1.4; color: var(--pb-muted);
+  }
+  .pb__hint ion-icon { flex: 0 0 auto; font-size: 1rem; margin-top: 1px; }
+  .pb__hint a { color: var(--pb-accent); }
+
+  /* Choice cards: the title and what it does, side by side, instead of a bare
+     label with the explanation floating below both. */
+  .pb__choices {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.85rem;
+  }
+  @media (max-width: 860px) { .pb__choices { grid-template-columns: 1fr; } }
+  .pb__choice {
+    display: flex; align-items: flex-start; gap: 0.75rem;
+    padding: 0.9rem 1rem;
+    border: 1px solid var(--pb-line); border-radius: 8px;
+    background: var(--pb-bg); cursor: pointer;
+    transition: border-color .12s ease, background .12s ease;
+  }
+  .pb__choice:hover { border-color: #d1d5db; }
+  .pb__choice input { margin-top: 3px; accent-color: var(--pb-accent); }
+  .pb__choice--on { border-color: var(--pb-accent); background: #fef2f2; }
+  .pb__choice-title { font-size: 0.9rem; font-weight: 600; color: var(--pb-ink); }
+  .pb__choice-desc { font-size: 0.78rem; line-height: 1.4; color: var(--pb-muted); margin-top: 2px; }
+  body.dark .pb__choice--on { background: #2a1414; }
+
+  /* ---- pay period settings: form beside a live preview ---- */
+  .pb__split {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 340px;
+    gap: 1.25rem;
+    align-items: start;
+  }
+  @media (max-width: 960px) { .pb__split { grid-template-columns: 1fr; } }
+  .pb__split-aside { position: sticky; top: 90px; }
+  @media (max-width: 960px) { .pb__split-aside { position: static; } }
+  .pb__fields--two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  @media (max-width: 640px) { .pb__fields--two { grid-template-columns: 1fr; } }
+  .pb__field-full { grid-column: 1 / -1; }
+  .pb__field-help { font-size: 0.78rem; line-height: 1.4; color: var(--pb-muted); margin-top: 0.35rem; }
+  .pb__figure { padding: 0.9rem 1rem; border-bottom: 1px solid var(--pb-line-soft); }
+  .pb__figure:last-child { border-bottom: 0; }
+  .pb__figure-label {
+    font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em;
+    color: var(--pb-muted); margin-bottom: 0.25rem;
+  }
+  .pb__figure-value { font-size: 1.15rem; font-weight: 600; color: var(--pb-ink); font-variant-numeric: tabular-nums; }
+  .pb__aside-note { padding: 0.75rem 1rem; font-size: 0.75rem; color: var(--pb-muted); background: var(--pb-soft); border-top: 1px solid var(--pb-line); }
+
+  /* ---- run header: title and status on one line, facts as chips ---- */
+  .pb__head {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    gap: 1rem; flex-wrap: wrap; margin-bottom: 1.25rem;
+  }
+  .pb__back { font-size: 0.78rem; display: inline-flex; align-items: center; gap: 4px; }
+  .pb__title-row { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; margin-top: 2px; }
+  .pb__title-row .oh-main__titlebar-title { margin: 0; }
+  .pb__pill--lg { font-size: 0.8rem; padding: 0.25rem 0.8rem; }
+  .pb__meta { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.6rem; }
+  .pb__chip {
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    padding: 0.28rem 0.7rem;
+    border: 1px solid var(--pb-line); border-radius: 999px;
+    background: var(--pb-bg); font-size: 0.78rem; color: var(--pb-ink);
+  }
+  .pb__chip ion-icon { color: var(--pb-muted); font-size: 0.95rem; }
+  .pb__chip-label { color: var(--pb-muted); }
+  .pb__head-actions { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+  .pb__head-actions form, .pb__head-actions .oh-dropdown { margin: 0; display: flex; }
+
+  /* The header's buttons, one look: same height, outline, radius and hover.
+     The app's .oh-btn variants each size and border themselves differently, so
+     side by side they came out uneven. */
+  .pb__btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;
+    height: 38px; padding: 0 0.95rem;
+    border: 1px solid var(--pb-line); border-radius: 8px;
+    background: var(--pb-bg); color: var(--pb-ink);
+    font-size: 0.85rem; font-weight: 500; line-height: 1;
+    cursor: pointer; white-space: nowrap; text-decoration: none;
+    transition: border-color .12s ease, color .12s ease, background .12s ease;
+  }
+  .pb__btn:hover { border-color: var(--pb-accent); color: var(--pb-accent); }
+  .pb__btn ion-icon { font-size: 1rem; }
+  .pb__btn--icon { width: 38px; padding: 0; }
+  .pb__btn--danger { color: #b91c1c; border-color: #fecaca; }
+  .pb__btn--danger:hover { background: #fef2f2; border-color: #dc2626; color: #b91c1c; }
+  body.dark .pb__btn { background: #242424; }
+  body.dark .pb__btn--danger:hover { background: #2a1414; }
+
+  /* ---- pager: the theme's .hlv-pagination, placed at the right above a list ---- */
+  .pb__pager { display: flex; justify-content: flex-end; margin-bottom: 0.75rem; }
+  .pb .hlv-pagination { border: 1px solid var(--primary-500, #f87171); border-radius: 6px; }
+  .pb .hlv-pagination button { color: #666; }
+  .pb .hlv-pagination button:hover:not(:disabled) { background: #f5f5f5; }
+  .pb .hlv-pagination button:disabled { color: #ccc; cursor: not-allowed; }
+  body.dark .pb .hlv-pagination { background: #242424; }
+  body.dark .pb .hlv-pagination button:hover:not(:disabled) { background: #333; }
+
+  /* Back / Next, in a bar that sits under the content at the same width. */
+  .pb__actions {
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 0.75rem; padding-top: 1rem; margin-top: 0.25rem;
+  }
+
+  /* ---- problems ---- */
+  .pb__problem {
+    display: block;
+    font-size: 0.75rem;
+    line-height: 1.35;
+    margin-top: 0.15rem;
+  }
+  .pb__problem--blocking { color: #b91c1c; }
+  .pb__problem--warning { color: #92400e; }
+
+  /* ---- progress ---- */
+  .pb__bar {
+    height: 10px;
+    background: #e5e7eb;
+    border-radius: 999px;
+    overflow: hidden;
+  }
+  .pb__bar-fill {
+    height: 100%;
+    background: var(--pb-accent);
+    border-radius: 999px;
+    transition: width 0.4s ease;
+  }
+  .pb__bar-fill--done { background: #10b981; }
+  .pb__bar-fill--failed { background: #b91c1c; }
+
+  .pb__panel {
+    border: 1px solid var(--pb-line);
+    border-radius: 8px;
+    background: var(--pb-bg);
+    overflow: hidden;
+  }
+  .pb__panel-head {
+    padding: 0.7rem 1rem;
+    border-bottom: 1px solid var(--pb-line);
+    background: var(--pb-soft);
+    font-size: 0.78rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--pb-muted);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+  }
+  .pb__scroll { max-height: 55vh; overflow-y: auto; }
+  .pb__scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+  .pb__scroll::-webkit-scrollbar-thumb {
+    background: #d1d5db;
+    border-radius: 3px;
+  }
+
+  /* The delete on a run row. Quiet until the row is hovered: it is destructive
+     and should not be the thing the eye lands on in a list. */
+  /* A field that is shown but not typed: the period end follows from the start. */
+  .pb__readonly { background: #f3f4f6 !important; color: #4b5563; cursor: not-allowed; }
+  .pb__fieldnote { margin-top: 4px; font-size: .72rem; color: #9ca3af; min-height: 1em; }
+
+  /* A short explanation behind an info icon, shown on hover or keyboard focus. */
+  .pb__tip { position: relative; display: inline-flex; vertical-align: middle; margin-left: 6px; color: #9ca3af; cursor: help; outline: none; }
+  .pb__tip > ion-icon { font-size: 1rem; }
+  .pb__tip:hover, .pb__tip:focus { color: var(--primary-600, #e54f38); }
+  .pb__tip-body {
+    display: none; position: absolute; left: -8px; top: calc(100% + 8px); z-index: 30; width: 300px;
+    padding: 10px 12px; background: #1f2937; color: #e5e7eb; border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.25);
+    font-size: .74rem; font-weight: 500; line-height: 1.45; text-transform: none; letter-spacing: 0; cursor: default;
+  }
+  .pb__tip-body::before { content: ""; position: absolute; left: 12px; top: -5px; width: 10px; height: 10px; background: #1f2937; transform: rotate(45deg); }
+  .pb__tip:hover .pb__tip-body, .pb__tip:focus .pb__tip-body, .pb__tip:focus-within .pb__tip-body { display: block; }
+  .pb__example { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 4px 0 2px; padding: 10px 12px; border-radius: 8px; background: #f8fafc; border: 1px solid #eef0f3; font-size: .8rem; color: #374151; }
+  .pb__example > div + div { margin-left: 14px; }
+  .pb__example-k { font-size: .62rem; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; color: #9ca3af; }
+  .pb__example b { font-weight: 700; }
+
+  .pb__rowbtn {
+    border: 0; background: none; cursor: pointer; padding: 4px 6px;
+    color: #9ca3af; line-height: 0; border-radius: 6px;
+    opacity: 0; transition: opacity .12s ease, color .12s ease;
+  }
+  .pb__table tbody tr:hover .pb__rowbtn { opacity: 1; }
+  .pb__rowbtn:focus-visible { opacity: 1; outline: 2px solid var(--pb-accent); }
+  .pb__rowbtn:hover { color: var(--pb-accent); background: #fef2f2; }
+
+  /* Opens the attendance calendar for that employee and period. Sits with the
+     problems it fixes rather than in an actions column, because it is the
+     answer to the line above it. */
+  /* Several fixes can apply to one row, so they wrap rather than stretching
+     the cell. */
+  .pb__fixes { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .35rem; }
+
+  .pb__fix {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 8px;
+    border: 1px solid var(--pb-line); border-radius: 999px;
+    background: var(--pb-bg); color: var(--pb-muted);
+    font-size: .72rem; cursor: pointer;
+    transition: border-color .12s ease, color .12s ease;
+  }
+  .pb__fix:hover { border-color: var(--pb-accent); color: var(--pb-accent); }
+  .pb__row--blocked .pb__fix {
+    border-color: #fca5a5; color: #b91c1c; background: #fff;
+  }
+  .pb__row--blocked .pb__fix:hover { background: var(--pb-accent); color: #fff; }
+
+  /* ---- panel-head tools: count, sort reset, search ---- */
+  .pb__tools {
+    display: flex; align-items: center; gap: .5rem;
+    text-transform: none; letter-spacing: normal; font-weight: 400;
+  }
+  .pb__count { font-size: .72rem; color: var(--pb-muted); white-space: nowrap; }
+  .pb__reset {
+    display: inline-flex; align-items: center; gap: 4px;
+    border: 1px solid var(--pb-line); border-radius: 999px;
+    background: var(--pb-bg); color: var(--pb-muted);
+    font-size: .72rem; padding: 2px 8px; cursor: pointer;
+  }
+  .pb__reset:hover { border-color: var(--pb-accent); color: var(--pb-accent); }
+  .pb__reset[hidden] { display: none; }
+  .pb__search {
+    display: inline-flex; align-items: center; gap: 5px;
+    border: 1px solid var(--pb-line); border-radius: 6px;
+    background: var(--pb-bg); padding: 3px 8px;
+    color: var(--pb-muted);
+  }
+  .pb__search:focus-within { border-color: var(--pb-accent); }
+
+  /* ---- the run, in a modal ---- */
+  .pb__runmodal {
+    position: fixed; inset: 0; z-index: 100000; background: rgba(0,0,0,.45);
+    align-items: center; justify-content: center;
+  }
+  .pb__runmodal-box {
+    background: #fff; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,.25);
+    width: min(94vw, 620px); max-height: 90vh; overflow-y: auto;
+  }
+  .pb__runmodal-head { padding: 1rem 1.25rem; border-bottom: 1px solid var(--pb-line); }
+  .pb__runmodal-title { font-weight: 600; font-size: 1.05rem; }
+  .pb__runmodal-sub { font-size: .8rem; color: var(--pb-muted); }
+  .pb__lines { max-height: 200px; overflow-y: auto; border: 1px solid var(--pb-line); border-radius: 8px; }
+  .pb__lines--failed { border-color: #fecaca; }
+  .pb__lines-title {
+    position: sticky; top: 0; background: #fef2f2; color: #b91c1c;
+    font-size: .72rem; font-weight: 600; text-transform: uppercase;
+    letter-spacing: .04em; padding: 5px 10px;
+  }
+  .pb__run-now {
+    display: flex; align-items: center; gap: 6px; margin-top: .6rem;
+    font-size: .82rem; color: var(--pb-muted);
+  }
+  .pb__run-pct { margin-left: auto; font-weight: 600; color: var(--pb-ink); font-variant-numeric: tabular-nums; }
+  .pb__run-time { font-size: .78rem; color: var(--pb-muted); font-variant-numeric: tabular-nums; }
+  .pb__run-counts { display: flex; gap: 1.25rem; margin-top: .6rem; font-size: .8rem; color: var(--pb-muted); }
+  .pb__run-counts b { color: var(--pb-ink); font-variant-numeric: tabular-nums; }
+  .pb__run-bad { color: #b91c1c !important; }
+  /* Four figures in one row: the default wrapped the last one onto a row of its own. */
+  .pb__runmodal .pb__kpis { grid-template-columns: repeat(4, 1fr); }
+  .pb__runmodal .pb__kpi { padding: .7rem .8rem; }
+  .pb__runmodal .pb__kpi-value { font-size: 1.1rem; }
+  .pb__line {
+    display: flex; align-items: center; gap: 8px; padding: 5px 10px;
+    font-size: .8rem; border-bottom: 1px solid var(--pb-line);
+  }
+  .pb__line:last-child { border-bottom: 0; }
+  .pb__line ion-icon { color: #16a34a; flex: 0 0 auto; }
+  .pb__line--failed ion-icon { color: #dc2626; }
+  .pb__line-name { font-weight: 600; flex: 1 1 auto; }
+  .pb__line-note { color: var(--pb-muted); font-variant-numeric: tabular-nums; text-align: right; }
+  .pb__line--failed .pb__line-note { color: #b91c1c; }
+  /* The theme styles bare inputs (border, ring, height); this one is boxed by its label. */
+  .pb__search input {
+    border: 0 !important; outline: 0 !important; box-shadow: none !important;
+    background: none !important; padding: 0 !important; height: auto !important;
+    font-size: .78rem; color: var(--pb-ink); width: 190px;
+  }
+  .pb__titlebar-search { height: 40px; padding: 0 12px; border-radius: 8px; background: #fff; }
+  .pb__titlebar-search input { font-size: .85rem; width: 220px; }
+
+  /* ---- sortable headers ---- */
+  /* Not the [hidden] attribute: a `tr { display: table-row }` rule in any
+     reset outranks it and the row stays on screen. */
+  .pb__row--hidden { display: none !important; }
+
+  .pb__sortable { cursor: pointer; user-select: none; }
+  .pb__sortable:hover { color: var(--pb-ink); }
+
+  /* A faint pair of arrows on every sortable column, one of them solid on the
+     column actually sorted -- the same convention the attendance summary
+     header uses. Shown from the start rather than on hover, because a control
+     that only appears once you are already pointing at it does not tell you
+     the column is sortable in the first place.
+     Both arrows are always drawn, so the header never shifts width. */
+  .pb__arrow {
+    display: inline-flex; flex-direction: column;
+    gap: 2px; margin-left: 5px; vertical-align: middle;
+  }
+  .pb__arrow::before,
+  .pb__arrow::after {
+    content: ""; width: 0; height: 0;
+    border-left: 3.5px solid transparent;
+    border-right: 3.5px solid transparent;
+    opacity: .3;
+  }
+  .pb__arrow::before { border-bottom: 4px solid currentColor; }
+  .pb__arrow::after { border-top: 4px solid currentColor; }
+  .pb__sortable:hover .pb__arrow::before,
+  .pb__sortable:hover .pb__arrow::after { opacity: .55; }
+
+  /* Sorted: the direction in force is solid, the other stays faint so the
+     pair still reads as a toggle rather than a fixed marker. */
+  .pb__sortable--on { color: var(--pb-accent); }
+  .pb__sortable--on .pb__arrow::before { opacity: 1; }
+  .pb__sortable--on .pb__arrow::after { opacity: .25; }
+  .pb__sortable--desc .pb__arrow::before { opacity: .25; }
+  .pb__sortable--desc .pb__arrow::after { opacity: 1; }
+
+  /* Not .oh-alert: that is opacity:0 in the app stylesheet and only
+     .oh-alert--animated reveals it -- with a keyframe that ends hidden again.
+     Fine for a transient toast, invisible for a message that has to stay on
+     screen. */
+  .pb__alert {
+    display: flex; align-items: flex-start; gap: .6rem;
+    padding: .75rem 1rem; border-radius: 8px;
+    font-size: .85rem; margin-bottom: 1rem;
+  }
+  .pb__alert ion-icon { flex: 0 0 auto; font-size: 1.1rem; margin-top: 1px; }
+  .pb__alert--danger {
+    background: #fef2f2; border: 1px solid #fecaca;
+    border-left: 4px solid #dc2626; color: #991b1b;
+  }
+  .pb__alert--warning {
+    background: #fffbeb; border: 1px solid #fde68a;
+    border-left: 4px solid #d97706; color: #92400e;
+  }
+  body.dark .pb__alert--danger {
+    background: #2a1414; border-color: #7f1d1d; color: #fca5a5;
+  }
+  body.dark .pb__alert--warning {
+    background: #2a2210; border-color: #78350f; color: #fcd34d;
+  }
+
+  /* A figure worth a second look, without making the whole row look wrong --
+     few paid days is often legitimate (a mid-month joiner, a long sickness). */
+  .pb__low { color: #b45309; font-weight: 600; }
+  body.dark .pb__low { color: #fbbf24; }
+
+  .pb__empty {
+    padding: 2.5rem 1rem;
+    text-align: center;
+    color: var(--pb-muted);
+    font-size: 0.85rem;
+  }
+
+  /* .oh-btn is display:flex app-wide, which sizes it to its content only
+     where something else on the row constrains it -- a lone button in this
+     centered empty state has nothing to, so it stretched to the panel's full
+     width. inline-flex keeps the same icon/label centering the class already
+     does and sizes it to its content instead, without touching .oh-btn
+     itself for every other place it's used. */
+  .pb__empty .oh-btn {
+    display: inline-flex;
+  }
+
+  /* A radio group presented as a row per choice rather than a bare list --
+     the browser's own radio dot plus a plain label reads as unfinished next
+     to every bordered, padded control around it on this page. One state
+     (--on) is enough: there are only ever two or three of these on a form,
+     never a long list a hover state would help someone scan. */
+  .pb__options {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+  .pb__option {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    padding: 0.75rem 0.9rem;
+    border: 1px solid var(--pb-line);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: border-color .12s, background-color .12s;
+  }
+  .pb__option:hover { border-color: var(--pb-accent); }
+  .pb__option input {
+    /* Recolours the browser's own radio dot to the app's accent instead of
+       its default blue, so the checked state agrees with the border it
+       sits inside rather than clashing with it. */
+    accent-color: var(--pb-accent);
+    width: 1rem;
+    height: 1rem;
+    flex: 0 0 auto;
+  }
+  .pb__option span { color: var(--pb-ink); font-size: 0.88rem; }
+  .pb__option--on {
+    border-color: var(--pb-accent);
+    /* --pb-soft rather than a hardcoded tint: it already flips for dark
+       mode, so a browser without color-mix still gets a theme-correct
+       background instead of a fixed light colour glowing on a dark panel. */
+    background: var(--pb-soft);
+  }
+  @supports (color: color-mix(in srgb, red 10%, white)) {
+    .pb__option--on {
+      background: color-mix(in srgb, var(--pb-accent) 6%, var(--pb-bg));
+    }
+  }
+
+  /* The app's dark mode is `body.dark`, set from request.session.theme --
+     NOT the OS preference. A prefers-color-scheme block here turned these
+     panels dark inside an otherwise light page for anyone whose machine is
+     set to dark, which is exactly what it looked like. */
+  body.dark .pb {
+    --pb-line: #3a3a3a;
+    --pb-line-soft: #2c2c2c;
+    --pb-muted: #bbbbbb;
+    --pb-ink: #ffffff;
+    --pb-bg: #242424;
+    --pb-soft: #1a1a1a;
+  }
+  body.dark .pb__pill--draft { background: #3a3a3a; color: #e5e7eb; }
+  body.dark .pb__pill--review { background: #4a3a15; color: #fcd34d; }
+  body.dark .pb__pill--approved { background: #1e3a5f; color: #93c5fd; }
+  body.dark .pb__pill--paid { background: #14432f; color: #6ee7b7; }
+  body.dark .pb__pill--cancelled { background: #4a1d1d; color: #fca5a5; }
+  body.dark .pb__row--blocked { background: #3a1f1f; }
+  body.dark .pb__row--blocked:hover { background: #4a2525; }
+  body.dark .pb__kpi-value--warn { color: #fbbf24; }
+  body.dark .pb__kpi-value--bad { color: #f87171; }
+  body.dark .pb__problem--blocking { color: #f87171; }
+  body.dark .pb__problem--warning { color: #fbbf24; }
+  body.dark .pb__bar { background: #3a3a3a; }
+  body.dark .pb__scroll::-webkit-scrollbar-thumb { background: #4b5563; }
+  body.dark .pb__rowbtn:hover { background: #3a1f1f; }
+  /* currentColor here is the muted header grey, which at .3 all but vanishes
+     against a dark panel. */
+  body.dark .pb__arrow::before,
+  body.dark .pb__arrow::after { opacity: .45; }
+  body.dark .pb__sortable--on .pb__arrow::after,
+  body.dark .pb__sortable--desc .pb__arrow::before { opacity: .35; }
+
+  body.dark .pb__row--blocked .pb__fix {
+    border-color: #7f1d1d; color: #fca5a5; background: transparent;
+  }
+</style>

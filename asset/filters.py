@@ -15,7 +15,14 @@ from base.methods import reload_queryset
 from employee.models import Employee
 from horilla.filters import HorillaFilterSet, filter_name_or_badge_terms
 
-from .models import Asset, AssetAssignment, AssetCategory, AssetLot, AssetRequest
+from .models import (
+    Asset,
+    AssetAssignment,
+    AssetCategory,
+    AssetLot,
+    AssetRequest,
+    AssetServiceRequest,
+)
 
 
 class CustomFilterSet(HorillaFilterSet):
@@ -125,6 +132,31 @@ class AssetFilter(CustomFilterSet):
     search = django_filters.CharFilter(method="search_method")
     category = django_filters.CharFilter(field_name="asset_category_id")
     expired = django_filters.BooleanFilter(method="filter_expired")
+    # Purchase date range is also reachable through the Advanced "+ Add
+    # filter" builder (custom_field/custom_lookup/custom_value), but that
+    # needs two parallel-array rows for a from/till pair -- fragile to
+    # build a plain URL for, and the nav's own filter-form re-submission
+    # only round-tripped one of the two rows in practice. These plain
+    # fields give dashboard-style "?asset_purchase_date__gte=...&
+    # asset_purchase_date__lte=..." links a single-value param that
+    # survives the nav form intact, same pattern as PayslipFilter's
+    # start_date_from/till.
+    asset_purchase_date__gte = django_filters.DateFilter(
+        field_name="asset_purchase_date", lookup_expr="gte"
+    )
+    asset_purchase_date__lte = django_filters.DateFilter(
+        field_name="asset_purchase_date", lookup_expr="lte"
+    )
+    # Same reasoning as asset_purchase_date__gte/__lte above -- gives the
+    # dashboard's "Expiring Soon" KPI tile a plain range link that survives
+    # the nav form intact, so the assets shown here match the count the
+    # tile computed (Asset.objects with expiry_date in [today, today+30]).
+    expiry_date__gte = django_filters.DateFilter(
+        field_name="expiry_date", lookup_expr="gte"
+    )
+    expiry_date__lte = django_filters.DateFilter(
+        field_name="expiry_date", lookup_expr="lte"
+    )
 
     # HorillaFilterSet.ajax_fields (generic AJAX-loaded combobox mechanism)
     # -- Asset Batch Number and Category opt into AJAX-searched comboboxes
@@ -281,7 +313,7 @@ class CustomAssetFilter(CustomFilterSet):
             {
                 "key": "asset_expiry_date",
                 "field": "asset_id__expiry_date",
-                "label": str(_("Asset Expiry Date")),
+                "label": str(_("Asset Warranty Expiry Date")),
                 "type": "date_range",
             },
             {
@@ -315,6 +347,7 @@ class AssetRequestFilter(CustomFilterSet):
     """
 
     search = django_filters.CharFilter(method="search_method")
+    search_field = django_filters.CharFilter(method="search_in")
     # Dedicated comma-separated "Name or Badge ID" search, alongside the
     # AJAX requested_employee_id picker below rather than instead of it --
     # same field/behavior as every other modernized panel this session;
@@ -351,6 +384,8 @@ class AssetRequestFilter(CustomFilterSet):
         """
         This method is used to search employees
         """
+        if self.data.get("search_field"):
+            return queryset
         values = value.split(" ")
         empty = queryset.model.objects.none()
         for split in values:
@@ -445,12 +480,82 @@ class AssetRequestFilter(CustomFilterSet):
         )
 
 
+class AssetServiceRequestFilter(CustomFilterSet):
+    """
+    Custom filter set for AssetServiceRequest instances.
+    """
+
+    search = django_filters.CharFilter(method="search_method")
+
+    ajax_fields = {
+        "requested_employee_id": {
+            "key": "asset-service-request-employee",
+            "queryset_fn": lambda request: Employee.objects.filter(is_active=True),
+            "display_fn": lambda obj: obj.get_full_name(),
+            "search_fields": ["employee_first_name", "employee_last_name", "badge_id"],
+            "placeholder": _("Search employee..."),
+        },
+    }
+
+    def search_method(self, queryset, _, value: str):
+        """
+        This method is used to search employees and assets
+        """
+        values = value.split(" ")
+        empty = queryset.model.objects.none()
+        for split in values:
+            empty = empty | (
+                queryset.filter(
+                    requested_employee_id__employee_first_name__icontains=split
+                )
+                | queryset.filter(
+                    requested_employee_id__employee_last_name__icontains=split
+                )
+                | queryset.filter(issue_description__icontains=split)
+                | queryset.filter(assignment_id__asset_id__asset_name__icontains=split)
+            )
+        return empty.distinct()
+
+    class Meta:
+        """
+        Specifies the model and fields to be used for filtering AssetServiceRequest instances.
+        """
+
+        model = AssetServiceRequest
+        fields = "__all__"
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for visible in self.form.visible_fields():
+            visible.field.widget.attrs["id"] = str(uuid.uuid4())
+
+
 class AssetAllocationFilter(CustomFilterSet):
     """
     Custom filter set for AssetAllocation instances.
     """
 
     search = django_filters.CharFilter(method="search_method")
+    search_field = django_filters.CharFilter(method="search_in")
+
+    # Meta.fields = "__all__" below only auto-generates filters for
+    # AssetAssignment's own direct fields -- it doesn't reach through
+    # assigned_to_employee_id into the employee's work info, which the
+    # "Assets by Department" dashboard chart's click-through needs to
+    # narrow the allocation list down to one department.
+    assigned_to_employee_id__employee_work_info__department_id = (
+        django_filters.NumberFilter(
+            field_name="assigned_to_employee_id__employee_work_info__department_id"
+        )
+    )
+
+    # Assets still out, not yet returned. The Assets by Department chart counts exactly
+    # these, so its click-through asks for them; without it the list also showed returned
+    # assignments and ran higher than the bar it was opened from.
+    held = django_filters.BooleanFilter(method="filter_held", label=_("Currently held"))
+
+    def filter_held(self, queryset, _name, value):
+        return queryset.filter(return_status__isnull=True) if value else queryset
 
     # HorillaFilterSet.ajax_fields (generic AJAX-loaded combobox mechanism)
     # -- Allocated User, Asset, and Allocated By opt into AJAX-searched
@@ -487,6 +592,8 @@ class AssetAllocationFilter(CustomFilterSet):
         """
         This method is used to search employees and assets
         """
+        if self.data.get("search_field"):
+            return queryset
         values = value.split(" ")
         empty = queryset.model.objects.none()
         for split in values:
@@ -816,13 +923,13 @@ class AssetRenewalFilter(HorillaFilterSet):
     expiry_date_gte = django_filters.DateFilter(
         field_name="asset_id__expiry_date",
         lookup_expr="gte",
-        label=_("Expiry Date From"),
+        label=_("Warranty Expiry Date From"),
         widget=forms.DateInput(attrs={"type": "date"}),
     )
     expiry_date_lte = django_filters.DateFilter(
         field_name="asset_id__expiry_date",
         lookup_expr="lte",
-        label=_("Expiry Date To"),
+        label=_("Warranty Expiry Date To"),
         widget=forms.DateInput(attrs={"type": "date"}),
     )
     assigned_date_gte = django_filters.DateFilter(

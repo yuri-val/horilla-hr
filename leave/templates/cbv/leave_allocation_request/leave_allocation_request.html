@@ -47,7 +47,7 @@
 <div
 	class="oh-wrapper"
 	id="listContainer"
-	hx-get="{% url 'leave-allocation-request-filter' %}"
+	hx-get="{% url 'leave-allocation-request-filter' %}?{{ request.GET.urlencode }}"
 	hx-trigger="load"
 >
 	<div class="animated-background"></div>
@@ -71,7 +71,8 @@
 	<div class="oh-modal__dialog" id="rejectTarget"></div>
 </div>
 
-<script src="{% static 'cbv/shift_request/shift_request_bulk_actions.js' %}"></script>
+<script src="{% static 'cbv/shift_request/shift_request_bulk_actions.js' %}?v=2"></script>
+<script src="{% static 'cbv/leave_allocation_request/bulk_actions.js' %}?v=1"></script>
 <script>
 	$(document).ready(function () {
 		$(".oh-modal_close--custom").click(function () {

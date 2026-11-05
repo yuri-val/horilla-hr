@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2025-12-18 13:57+0530\n"
+"POT-Creation-Date: 2026-09-10 13:50+0530\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -15,7 +15,8 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"Plural-Forms: nplurals=3; plural=(n==1 ? 0 : (n==0 || (n%100 > 0 && n%100 < 20)) ? 1 : 2);\n"
+"Plural-Forms: nplurals=3; plural=(n==1 ? 0 : (n==0 || (n%100 > 0 && n%100 < "
+"20)) ? 1 : 2);\n"
 
 msgid "An unexpected error occurred. Please refresh the page."
 msgstr "A apărut o eroare neașteptată. Vă rugăm să reîncărcați pagina."
@@ -27,7 +28,9 @@ msgid "No rows are selected from Validate Attendances."
 msgstr "Nu este selectat niciun rând din Validare prezențe."
 
 msgid "Do you really want to approve OT for all the selected attendances?"
-msgstr "Sigur doriți să aprobați orele suplimentare pentru toate prezențele selectate?"
+msgstr ""
+"Sigur doriți să aprobați orele suplimentare pentru toate prezențele "
+"selectate?"
 
 msgid "No rows are selected from OT Attendances."
 msgstr "Nu este selectat niciun rând din Prezențe ore suplimentare."
@@ -41,22 +44,95 @@ msgstr "Cerere de actualizare a prezenței în așteptare!"
 msgid ""
 "An attendance request exists for updating this attendance prior to "
 "validation."
-msgstr "Există o cerere de prezență pentru actualizarea acestei prezențe înainte de validare."
+msgstr ""
+"Există o cerere de prezență pentru actualizarea acestei prezențe înainte de "
+"validare."
 
 msgid "View Request"
 msgstr "Vezi cererea"
 
-msgid "Some selected requests have already been approved."
-msgstr "Unele cereri selectate au fost deja aprobate."
+msgid "Employees Imported Successfully"
+msgstr "Angajații au fost importați cu succes"
 
-msgid "Some selected requests have already been rejected."
-msgstr "Unele cereri selectate au fost deja respinse."
+msgid "You have"
+msgstr "Aveți"
+
+msgid "errors. Do you want to download the error list?"
+msgstr "erori. Doriți să descărcați lista de erori?"
+
+msgid "Download error list & Skip Import"
+msgstr "Descărcați lista de erori și ignorați importul"
+
+msgid "Download error list & Continue Import"
+msgstr "Descărcați lista de erori și continuați importul"
+
+msgid "Invalid File"
+msgstr "Fișier nevalid"
+
+msgid "Please upload a valid XLSX file."
+msgstr "Încărcați un fișier XLSX valid."
+
+msgid "Stage updated"
+msgstr "Etapa a fost actualizată"
+
+msgid "Failed to update sequence: "
+msgstr "Actualizarea secvenței a eșuat: "
+
+msgid "Sequence updated"
+msgstr "Secvența a fost actualizată"
+
+msgid "Confirm Stage Change"
+msgstr "Confirmați schimbarea etapei"
+
+msgid ""
+"The candidate is being moved from %(from)s to the %(to)s stage. Do you want "
+"to proceed?"
+msgstr "Candidatul este mutat din etapa %(from)s în etapa %(to)s. Doriți să continuați?"
+
+msgid "Don't show this again in this session"
+msgstr "Nu mai afișa din nou în această sesiune"
+
+msgid "Cannot Change Stage"
+msgstr "Nu se poate schimba etapa"
+
+msgid "This move is not allowed."
+msgstr "Această mutare nu este permisă."
+
+msgid "Employees"
+msgstr "Angajați"
+
+msgid "Number of days"
+msgstr "Numărul de zile"
+
+msgid "Draft"
+msgstr "Ciornă"
+
+msgid "Review Ongoing"
+msgstr "Evaluare în curs"
+
+msgid "Confirmed"
+msgstr "Confirmat"
+
+msgid "Paid"
+msgstr "Plătit"
+
+msgid "Leave count"
+msgstr "Număr de concedii"
 
 msgid "Do you wish to create a Leave Report?"
 msgstr "Doriți să creați un raport de concediu?"
 
 msgid "Do you want to reject the selected leave requests?"
 msgstr "Doriți să respingeți cererile de concediu selectate?"
+
+msgid "Onboarding Candidates"
+msgstr "Candidați în onboarding"
+
+msgid "Candidates per Stage"
+msgstr "Candidați pe etapă"
+
+msgid "Number of Candidates"
+msgstr "Numărul de candidați"
 
 msgid "Do you want to send the payslip by mail?"
 msgstr "Doriți să trimiteți fluturașul de salariu prin e-mail?"
@@ -67,6 +143,15 @@ msgstr "Numele angajaților"
 msgid "Amount"
 msgstr "Sumă"
 
+msgid "Objective"
+msgstr "Obiectiv"
+
+msgid "Key Result"
+msgstr "Rezultat cheie"
+
+msgid "Feedback"
+msgstr "Feedback"
+
 msgid "Upload Completed!"
 msgstr "Încărcare finalizată!"
 
@@ -75,6 +160,174 @@ msgstr "Import realizat cu succes!"
 
 msgid "Please upload a file with the .xlsx extension only."
 msgstr "Vă rugăm să încărcați doar un fișier cu extensia .xlsx."
+
+msgid "Hired Candidates"
+msgstr "Candidați angajați"
+
+msgid "Stage sequence updated"
+msgstr "Secvența etapelor a fost actualizată"
+
+msgid "Dashboard"
+msgstr "Tablou de bord"
+
+msgid "Horilla dashboard section"
+msgstr "Secțiune tablou de bord Horilla"
+
+msgid "Mark Attendance"
+msgstr "Marchează prezența"
+
+msgid "Used to mark your attendance"
+msgstr "Utilizat pentru a vă marca prezența"
+
+msgid "Settings"
+msgstr "Setări"
+
+msgid "Settings configurations"
+msgstr "Configurări setări"
+
+msgid "Notification"
+msgstr "Notificare"
+
+msgid "Notifications section"
+msgstr "Secțiunea de notificări"
+
+msgid "Language"
+msgstr "Limbă"
+
+msgid "Multi-Language options"
+msgstr "Opțiuni multi-limbă"
+
+msgid "Multi-Company"
+msgstr "Multi-companie"
+
+msgid "Multi-Company options"
+msgstr "Opțiuni multi-companie"
+
+msgid "Profile"
+msgstr "Profil"
+
+msgid "Profile and change password options"
+msgstr "Opțiuni de profil și schimbare a parolei"
+
+msgid "Dashboard Tiles"
+msgstr "Plăci tablou de bord"
+
+msgid "Horilla Dashboard Tiles"
+msgstr "Plăci ale tabloului de bord Horilla"
+
+msgid "Dashboard Actions"
+msgstr "Acțiuni tablou de bord"
+
+msgid "Approve or Reject Options"
+msgstr "Opțiuni de aprobare sau respingere"
+
+msgid "Add announcement"
+msgstr "Adaugă anunț"
+
+msgid "Create announcement from dashboard"
+msgstr "Creați un anunț din tabloul de bord"
+
+msgid "Quick Actions"
+msgstr "Acțiuni rapide"
+
+msgid "Create Quick Requests"
+msgstr "Creați cereri rapide"
+
+msgid "Company"
+msgstr "Companie"
+
+msgid "Your current company access"
+msgstr "Accesul dumneavoastră actual la companie"
+
+msgid "App"
+msgstr "Aplicație"
+
+msgid "Horilla Hr Apps. eg Dashboard"
+msgstr "Aplicații Horilla HR. de ex. Tablou de bord"
+
+msgid "Pipeline"
+msgstr "Flux"
+
+msgid "Recruitment pipeline management"
+msgstr "Gestionarea fluxului de recrutare"
+
+msgid "New Recruitment"
+msgstr "Recrutare nouă"
+
+msgid "Add new recruitment"
+msgstr "Adaugă recrutare nouă"
+
+msgid "Filter"
+msgstr "Filtru"
+
+msgid "Pipeline filter option"
+msgstr "Opțiune de filtrare a fluxului"
+
+msgid "Toggle View"
+msgstr "Comută vizualizarea"
+
+msgid "Toggle view type"
+msgstr "Comută tipul de vizualizare"
+
+msgid "Search"
+msgstr "Căutare"
+
+msgid "Search in candidate, recruitment and stage"
+msgstr "Căutare în candidat, recrutare și etapă"
+
+msgid "Filter Tag"
+msgstr "Etichetă de filtru"
+
+msgid "Filter tag option"
+msgstr "Opțiune etichetă de filtru"
+
+msgid "Quick Filters"
+msgstr "Filtre rapide"
+
+msgid "Recruitment"
+msgstr "Recrutare"
+
+msgid "Add Stage"
+msgstr "Adaugă etapă"
+
+msgid "Add new stage to recruitment"
+msgstr "Adaugă etapă nouă la recrutare"
+
+msgid "Stage"
+msgstr "Etapă"
+
+msgid "Recruitment stage"
+msgstr "Etapă de recrutare"
+
+msgid "Add candidate"
+msgstr "Adaugă candidat"
+
+msgid "Add candidate to stage option"
+msgstr "Adaugă candidat la opțiunea de etapă"
+
+msgid "Candidate"
+msgstr "Candidat"
+
+msgid "Candidate record"
+msgstr "Înregistrare candidat"
+
+msgid "Rating"
+msgstr "Evaluare"
+
+msgid "Candidate rating option"
+msgstr "Opțiune de evaluare a candidatului"
+
+msgid "Change Stage"
+msgstr "Schimbă etapa"
+
+msgid "Candidate change stage option"
+msgstr "Opțiune de schimbare a etapei candidatului"
+
+msgid "Options"
+msgstr "Opțiuni"
+
+msgid "Candidate management options"
+msgstr "Opțiuni de gestionare a candidaților"
 
 msgid "visible"
 msgstr "vizibil"
@@ -142,6 +395,39 @@ msgstr "culoare la survolare"
 msgid "customdata"
 msgstr "date personalizate"
 
+msgid "All your company and base configurations"
+msgstr "Toate configurațiile companiei și de bază"
+
+msgid "Settings Options"
+msgstr "Opțiuni de setări"
+
+msgid "Settings menu bar"
+msgstr "Bară de meniu setări"
+
+msgid "Settings View"
+msgstr "Vizualizare setări"
+
+msgid "Selected settings view"
+msgstr "Vizualizare setări selectată"
+
+msgid "Project: "
+msgstr "Proiect: "
+
+msgid "watchFile"
+msgstr ""
+
+msgid "watchDirectory"
+msgstr ""
+
+msgid "getCompletionsAtPosition: getCompletionEntriesFromSymbols: "
+msgstr ""
+
+msgid "placeOpenBraceOnNewLineForControlBlocks"
+msgstr ""
+
+msgid "placeOpenBraceOnNewLineForFunctions"
+msgstr ""
+
 msgid "punc"
 msgstr "punctuație"
 
@@ -156,6 +442,66 @@ msgstr "săgeată"
 
 msgid "operator"
 msgstr "operator"
+
+msgid "Expected "
+msgstr "Așteptat "
+
+msgid "I"
+msgstr "I"
+
+msgid "E"
+msgstr "E"
+
+msgid "X"
+msgstr "X"
+
+msgid "B"
+msgstr "B"
+
+msgid "Invalid generatedCharacter found"
+msgstr ""
+
+msgid "Invalid sourceIndex found"
+msgstr ""
+
+msgid "Unsupported Format: No entries after sourceIndex"
+msgstr ""
+
+msgid "Invalid sourceLine found"
+msgstr ""
+
+msgid "Unsupported Format: No entries after sourceLine"
+msgstr ""
+
+msgid "Invalid sourceCharacter found"
+msgstr ""
+
+msgid "Invalid nameIndex found"
+msgstr ""
+
+msgid "Unsupported Error Format: Entries after nameIndex"
+msgstr ""
+
+msgid "collectAutoImports"
+msgstr ""
+
+msgid "continuePreviousIncompleteResponse"
+msgstr ""
+
+msgid "TypeRoots version has changed; provide new program"
+msgstr ""
+
+msgid "getIndentationAtPosition: getCurrentSourceFile: "
+msgstr ""
+
+msgid "getIndentationAtPosition: computeIndentation  : "
+msgstr ""
+
+msgid "Program"
+msgstr "Program"
+
+msgid "BlockStatement"
+msgstr ""
 
 msgid "close"
 msgstr "închide"
@@ -178,6 +524,9 @@ msgstr "Se încarcă..."
 msgid "No Records found"
 msgstr "Nu au fost găsite înregistrări"
 
+msgid "Ok"
+msgstr "OK"
+
 msgid "Do you want to download the excel file?"
 msgstr "Doriți să descărcați fișierul Excel?"
 
@@ -198,3 +547,28 @@ msgstr "Sigur doriți să aprobați toate cererile selectate?"
 
 msgid "Do you really want to unarchive all the selected records?"
 msgstr "Sigur doriți să dezarhivați toate înregistrările selectate?"
+
+msgid "Total vacancy is %(vacancy)s."
+msgstr "Total posturi vacante este %(vacancy)s."
+
+msgid ""
+"Are you sure to change the candidate from %(from)s stage to %(to)s stage"
+msgstr "Sigur doriți să schimbați candidatul din etapa %(from)s în etapa %(to)s"
+
+msgid "Retry"
+msgstr "Reîncercare"
+
+msgid "Something went wrong while loading this data."
+msgstr "A apărut o eroare la încărcarea acestor date."
+
+msgid "Request failed (status %(status)s)."
+msgstr "Cererea a eșuat (stare %(status)s)."
+
+msgid "The request took too long to respond."
+msgstr "Cererea a durat prea mult pentru a răspunde."
+
+#~ msgid "Some selected requests have already been approved."
+#~ msgstr "Unele cereri selectate au fost deja aprobate."
+
+#~ msgid "Some selected requests have already been rejected."
+#~ msgstr "Unele cereri selectate au fost deja respinse."

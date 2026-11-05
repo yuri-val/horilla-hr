@@ -13,20 +13,11 @@ class TestCompanyLeaveAndRange(HolidayFixtureMixin, TestCase):
     def test_sunday_company_leave_zeroes_minimum_hour(self):
         from base.models import CompanyLeaves
 
-        # Find a past Sunday such that neither it nor the Monday after it is a
-        # holiday fixture date. The Monday matters because the second half of
-        # this test asserts a NON-leave day still returns its minimum hour --
-        # and the fixture holidays land on the 1st of a month, so roughly one
-        # run in seven the Sunday-plus-one lands exactly on global_date and the
-        # assertion fails for a reason that has nothing to do with company
-        # leaves. Same guard the multi-day-holiday test below already uses.
-        fixture_dates = {self.global_date, self.specific_date, self.normal_date}
-        sunday = date.today() - timedelta(days=90)
-        while sunday.weekday() != 6 or fixture_dates & {
-            sunday,
-            sunday + timedelta(days=1),
-        }:
-            sunday -= timedelta(days=1)
+        # A fixed Sunday and the Monday after it. The fixture holidays always fall on the
+        # 1st of a month, so these two dates can never collide with them, whatever day
+        # the suite runs on.
+        sunday = date(2024, 3, 10)
+        assert sunday.weekday() == 6
         company_leave = CompanyLeaves.objects.create(
             based_on_week=None,
             based_on_week_day="6",
@@ -43,10 +34,9 @@ class TestCompanyLeaveAndRange(HolidayFixtureMixin, TestCase):
         )
 
     def test_multi_day_holiday_zeroes_middle_day(self):
-        start = date.today() - timedelta(days=120)
-        # Avoid colliding with fixture holiday dates
-        while start in {self.global_date, self.specific_date, self.normal_date}:
-            start -= timedelta(days=1)
+        # A fixed three-day holiday, the 14th to the 16th: never the 1st of a month, so
+        # neither it nor the day after can be one of the fixture holidays.
+        start = date(2024, 5, 14)
         end = start + timedelta(days=2)
         Holidays.objects.create(
             name="Multi Day Holiday",

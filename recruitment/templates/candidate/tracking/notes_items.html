@@ -1,0 +1,26 @@
+{% load i18n %}
+{% for note in page_obj %}
+    <div class="note-card group relative px-[17px] pt-[18px] pb-[16px] rounded-[24px] bg-[#f4efeb]">
+        {% if request.user.is_authenticated or note.updated_user == candidate %}
+            <button
+                type="button"
+                class="absolute top-[12px] right-[12px] flex items-center justify-center w-[28px] h-[28px] rounded-full hover:bg-white text-danger opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto focus-visible:opacity-100 focus-visible:pointer-events-auto [transition:.2s]"
+                aria-label="{% trans 'Close note' %}"
+                hx-get="{% url 'note-delete-individual' note.id %}"
+                title="{% trans 'Delete' %}"
+                hx-swap="delete"
+                hx-target="closest .note-card"
+                hx-on:click="setTimeout(() => {reloadMessage(this);},250);"
+            >
+                {% include "candidate/tracking/icon.html" with name="x" size=14 %}
+            </button>
+        {% endif %}
+        <p class="text-[18px] leading-[25px] pr-[26px] break-words">{{ note.description }}</p>
+        <small class="mt-[9px] flex items-center flex-wrap gap-[8px] text-[15px] leading-[20px] text-[#857b76]">
+            {{ note.author_name }}{% if note.author_role %} &middot; <span class="font-medium text-[#6b615c]">{{ note.author_role }}</span>{% endif %}
+            {% include "candidate/tracking/icon.html" with name="chevron" size=14 %}
+            {{ note.stage_id.stage }}
+        </small>
+    </div>
+{% endfor %}
+{% include "candidate/tracking/load_more.html" with section="notes" %}

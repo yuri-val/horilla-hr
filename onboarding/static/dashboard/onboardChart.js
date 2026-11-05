@@ -18,7 +18,7 @@ $(document).ready(function () {
 				data: {
 					labels: labels,
 					datasets: [{
-						label: "Onboarding Candidates",
+						label: gettext("Onboarding Candidates"),
 						data: values,
 						backgroundColor: colors,
 						borderRadius: 20,

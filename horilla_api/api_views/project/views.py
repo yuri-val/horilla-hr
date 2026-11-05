@@ -9,12 +9,12 @@ from django.shortcuts import get_object_or_404
 from django.utils.translation import gettext_lazy as _
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import status
-from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from base.methods import filtersubordinates
+from horilla_api.api_methods.base.pagination import HorillaPageNumberPagination
 from horilla_api.api_serializers.project.serializers import (
     ProjectSerializer,
     ProjectStageSerializer,
@@ -39,6 +39,19 @@ def object_check(cls, pk):
         return None
 
 
+def scoped_object(request, cls, perm, pk):
+    """The record, only if this user could see it in the list endpoint.
+
+    Uses the same permission_based_queryset narrowing as the list handlers, so
+    the detail and the list agree. Not visible and not found answer the same
+    way.
+    """
+    queryset = permission_based_queryset(
+        request.user, perm, cls.objects.all(), user_obj=True
+    )
+    return queryset.filter(pk=pk).first()
+
+
 # Project Views
 class ProjectGetCreateAPIView(APIView):
     permission_classes = [IsAuthenticated]
@@ -59,7 +72,7 @@ class ProjectGetCreateAPIView(APIView):
 
     def get(self, request, pk=None):
         if pk:
-            project = object_check(Project, pk)
+            project = scoped_object(request, Project, "project.view_project", pk)
             if project is None:
                 return Response({"error": _("Project not found")}, status=404)
             serializer = ProjectSerializer(project)
@@ -75,7 +88,7 @@ class ProjectGetCreateAPIView(APIView):
             return groupby_queryset(request, url, field_name, filterset.qs)
 
         # pagination section
-        paginator = PageNumberPagination()
+        paginator = HorillaPageNumberPagination()
         page = paginator.paginate_queryset(filterset.qs, request)
         serializer = ProjectSerializer(page, many=True)
         return paginator.get_paginated_response(serializer.data)
@@ -93,7 +106,7 @@ class ProjectGetUpdateDeleteAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, pk):
-        project = object_check(Project, pk)
+        project = scoped_object(request, Project, "project.view_project", pk)
         if project is None:
             return Response({"error": _("Project not found")}, status=404)
         serializer = ProjectSerializer(project)
@@ -139,7 +152,7 @@ class ProjectStageGetCreateAPIView(APIView):
             stages = self.get_queryset(project_id)
         else:
             stages = self.get_queryset()
-        paginator = PageNumberPagination()
+        paginator = HorillaPageNumberPagination()
         page = paginator.paginate_queryset(stages, request)
         serializer = ProjectStageSerializer(page, many=True)
         return paginator.get_paginated_response(serializer.data)
@@ -215,7 +228,7 @@ class TaskGetCreateAPIView(APIView):
 
     def get(self, request, pk=None, project_id=None):
         if pk:
-            task = object_check(Task, pk)
+            task = scoped_object(request, Task, "project.view_task", pk)
             if task is None:
                 return Response({"error": _("Task not found")}, status=404)
             serializer = TaskSerializer(task)
@@ -231,7 +244,7 @@ class TaskGetCreateAPIView(APIView):
             return groupby_queryset(request, url, field_name, filterset.qs)
 
         # pagination section
-        paginator = PageNumberPagination()
+        paginator = HorillaPageNumberPagination()
         page = paginator.paginate_queryset(filterset.qs, request)
         serializer = TaskSerializer(page, many=True)
         return paginator.get_paginated_response(serializer.data)
@@ -256,7 +269,7 @@ class TaskGetUpdateDeleteAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, pk):
-        task = object_check(Task, pk)
+        task = scoped_object(request, Task, "project.view_task", pk)
         if task is None:
             return Response({"error": _("Task not found")}, status=404)
         serializer = TaskSerializer(task)
@@ -325,7 +338,7 @@ class TimeSheetGetCreateAPIView(APIView):
             return groupby_queryset(request, url, field_name, filterset.qs)
 
         # pagination section
-        paginator = PageNumberPagination()
+        paginator = HorillaPageNumberPagination()
         page = paginator.paginate_queryset(filterset.qs, request)
         serializer = TimeSheetSerializer(page, many=True)
         return paginator.get_paginated_response(serializer.data)

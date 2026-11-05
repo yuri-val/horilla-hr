@@ -6,6 +6,13 @@
 {% get_company as theme_obj %}
     <meta name="csrf-token" content="{{ csrf_token }}">
     <style>
+    #clashModalBody .fixed-table {
+        width: auto !important;
+    }
+    .cancel_requested--dot {
+        background-color: #8b5cf6;
+    }
+
         .cancelled--dot{
            background-color:grey;
          }
@@ -24,12 +31,12 @@
            border-radius: 5px 0 0 4px;
 
          }
-        .cancelled-cancelled {
-           border-left: 4px solid grey !important;
-           border-radius: 5px 0 0 4px;
+    .cancel_requested-cancel_requested {
+        border-left: 4px solid #8b5cf6 !important;
+        border-radius: 5px 0 0 4px;
+    }
 
-         }
-         .requested-requested{
+                 .requested-requested{
            border-left: 4px solid orange !important;
            border-radius: 5px 0 0 4px;
 
@@ -85,8 +92,6 @@
 
     <div
         class="oh-wrapper"
-        hx-get='{% url "request-filter" %}?{{request.GET.urlencode}}'
-        hx-trigger="load"
         id="listContainer"
     >
     </div>
@@ -98,7 +103,7 @@
     <div class="oh-modal" id="clashViewModal" role="dialog" aria-hidden="true" style="z-index: 99">
         <div class="oh-modal__dialog" style="max-width: 900px">
             <div class="oh-modal__dialog-header">
-                <h3 class="oh-main__titlebar-title fw-bold">{% trans "Clashed Leave Requests" %}</h3>
+                <h3 class="text-lg font-semibold">{% trans "Clashed Leave Requests" %}</h3>
                 <button class="oh-modal__close" aria-label="{% trans 'Close' %}">
                     <ion-icon name="close-outline"></ion-icon>
                 </button>
@@ -115,9 +120,9 @@
         aria-hidden="true"
         style="z-index: 99"
     >
-        <div class="oh-modal__dialog" style="max-width: 900px">
+        <div class="oh-modal__dialog">
             <div class="oh-modal__dialog-header" onclick="event.stopPropagation()">
-                <h3 class="oh-main__titlebar-title fw-bold">{% trans "Clashed Leave Requests" %}</h3>
+                <h3 class="text-lg font-semibold">{% trans "Clashed Leave Requests" %}</h3>
                 <button
                     type="button"
                     class="oh-modal__close--custom"
@@ -127,7 +132,11 @@
                     <ion-icon name="close-outline" role="img" class="md hydrated" aria-label="{% trans 'close outline' %}"></ion-icon>
                 </button>
             </div>
-            <div class="oh-modal__dialog-body" id="clashModalBody" style="overflow-x: auto"></div>
+            <!-- oh-tabs__movable-body: reuses the existing "size columns by
+            content, not a fixed heading width" override (v1_styles.css) so
+            this trimmed-down table doesn't stretch to the dialog's full
+            width the way the generic list table normally does. -->
+            <div class="oh-modal__dialog-body oh-tabs__movable-body" id="clashModalBody" style="overflow-x: auto"></div>
         </div>
     </div>
 
@@ -148,27 +157,85 @@
     <div class="oh-modal" id="rejectModal" role="dialog" aria-labelledby="rejectModal" aria-hidden="true">
         <div class="oh-modal__dialog">
             <div class="oh-modal__dialog-header">
-                <h2 class="oh-modal__dialog-title" id="editModal1ModalLabel">
-                    {% trans "Rejection" %}
-                    <button
-                        class="oh-modal_close--custom"
-                        onclick="$('#rejectModal').removeClass('oh-modal--show')"
-                        aria-label="{% trans 'Close' %}"
-                        style="margin-left: 80%; border: none; background: none"
-                    >
-                        <ion-icon name="close-outline"></ion-icon>
-                    </button>
+                <h2 class="oh-modal__dialog-title font-semibold" id="editModal1ModalLabel">
+                    {% trans "Rejection Reason" %}
                 </h2>
+                <button type="button" class="oh-modal__close--custom" onclick="$(this).closest('.oh-modal--show').removeClass('oh-modal--show')" aria-label="Close">
+                    <ion-icon name="close-outline" role="img" class="md hydrated" aria-label="close outline"></ion-icon>
+                </button>
             </div>
             <div class="oh-modal__dialog-body" id="rejectForm"></div>
         </div>
     </div>
 
+    <!-- start of import leave requests form !-->
+    <div class="oh-modal" id="leaveRequestImport" role="dialog" aria-labelledby="leaveRequestImport" aria-hidden="true">
+        <div class="oh-modal__dialog">
+            <div class="oh-modal__dialog-header">
+                <h2 class="oh-modal__dialog-title" id="leaveRequestImportLavel">
+                    {% trans "Import Leave Requests" %}
+                </h2>
+                <button class="oh-modal__close" aria-label="{% trans 'Close' %}">
+                    <ion-icon name="close-outline"></ion-icon>
+                </button>
+                <div class="oh-modal__dialog-body p-0 pt-2" id="leaveRequestImportModalBody">
+                    <form
+                        hx-post="{% url 'leave-request-info-import' %}"
+                        hx-encoding="multipart/form-data"
+                        hx-target="#leaveRequestImport"
+                        hx-timeout="600000"
+                        hx-indicator="#uploading"
+                        id="leaveRequestImportForm"
+                    >
+                        {% csrf_token %}
+                        <div id="uploading" class="oh-upload-loader" role="status" aria-live="polite">
+                            <p class="oh-upload-loader__title">{% trans "Uploading..." %}</p>
+                            <p class="oh-upload-loader__hint">{% trans "Don't refresh the page" %}</p>
+                            <div class="oh-upload-loader__bar"><span></span></div>
+                        </div>
+                        <div id="uploadContainer">
+                            <label class="oh-dropdown__import-label" for="leaveRequestFile">
+                                <ion-icon name="cloud-upload" class="oh-dropdown__import-form-icon"></ion-icon>
+                                <span class="oh-dropdown__import-form-title">{% trans "Upload a File" %}</span>
+                                <span class="oh-dropdown__import-form-text">{% trans "Drag and drop files here" %}</span>
+                            </label>
+                            <input type="file" name="leave_request_import" id="leaveRequestFile" required>
+                            <div class="d-inline float-end">
+                                <a
+                                    href="#"
+                                    style="text-decoration: none; display: inline-block"
+                                    onclick="importLeaveRequest()"
+                                    class="oh-dropdown__link"
+                                >
+                                    <ion-icon
+                                        name="cloud-download-outline"
+                                        style="font-size: 20px; vertical-align: middle"
+                                    ></ion-icon>
+                                    <span>{% trans "Download Template" %}</span>
+                                </a>
+                            </div>
+                        </div>
+                        <div class="oh-modal__dialog-footer p-0 pb-2">
+                            <button
+                                onclick="validateFile($(this),'leaveRequestFile')"
+                                type="submit"
+                                class="oh-btn oh-btn--small oh-btn--secondary w-100 mt-3"
+                            >
+                                {% trans "Upload" %}
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+    <!-- End of import leave requests form !-->
+
     <div class="oh-wrapper" id="leaveRequest"></div>
 
     <span id="bulkApproveSpan" hx-post="{% url 'leave-requests-bulk-approve' %}" hx-target="#leaveRequest"></span>
 
-    <script src="{% static 'cbv/leave_requests/leave_requests.js' %}"></script>
+    <script src="{% static 'cbv/leave_requests/leave_requests.js' %}?v=2"></script>
     <script>
         $('#penaltyModalBody').submit(function(e) {
         $(".reload-record").click()
@@ -179,14 +246,20 @@
         $("#LeaveForm [type=submit]").hide();
                       var button = `
               <div class="oh-modal__dialog-footer p-0 mt-3">
-                <button id="buttonID" class="oh-btn oh-btn--secondary oh-btn--shadow">{% trans 'Save'|escapejs %}</button>
+                <button type="button" id="buttonID" class="oh-btn oh-btn--secondary oh-btn--shadow">{% trans 'Save'|escapejs %}</button>
               </div>
               `;
                       $("#LeaveForm .row").after(button);
 
+        {% if not "recruitment"|app_installed %}
+          $("#buttonID").on("click", function (event) {
+              $("#LeaveForm [type=submit]").click();
+          });
+        {% endif %}
+
         {% if "recruitment"|app_installed %}
           $(document).ready(function () {
-                          $("#buttonID").on("click", function () {
+                          $("#buttonID").on("click", function (event) {
                               event.preventDefault();
                               event.stopPropagation();
                               var startDate = $("#LeaveForm [name = start_date]").val();

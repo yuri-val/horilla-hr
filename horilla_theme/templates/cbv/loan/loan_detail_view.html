@@ -68,7 +68,7 @@
                     </svg>
                 </div>
                 <p class="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-0.5">{% trans "Paid Amount" %}</p>
-                <p class="text-lg font-extrabold text-success leading-tight">{{ installments|paid_amount }}</p>
+                <p class="text-lg font-extrabold text-gray-900 leading-tight">{{ installments|paid_amount }}</p>
             </div>
 
             <div class="relative p-3 rounded-lg bg-white border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
@@ -78,7 +78,7 @@
                     </svg>
                 </div>
                 <p class="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-0.5">{% trans "Balance" %}</p>
-                <p class="text-lg font-extrabold text-warning leading-tight">{{ loan.loan_amount|balance_amount:installments }}</p>
+                <p class="text-lg font-extrabold text-gray-900 leading-tight">{{ loan.loan_amount|balance_amount:installments }}</p>
             </div>
         </div>
 

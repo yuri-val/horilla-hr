@@ -49,7 +49,7 @@
             </div>
             <div class="oh-sticky-table__th">{% trans "Project" %}</div>
             <div class="oh-sticky-table__th">{% trans "Stage" %}</div>
-            <div class="oh-sticky-table__th">{% trans "Mangers" %}</div>
+            <div class="oh-sticky-table__th">{% trans "Managers" %}</div>
             <div class="oh-sticky-table__th">{% trans "Members" %}</div>
             <div class="oh-sticky-table__th">{% trans "End Date" %}</div>
             <div class="oh-sticky-table__th">{% trans "Status" %}</div>
@@ -113,7 +113,7 @@
                   onsubmit="Are you sure want to delete this candidate?">
                   {% csrf_token %}
                   <button type='submit' class="oh-btn oh-btn--danger w-100"
-                    title="{% trans 'Remove' %}"><ion-icon name="trash-outline"></ion-icon></button>
+                    title="{% trans 'Delete' %}"><ion-icon name="trash-outline"></ion-icon></button>
                 </form>
                 {% comment %} {% endif %} {% endcomment %}
               </div>

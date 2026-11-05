@@ -2,6 +2,10 @@
 {% load i18n %}
 {% block content %}
     <style>
+    .cancel_requested--dot {
+        background-color: #8b5cf6;
+    }
+
         .cancelled--dot {
             background-color: grey;
         }
@@ -19,11 +23,12 @@
             border-left: 4px solid red !important;
             border-radius: 5px 0 0 4px;
         }
-        .status-cancelled {
-            border-left: 4px solid grey !important;
-            border-radius: 5px 0 0 4px;
-        }
-        .status-requested {
+    .status-cancel_requested {
+        border-left: 4px solid #8b5cf6 !important;
+        border-radius: 5px 0 0 4px;
+    }
+
+                .status-requested {
             border-left: 4px solid orange !important;
             border-radius: 5px 0 0 4px;
         }
@@ -54,7 +59,7 @@
         <div class="oh-modal__dialog">
             <div class="oh-modal__dialog-header">
                 <h2 class="oh-modal__dialog-title">
-                    {% trans "Rejection" %}
+                    {% trans "Rejection Reason" %}
                     <button
                         class="oh-modal_close--custom"
                         onclick="$('#rejectModal').removeClass('oh-modal--show')"

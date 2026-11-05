@@ -1,26 +1,36 @@
 $(function () {
-    $(document).tooltip({
+    // While a scroll is in progress, rows/cells passing under a stationary
+    // cursor still fire mouseenter, which opens a jQuery UI tooltip that
+    // then has to keep repositioning itself against the content still
+    // scrolling underneath it -- that's the visible flicker in scrollable
+    // panels like Settings. Disabling the widget for the scroll's duration
+    // stops it from reacting to those synthetic hovers; "scroll" doesn't
+    // bubble from a nested scroll container to document, so this needs a
+    // capture-phase listener.
+    var $tooltipRoot = $(document).tooltip({
         position: {
             my: "right top+8",
             at: "right bottom",
             collision: "flipfit"
         }
     });
-});
+    var scrollSettleTimer = null;
 
-Toast = Swal.mixin({
-    toast: true,
-    icon: "success",
-    title: "General Title",
-    animation: true,
-    position: "top-right",
-    showConfirmButton: false,
-    timer: 3000,
-    timerProgressBar: true,
-    didOpen: (toast) => {
-        toast.addEventListener("mouseenter", Swal.stopTimer);
-        toast.addEventListener("mouseleave", Swal.resumeTimer);
-    },
+    document.addEventListener(
+        "scroll",
+        function () {
+            if (scrollSettleTimer === null) {
+                $tooltipRoot.tooltip("close");
+                $tooltipRoot.tooltip("disable");
+            }
+            clearTimeout(scrollSettleTimer);
+            scrollSettleTimer = setTimeout(function () {
+                scrollSettleTimer = null;
+                $tooltipRoot.tooltip("enable");
+            }, 200);
+        },
+        true
+    );
 });
 
 async function loadComponent(elementId, path) {
@@ -471,8 +481,8 @@ function validateFile(element, fileTarget, reload = false) {
     if (!allowedExtensions.exec(filePath)) {
         Swal.fire({
             icon: "error",
-            title: "Invalid File",
-            text: "Please upload a valid XLSX file.",
+            title: gettext("Invalid File"),
+            text: gettext("Please upload a valid XLSX file."),
             customClass: {
                 popup: "file-xlsx-validation",
             },
@@ -763,7 +773,7 @@ $(document).on("htmx:afterSettle", function (event) {
     }
 });
 
-$(".oh-password-input--toggle").on("click", function (e) {
+function togglePasswordVisibility(e) {
     e.preventDefault();
 
     const $toggle = $(this);
@@ -780,6 +790,18 @@ $(".oh-password-input--toggle").on("click", function (e) {
         $showIcon.removeClass("hidden");
         $hideIcon.addClass("hidden");
     }
+}
+
+// Toggles present at load are bound directly, as before.
+$(".oh-password-input--toggle").on("click", togglePasswordVisibility);
+
+// A form swapped in later (the change-password page opens in place) has no direct
+// binding, so its eye button did nothing. Those are handled here -- but not any toggle
+// that already has its own click handler, or it would flip twice.
+$(document).on("click", ".oh-password-input--toggle", function (e) {
+    var events = $._data(this, "events");
+    if (events && events.click) return;
+    togglePasswordVisibility.call(this, e);
 });
 
 $(".oh-modal__close").on("click", function () {

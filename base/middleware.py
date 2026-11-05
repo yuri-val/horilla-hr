@@ -15,7 +15,7 @@ from django.shortcuts import redirect
 from django.utils.translation import gettext_lazy as _
 
 from base.backends import ConfiguredEmailBackend
-from base.context_processors import AllCompany, AllMyCompanies
+from base.context_processors import AllCompany, AllMyCompanies, company_icon_url
 from base.horilla_company_manager import HorillaCompanyManager
 from base.models import Company, ShiftRequest, WorkTypeRequest
 from employee.models import (
@@ -270,7 +270,7 @@ class CompanyMiddleware:
             request.session["selected_company"] = str(company_id.id)
             request.session["selected_company_instance"] = {
                 "company": company_id.company,
-                "icon": company_id.icon.url,
+                "icon": company_icon_url(company_id),
                 "text": text,
                 "id": company_id.id,
             }
@@ -430,6 +430,9 @@ class ForcePasswordChangeMiddleware:
     def __call__(self, request):
         excluded_paths = ["/change-password", "/login", "/logout"]
         if request.path.rstrip("/") in excluded_paths:
+            return self.get_response(request)
+
+        if request.path.startswith(("/jsi18n/", "/media/")):
             return self.get_response(request)
 
         if hasattr(request, "user") and request.user.is_authenticated:

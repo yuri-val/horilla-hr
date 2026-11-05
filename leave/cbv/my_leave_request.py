@@ -13,6 +13,7 @@ from django.shortcuts import render
 from django.urls import resolve, reverse, reverse_lazy
 from django.utils.decorators import method_decorator
 from django.utils.translation import gettext_lazy as _
+from django.utils.translation import gettext_noop
 
 from base.models import CompanyLeaves, Holidays
 from horilla.http.response import HorillaRedirect
@@ -103,6 +104,20 @@ class MainParentListView(HorillaListView):
             onclick="
             $('#applyFilter').closest('form').find('[name=status]').val('rejected');
             $('[name=canceled]').val('unknown').change();
+            $('[name=approved]').val('unknown').change();
+            $('[name=requested]').val('unknown').change();
+            $('#applyFilter').click();
+            "
+
+            """,
+        ),
+        (
+            "cancel_requested--dot",
+            _("Cancel Requested"),
+            """
+            onclick="
+            $('#applyFilter').closest('form').find('[name=status]').val('cancel_requested');
+            $('[name=rejected]').val('unknown').change();
             $('[name=approved]').val('unknown').change();
             $('[name=requested]').val('unknown').change();
             $('#applyFilter').click();
@@ -289,6 +304,21 @@ class MyLeaveRequestDetailView(HorillaDetailedView):
     ]
     action_method = "detail_leave_actions"
 
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        if not self.instance:
+            return context
+        body = list(self.body)
+        if self.instance.multiple_approvals:
+            insert_index = 6
+            body.insert(
+                insert_index,
+                (_("Multiple Approvals"), "multiple_approval_action", True),
+            )
+            self.cols["multiple_approval_action"] = 12
+        context["body"] = body
+        return context
+
 
 @method_decorator(login_required, name="dispatch")
 class MyLeaveRequestForm(HorillaFormView):
@@ -385,7 +415,7 @@ class MyLeaveRequestForm(HorillaFormView):
                 holiday_dates = holiday_dates_list(holidays)
                 company_leaves = CompanyLeaves.objects.all()
                 company_leave_dates = company_leave_dates_list(
-                    company_leaves, start_date
+                    company_leaves, start_date, end_date
                 )
                 if (
                     leave_type.exclude_company_leave == "yes"
@@ -418,7 +448,7 @@ class MyLeaveRequestForm(HorillaFormView):
                 else:
                     form.add_error(
                         None,
-                        _("You dont have enough leave days to make the request"),
+                        _("You don't have enough leave days to make the request"),
                     )
             else:
                 if int(form.data["employee_id"]) == int(emp_id):
@@ -469,11 +499,12 @@ class MyLeaveRequestForm(HorillaFormView):
                                 notify.send(
                                     self.request.user.employee_get,
                                     recipient=leave_request.employee_id.employee_work_info.reporting_manager_id.employee_user_id,
-                                    verb=f"New leave request created for {leave_request.employee_id}.",
-                                    verb_ar=f"تم إنشاء طلب إجازة جديد لـ {leave_request.employee_id}.",
-                                    verb_de=f"Neuer Urlaubsantrag für {leave_request.employee_id} erstellt.",
-                                    verb_es=f"Nueva solicitud de permiso creada para {leave_request.employee_id}.",
-                                    verb_fr=f"Nouvelle demande de congé créée pour {leave_request.employee_id}.",
+                                    verb=gettext_noop(
+                                        "New leave request created for %(employee)s."
+                                    ),
+                                    verb_params={
+                                        "employee": str(leave_request.employee_id)
+                                    },
                                     icon="people-circle",
                                     redirect=reverse("request-view")
                                     + f"?id={leave_request.id}",
@@ -523,6 +554,11 @@ class MyLeaveRequestSingleForm(HorillaFormView):
         form.fields["leave_type_id"].queryset = leave_type
 
         context["form"] = form
+        # The form's leave type / date fields hx-include "#myleaverequestForm"
+        # (leave/forms.py) to send the whole form to the available-leave-count
+        # request. The form's id is "<view_id>Form", so without this fixed
+        # view_id it was a random id and the include matched nothing.
+        context["view_id"] = "myleaverequest"
         return context
 
     def form_invalid(self, form: Any) -> HttpResponse:
@@ -531,7 +567,9 @@ class MyLeaveRequestSingleForm(HorillaFormView):
         self.form_class.verbose_name = _("Leave Request")
         errors = form.errors.as_data()
         return render(
-            self.request, self.template_name, {"form": form, "errors": errors}
+            self.request,
+            self.template_name,
+            {"form": form, "errors": errors, "view_id": "myleaverequest"},
         )
 
     def form_valid(self, form: UserLeaveRequestCreationForm) -> HttpResponse:
@@ -558,7 +596,9 @@ class MyLeaveRequestSingleForm(HorillaFormView):
         holidays = Holidays.objects.filter(Q(is_specific=False) | Q(employees=employee))
         holiday_dates = holiday_dates_list(holidays)
         company_leaves = CompanyLeaves.objects.all()
-        company_leave_dates = company_leave_dates_list(company_leaves, start_date)
+        company_leave_dates = company_leave_dates_list(
+            company_leaves, start_date, end_date
+        )
         if (
             leave_type.exclude_company_leave == "yes"
             and leave_type.exclude_holiday == "yes"
@@ -637,26 +677,22 @@ class MyLeaveRequestSingleForm(HorillaFormView):
                         notify.send(
                             self.request.user.employee_get,
                             recipient=leave_request.employee_id.employee_work_info.reporting_manager_id.employee_user_id,
-                            verb="You have a new leave request to validate.",
-                            verb_ar="لديك طلب إجازة جديد يجب التحقق منه.",
-                            verb_de="Sie haben eine neue Urlaubsanfrage zur Validierung.",
-                            verb_es="Tiene una nueva solicitud de permiso que debe validar.",
-                            verb_fr="Vous avez une nouvelle demande de congé à valider.",
+                            verb=gettext_noop(
+                                "You have a new leave request to validate."
+                            ),
                             icon="people-circle",
                             redirect=reverse("request-view")
                             + f"?id={leave_request.id}",
                         )
-                        return HorillaRedirect(self.request)
-                    if len(
-                        LeaveRequest.objects.filter(employee_id=employee)
-                    ) == 1 or self.request.META.get("HTTP_REFERER").endswith(
-                        "employee-profile/"
-                    ):
-                        return HorillaRedirect(self.request)
+                    if self.request.META.get("HTTP_HX_REQUEST"):
+                        return self.HttpResponse(
+                            targets_to_reload=["#userRequestReload"]
+                        )
+                    return HorillaRedirect(self.request)
                 else:
                     form.add_error(
                         None,
-                        _("You dont have enough leave days to make the request"),
+                        _("You don't have enough leave days to make the request"),
                     )
                     return self.form_invalid(form)
             else:

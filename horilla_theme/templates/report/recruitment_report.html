@@ -1,7 +1,6 @@
 {% extends "index.html" %}
 {% block content %}
-    {% load static %}
-    {% load i18n %}
+    {% load static i18n horillafilters %}
 
     <div class="oh-wrapper mt-3">
         <div class="d-flex mt-3 mb-3" style="justify-content: space-between; align-items: center">
@@ -110,6 +109,7 @@
                     >
                         <ion-icon name="bookmark-outline" class="mr-1"></ion-icon>
                         {% trans "Templates" %}
+                        <span id="activeTemplateLabel" class="oh-report-template-active-badge" style="display: none;"></span>
                     </button>
                     <div
                         class="oh-dropdown__menu oh-dropdown__menu--right p-3"
@@ -200,7 +200,9 @@
             <select id="model-select" class="oh-select oh-select--sm ml-2 mb-2" style="width: 200px">
                 <option value="candidate">{% trans "Candidate" %}</option>
                 <option value="recruitment">{% trans "Recruitment" %}</option>
-                <option value="onboarding">{% trans "Onboarding" %}</option>
+                {% if "onboarding"|app_installed %}
+                    <option value="onboarding">{% trans "Onboarding" %}</option>
+                {% endif %}
             </select>
         </div>
 
@@ -210,8 +212,8 @@
              control up here instead (see relocateRendererSelect() in the
              script below), so it reads as a page-level "view as" setting
              rather than one more cramped field inside the builder grid. -->
-        <div id="oh-report-view-slot" class="oh-report-view-slot oh-report--multi-model">
-            <label>{% trans "View As" %} :</label>
+        <div id="oh-report-view-slot" class="oh-report-view-slot oh-report--multi-model flex items-center gap-2 my-2" style="width: 350px">
+            <label class="w-[50%]">{% trans "View As" %} :</label>
         </div>
         <p class="oh-report-drag-hint">{% trans "Drag fields between the boxes below to change how this report is grouped." %}</p>
         <div id="pivot-container" class="mb-5" style="width: 100%; overflow-x: auto">
@@ -222,9 +224,9 @@
         </div>
     </div>
 
-{# Shared explorer styles -- this block was duplicated inline across all
+{% comment %} Shared explorer styles -- this block was duplicated inline across all
    seven pages at 97-100% identity. Per-page differences live in the
-   .oh-report--multi-model overrides inside that file. #}
+   .oh-report--multi-model overrides inside that file. {% endcomment %}
 <link rel="stylesheet" href="{% static 'report/css/pivot_explorer.css' %}">
 
     <script>
@@ -293,6 +295,21 @@
         return heading.replace(/Reports$/, "Report").trim().replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "") + ".xlsx";
     }
 
+    // Tracks which saved template (if any) the pivot table currently
+    // reflects, purely to drive the "which one is applied" indicator --
+    // cleared when a different template loads, the active one is deleted,
+    // or the report type is switched (template lists are scoped per type).
+    var activeTemplateId = null;
+
+    function updateActiveTemplateLabel(name) {
+        var $badge = $("#activeTemplateLabel");
+        if (name) {
+            $badge.text(name).show();
+        } else {
+            $badge.hide().text("");
+        }
+    }
+
     function refreshTemplateList() {
         $.getJSON("{% url 'report-templates-list' %}", { report_slug: currentReportSlug() }, function (res) {
             var $list = $("#reportTemplateList");
@@ -302,11 +319,15 @@
                 return;
             }
             res.templates.forEach(function (t) {
-                var $row = $('<div class="oh-report-template-item"></div>');
+                var isActive = activeTemplateId !== null && String(t.id) === String(activeTemplateId);
+                var $row = $('<div class="oh-report-template-item"></div>').toggleClass("oh-report-template-item--active", isActive);
                 var $link = $('<a href="#" class="oh-report-template-load"></a>').data("id", t.id).append(
                     $('<ion-icon name="bookmark-outline"></ion-icon>'),
                     $('<span></span>').text(t.name)
                 );
+                if (isActive) {
+                    $link.append($('<ion-icon name="checkmark-circle" class="oh-report-template-active-check"></ion-icon>'));
+                }
                 var $del = $('<span class="oh-report-template-delete" title="{% trans "Delete"|escapejs %}"></span>').data("id", t.id).append(
                     $('<ion-icon name="trash-outline"></ion-icon>')
                 );
@@ -398,7 +419,18 @@
     $(document).off("click", ".oh-report-template-load").on("click", ".oh-report-template-load", function (e) {
         e.preventDefault();
         var id = $(this).data("id");
+        if (String(id) === String(activeTemplateId)) {
+            // Clicking the already-applied template again deselects it --
+            // reload back to the page's own default/blank arrangement, the
+            // same state a fresh visit starts from.
+            window.location.reload();
+            return;
+        }
+        var name = $(this).find("span").first().text();
         $.getJSON("/report/report-templates/" + id + "/", function (res) {
+            activeTemplateId = id;
+            updateActiveTemplateLabel(name);
+            refreshTemplateList();
             applyTemplateConfig(res.config);
         });
     });
@@ -429,6 +461,10 @@
                 method: "POST",
                 headers: { "X-CSRFToken": "{{ csrf_token }}" },
                 success: function () {
+                    if (String(id) === String(activeTemplateId)) {
+                        activeTemplateId = null;
+                        updateActiveTemplateLabel(null);
+                    }
                     refreshTemplateList();
                     $("#reloadMessagesButton").click();
                 },
@@ -614,7 +650,7 @@
             var $select = $("#pivot-container .pvtUi select.pvtRenderer");
             if (!$slot.length || !$select.length) return;
             $slot.find("select.pvtRenderer").remove();
-            $slot.append($select);
+            $slot.append($select.addClass("oh-select"));
         }
 
         // PivotTable.js always labels the grand-total row/column header
@@ -785,7 +821,10 @@
                 renderAppliedFilterChips();
                 $("#filterCount").text("");
                 syncFilterRowsFromApplied();
+                activeTemplateId = null;
+                updateActiveTemplateLabel(null);
                 loadPivotData(selectedModel); // Reload pivot data with selected model
+                refreshTemplateList();
             });
 
             // Export button dropdown: PDF/Excel/CSV. Delegated on the
@@ -808,7 +847,7 @@
                 let selectedModel = $("#model-select").val();
                 $.get("{% url 'report-check-export-access' %}", {model: modelPathMap[selectedModel]}, function (resp) {
                     if (!resp.allowed) {
-                        alert("{% trans 'You dont have access to export this data'|escapejs %}");
+                        alert(`{% trans "You don't have access to export this data"|escapejs %}`);
                         return;
                     }
                     var baseFilename = excelFilenameFor(selectedModel);
@@ -1324,12 +1363,12 @@
                 { value: "recruitment", label: "{% trans 'Recruitment'|escapejs %}", type: "dropdown" },
                 { value: "job_position", label: "{% trans 'Job Position'|escapejs %}", type: "dropdown" },
                 { value: "department", label: "{% trans 'Department'|escapejs %}", type: "dropdown" },
-                { value: "hired", label: "{% trans 'Is Hired'|escapejs %}", type: "dropdown" },
+                { value: "hired", label: "{% trans 'Hired'|escapejs %}", type: "dropdown" },
                 { value: "offer_letter_status", label: "{% trans 'Offer Status'|escapejs %}", type: "dropdown" },
                 { value: "gender", label: "{% trans 'Gender'|escapejs %}", type: "dropdown" },
                 { value: "stage_type", label: "{% trans 'Stage Type'|escapejs %}", type: "dropdown" },
                 { value: "current_stage", label: "{% trans 'Current Stage'|escapejs %}", type: "dropdown" },
-                { value: "canceled", label: "{% trans 'Is Canceled'|escapejs %}", type: "dropdown" },
+                { value: "canceled", label: "{% trans 'Canceled'|escapejs %}", type: "dropdown" },
                 { value: "recruitment_status", label: "{% trans 'Recruitment Status'|escapejs %}", type: "dropdown" },
                 { value: "vacancy", label: "{% trans 'Vacancy'|escapejs %}", type: "number" },
                 { value: "company", label: "{% trans 'Company'|escapejs %}", type: "dropdown" }
@@ -1340,9 +1379,9 @@
                 { value: "manager_badge_id", label: "{% trans 'Manager Badge Id'|escapejs %}", type: "dropdown" },
                 { value: "start_date", label: "{% trans 'Start Date'|escapejs %}", type: "date" },
                 { value: "end_date", label: "{% trans 'End Date'|escapejs %}", type: "date" },
-                { value: "is_closed", label: "{% trans 'Is Closed'|escapejs %}", type: "dropdown" },
-                { value: "is_published", label: "{% trans 'Is Published'|escapejs %}", type: "dropdown" },
-                { value: "is_active", label: "{% trans 'Is Active'|escapejs %}", type: "dropdown" },
+                { value: "is_closed", label: "{% trans 'Closed'|escapejs %}", type: "dropdown" },
+                { value: "is_published", label: "{% trans 'Published'|escapejs %}", type: "dropdown" },
+                { value: "is_active", label: "{% trans 'Active'|escapejs %}", type: "dropdown" },
                 { value: "job_position", label: "{% trans 'Job Position'|escapejs %}", type: "dropdown" },
                 { value: "vacancy", label: "{% trans 'Vacancy'|escapejs %}", type: "number" },
                 { value: "company", label: "{% trans 'Company'|escapejs %}", type: "dropdown" }

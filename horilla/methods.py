@@ -28,6 +28,34 @@ def get_horilla_model_class(app_label, model):
     return model_class
 
 
+def get_session_key(request):
+    """
+    The request's session key, creating and saving the session if it has none.
+
+    Sessions are not created for every request: an API client authenticated
+    by token, or a first visit, arrives without one. Use this wherever a
+    session key is needed (per-session cache keys and state), so a session
+    is only created where it is actually used.
+    """
+    if not request.session.session_key:
+        request.session.create()
+    return request.session.session_key
+
+
+def get_accessibility_cache_key(request):
+    """
+    The cache key for the request's feature accessibility.
+
+    Web requests use the session's key, which the accessibility middleware
+    fills. A client authenticated by token that keeps no cookies (the mobile
+    app) uses a key derived from its user instead, so it does not create a
+    session on every call.
+    """
+    if not request.session.session_key and request.user.is_authenticated:
+        return f"user-{request.user.pk}accessibility_filter"
+    return get_session_key(request) + "accessibility_filter"
+
+
 def dynamic_attr(obj, attribute_path):
     """
     Retrieves the value of a nested attribute from a related object dynamically.
@@ -82,7 +110,13 @@ def horilla_users_with_perms(permissions):
 
 def handle_no_permission(request, message=_("You don't have permission.")):
     messages.info(request, message)
-    if request.headers.get("HX-Request"):
+    # Sec-Fetch-Mode is set by the browser itself for a genuine top-level
+    # navigation and can't be spoofed by an htmx fetch() call, unlike the
+    # HX-Request header alone -- some browser setups send HX-Request even on
+    # a real address-bar visit, which would otherwise render the raw
+    # fragment instead of redirecting (e.g. to the login page).
+    is_real_navigation = request.headers.get("Sec-Fetch-Mode") == "navigate"
+    if request.headers.get("HX-Request") and not is_real_navigation:
         return render(request, "decorator_404.html")
 
     previous_url = request.META.get("HTTP_REFERER", "/")

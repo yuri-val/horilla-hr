@@ -21,6 +21,7 @@ from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
+from django.utils.translation import gettext_noop
 from django.views.decorators.http import require_http_methods
 
 from base.methods import (
@@ -52,7 +53,7 @@ from payroll.forms.component_forms import (
     PayrollSettingsForm,
     PayslipAutoGenerateForm,
 )
-from payroll.methods.methods import paginator_qry, save_payslip
+from payroll.methods.methods import get_total_calendar_days, paginator_qry, save_payslip
 from payroll.models.models import (
     Contract,
     FilingStatus,
@@ -63,6 +64,7 @@ from payroll.models.models import (
     ReimbursementFile,
     ReimbursementrequestComment,
 )
+from payroll.models.payroll_batch import PayrollBatch
 from payroll.models.tax_models import PayrollSettings
 
 # Create your views here.
@@ -97,16 +99,16 @@ def contract_create(request):
                 )
                 return response
             return redirect("view-contract")
-    template_name = (
-        "payroll/common/form_fragment.html" if is_htmx else "payroll/common/form.html"
-    )
     return render(
         request,
-        template_name,
+        "payroll/common/form_modal.html" if is_htmx else "payroll/common/form.html",
         {
             "form": form,
             "post_url": request.get_full_path(),
             "back_url": reverse("contract-filter"),
+            "in_modal": is_htmx,
+            "form_target": "#relatedObjectModalBody",
+            "modal_title": _("Contract"),
         },
     )
 
@@ -146,16 +148,17 @@ def contract_update(request, contract_id, **kwargs):
                 )
                 return response
             return redirect(reverse("view-contract"))
-    template_name = (
-        "payroll/common/form_fragment.html" if is_htmx else "payroll/common/form.html"
-    )
+    in_modal = is_htmx or bool(request.GET.get("modal"))
     return render(
         request,
-        template_name,
+        "payroll/common/form_modal.html" if in_modal else "payroll/common/form.html",
         {
             "form": contract_form,
             "post_url": request.get_full_path(),
             "back_url": reverse("contract-filter"),
+            "in_modal": in_modal,
+            "form_target": "#relatedObjectModalBody",
+            "modal_title": _("Contract"),
         },
     )
 
@@ -223,7 +226,9 @@ def bulk_contract_status_update(request):
     ids = eval_validate(ids) if ids else []
     all_contracts = Contract.objects.all()
     contracts = all_contracts.filter(id__in=ids)
-
+    if not contracts.exists():
+        messages.info(request, _("No contracts selected."))
+        return redirect("contract-filter")
     for contract in contracts:
         save = True
         if status in ["active", "draft"]:
@@ -292,7 +297,11 @@ def contract_delete(request, contract_id):
 
     """
     try:
-        Contract.objects.get(id=contract_id).delete()
+        contract = Contract.objects.get(id=contract_id)
+        if contract.contract_status != "draft":
+            messages.error(request, _("Only a draft contract can be deleted."))
+            return HorillaRedirect(request)
+        contract.delete()
         messages.success(request, _("Contract deleted"))
         request_path = request.path.split("/")
         if "delete-contract-modal" in request_path:
@@ -489,7 +498,9 @@ def update_payslip_status(request, payslip_id):
     payslip = Payslip.objects.filter(id=payslip_id).first()
     if not payslip:
         return HorillaRedirect(request, message=_("Payslip not found."))
-    if payslip:
+    if payslip and payslip.status_locked and status != payslip.status:
+        messages.error(request, payslip.status_lock_message)
+    elif payslip:
         payslip.status = status
         payslip.save()
         messages.success(request, _("Payslip status updated"))
@@ -506,6 +517,7 @@ def update_payslip_status(request, payslip_id):
     data["json_data"]["employee"] = payslip.employee_id.id
     data["json_data"]["payslip"] = payslip.id
     data["instance"] = payslip
+    data["total_calendar_days"] = get_total_calendar_days(data)
     return render(request, "payroll/payslip/individual_payslip_summery.html", data)
 
 
@@ -521,11 +533,24 @@ def update_payslip_status_no_id(request):
         ids = json.loads(ids_json)
         status = request.POST["status"]
         slips = Payslip.objects.filter(id__in=ids)
+        # Payslips in an approved or paid batch are moved by the batch, not one by one.
+        locked = slips.filter(
+            payroll_batch__status__in=PayrollBatch.PAYSLIP_STATUS_LOCKED
+        )
+        skipped = locked.count()
+        slips = slips.exclude(pk__in=locked.values("pk"))
+        updated = slips.count()
         slips.update(status=status)
         message = {
             "type": "success",
-            "message": f"{slips.count()} Payslips status updated.",
+            "message": f"{updated} Payslips status updated.",
         }
+        if skipped:
+            message = {
+                "type": "warning" if updated else "error",
+                "message": f"{updated} Payslips status updated. {skipped} left as they are: "
+                "their batch is approved or paid.",
+            }
     return JsonResponse(message)
 
 
@@ -583,13 +608,17 @@ def view_payslip_pdf(request, payslip_id):
             data["month_end_name"] = month_end_name
             data["formatted_start_date"] = formatted_start_date
             data["formatted_end_date"] = formatted_end_date
+            # Every day in the period, week offs and holidays included --
+            # "working_days" excludes those, which reads as though paid days
+            # are being counted against a smaller month than the one shown.
+            data["total_calendar_days"] = (end_date - start_date).days + 1
             data["employee"] = payslip.employee_id
             data["payslip"] = payslip
             data["json_data"] = data.copy()
             data["json_data"]["employee"] = payslip.employee_id.id
             data["json_data"]["payslip"] = payslip.id
             data["instance"] = payslip
-            data["currency"] = PayrollSettings.objects.first().currency_symbol
+            data["currency"] = PayrollSettings.currency_for_selected_company()
             data["all_deductions"] = []
             for deduction_list in [
                 data["basic_pay_deductions"],
@@ -632,6 +661,8 @@ def view_created_payslip(request, payslip_id, **kwargs):
         data["json_data"]["employee"] = payslip.employee_id.id
         data["json_data"]["payslip"] = payslip.id
         data["instance"] = payslip
+        data["total_calendar_days"] = get_total_calendar_days(data)
+        data["company"] = Company.objects.filter(hq=True).first()
         return render(request, "payroll/payslip/individual_payslip.html", data)
     return render(request, "404.html")
 
@@ -647,8 +678,12 @@ def delete_payslip(request, payslip_id):
     from .component_views import filter_payslip
 
     try:
-        Payslip.objects.get(id=payslip_id).delete()
-        messages.success(request, _("Payslip deleted"))
+        payslip = Payslip.objects.get(id=payslip_id)
+        if payslip.status == "paid":
+            messages.error(request, _("A paid payslip cannot be deleted."))
+        else:
+            payslip.delete()
+            messages.success(request, _("Payslip deleted"))
     except Payslip.DoesNotExist:
         messages.error(request, _("Payslip not found."))
     except ProtectedError:
@@ -727,6 +762,7 @@ def view_payroll_dashboard(request):
 
 
 @login_required
+@permission_required("payroll.view_payslip")
 def dashboard_employee_chart(request):
     """
     payroll dashboard employee chart data
@@ -811,6 +847,7 @@ def dashboard_employee_chart(request):
 
 
 @login_required
+@permission_required("payroll.view_payslip")
 def payslip_details(request):
     """
     payroll dashboard payslip details data
@@ -834,6 +871,7 @@ def payslip_details(request):
 
 
 @login_required
+@permission_required("payroll.view_payslip")
 def dashboard_department_chart(request):
     """
     payroll dashboard department chart data
@@ -933,6 +971,7 @@ def contract_ending(request):
 
 
 @login_required
+@permission_required("payroll.view_payslip")
 def payslip_export(request):
     """
     payroll dashboard exporting to excell data
@@ -1331,6 +1370,14 @@ def payslip_bulk_delete(request):
     for id in ids:
         try:
             payslip = Payslip.objects.get(id=id)
+            if payslip.status == "paid":
+                messages.error(
+                    request,
+                    _("{payslip} is paid and cannot be deleted.").format(
+                        payslip=payslip
+                    ),
+                )
+                continue
             period = f"{payslip.start_date} to {payslip.end_date}"
             payslip.delete()
             messages.success(
@@ -1408,13 +1455,21 @@ def contract_bulk_delete(request):
     for id in ids:
         try:
             contract = Contract.objects.get(id=id)
+            if contract.contract_status != "draft":
+                messages.error(
+                    request,
+                    _("{contract} is not a draft and cannot be deleted.").format(
+                        contract=contract
+                    ),
+                )
+                continue
             name = f"{contract.contract_name}"
             contract.delete()
             messages.success(
                 request,
                 _("{name} deleted.").format(name=name),
             )
-        except Payslip.DoesNotExist:
+        except Contract.DoesNotExist:
             messages.error(request, _("Contract not found."))
         except ProtectedError:
             messages.error(
@@ -1486,7 +1541,10 @@ def generate_payslip_pdf(template_path, context, html=False):
             "encoding": "UTF-8",
             "enable-local-file-access": None,  # Required to load local CSS/images
             "dpi": 300,
-            "zoom": 1.3,
+            # 1.0, not the 1.3 the old, taller design needed: this layout is
+            # already compact (12.5px base, tight table rows), and the extra
+            # scale was pushing a near-empty second page past the A4 break.
+            "zoom": 1.0,
             "footer-center": "[page]/[topage]",  # Required to load local CSS/images
         }
 
@@ -1501,11 +1559,23 @@ def generate_payslip_pdf(template_path, context, html=False):
             )
 
         # Generate the PDF as binary content
-        pdf = pdfkit.from_string(html_content, False, options=pdf_options)
+        from base.methods import pdfkit_configuration
+
+        pdf = pdfkit.from_string(
+            html_content,
+            False,
+            options=pdf_options,
+            configuration=pdfkit_configuration(),
+        )
 
         # Return an HttpResponse containing the PDF content
         response = HttpResponse(pdf, content_type="application/pdf")
         response["Content-Disposition"] = "inline; filename=payslip.pdf"
+        # Every payslip is served from the same URL shape (no per-render
+        # query string/ETag), so without this the browser can reuse a
+        # previously cached PDF -- stale company/logo info included -- for
+        # what looks like a fresh request.
+        response["Cache-Control"] = "no-store, no-cache, must-revalidate"
         return response
     except Exception as e:
         # Handle errors gracefully
@@ -1574,10 +1644,13 @@ def payslip_pdf(request, id):
                     "month_end_name": end_date.strftime("%B %d, %Y"),
                     "formatted_start_date": formatted_start_date,
                     "formatted_end_date": formatted_end_date,
+                    # Every day in the period, week offs and holidays
+                    # included -- "working_days" excludes those.
+                    "total_calendar_days": (end_date - start_date).days + 1,
                     "employee": payslip.employee_id,
                     "payslip": payslip,
                     "json_data": data.copy(),
-                    "currency": PayrollSettings.objects.first().currency_symbol,
+                    "currency": PayrollSettings.currency_for_selected_company(),
                     "all_deductions": [],
                     "all_allowances": data["allowances"].copy(),
                     "host": request.get_host(),
@@ -1729,11 +1802,10 @@ def create_payrollrequest_comment(request, payroll_id):
                     notify.send(
                         request.user.employee_get,
                         recipient=rec,
-                        verb=f"{payroll.employee_id}'s reimbursement request has received a comment.",
-                        verb_ar=f"تلقى طلب استرداد نفقات {payroll.employee_id} تعليقًا.",
-                        verb_de=f"{payroll.employee_id}s Rückerstattungsantrag hat einen Kommentar erhalten.",
-                        verb_es=f"La solicitud de reembolso de gastos de {payroll.employee_id} ha recibido un comentario.",
-                        verb_fr=f"La demande de remboursement de frais de {payroll.employee_id} a reçu un commentaire.",
+                        verb=gettext_noop(
+                            "%(employee)s's reimbursement request has received a comment."
+                        ),
+                        verb_params={"employee": str(payroll.employee_id)},
                         redirect=reverse("view-reimbursement"),
                         icon="chatbox-ellipses",
                     )
@@ -1745,11 +1817,9 @@ def create_payrollrequest_comment(request, payroll_id):
                     notify.send(
                         request.user.employee_get,
                         recipient=rec,
-                        verb="Your reimbursement request has received a comment.",
-                        verb_ar="تلقى طلب استرداد نفقاتك تعليقًا.",
-                        verb_de="Ihr Rückerstattungsantrag hat einen Kommentar erhalten.",
-                        verb_es="Tu solicitud de reembolso ha recibido un comentario.",
-                        verb_fr="Votre demande de remboursement a reçu un commentaire.",
+                        verb=gettext_noop(
+                            "Your reimbursement request has received a comment."
+                        ),
                         redirect=reverse("view-reimbursement"),
                         icon="chatbox-ellipses",
                     )
@@ -1761,11 +1831,10 @@ def create_payrollrequest_comment(request, payroll_id):
                     notify.send(
                         request.user.employee_get,
                         recipient=rec,
-                        verb=f"{payroll.employee_id}'s reimbursement request has received a comment.",
-                        verb_ar=f"تلقى طلب استرداد نفقات {payroll.employee_id} تعليقًا.",
-                        verb_de=f"{payroll.employee_id}s Rückerstattungsantrag hat einen Kommentar erhalten.",
-                        verb_es=f"La solicitud de reembolso de gastos de {payroll.employee_id} ha recibido un comentario.",
-                        verb_fr=f"La demande de remboursement de frais de {payroll.employee_id} a reçu un commentaire.",
+                        verb=gettext_noop(
+                            "%(employee)s's reimbursement request has received a comment."
+                        ),
+                        verb_params={"employee": str(payroll.employee_id)},
                         redirect=reverse("view-reimbursement"),
                         icon="chatbox-ellipses",
                     )
@@ -1774,11 +1843,9 @@ def create_payrollrequest_comment(request, payroll_id):
                 notify.send(
                     request.user.employee_get,
                     recipient=rec,
-                    verb="Your reimbursement request has received a comment.",
-                    verb_ar="تلقى طلب استرداد نفقاتك تعليقًا.",
-                    verb_de="Ihr Rückerstattungsantrag hat einen Kommentar erhalten.",
-                    verb_es="Tu solicitud de reembolso ha recibido un comentario.",
-                    verb_fr="Votre demande de remboursement a reçu un commentaire.",
+                    verb=gettext_noop(
+                        "Your reimbursement request has received a comment."
+                    ),
                     redirect=reverse("view-reimbursement"),
                     icon="chatbox-ellipses",
                 )
@@ -1992,13 +2059,13 @@ def activate_auto_payslip_generate(request):
         payslip_auto.auto_generate = True
         response = {
             "type": "success",
-            "message": _("Auto paslip generate activated successfully."),
+            "message": _("Auto payslip generate activated successfully."),
         }
     else:
         payslip_auto.auto_generate = False
         response = {
             "type": "success",
-            "message": _("Auto paslip generate deactivated successfully."),
+            "message": _("Auto payslip generate deactivated successfully."),
         }
     payslip_auto.save()
     return JsonResponse(response)

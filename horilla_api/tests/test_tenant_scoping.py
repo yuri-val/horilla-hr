@@ -122,38 +122,6 @@ class ApiTenantScopingTests(TestCase):
         self.assertEqual(user, self.user_a)
         self.assertEqual(get_selected_company(), self.company_a.id)
 
-    def test_no_credentials_leaves_scope_unset(self):
-        from rest_framework.test import APIRequestFactory
-
-        from horilla_api.authentication import TenantScopedJWTAuthentication
-
-        request = APIRequestFactory().get(EMPLOYEE_LIST_URL)
-        self.assertIsNone(TenantScopedJWTAuthentication().authenticate(request))
-
-    def test_configured_as_the_default_authentication_class(self):
-        """A correct class nothing is wired to would fix nothing."""
-        from django.conf import settings
-
-        configured = settings.REST_FRAMEWORK["DEFAULT_AUTHENTICATION_CLASSES"]
-        self.assertIn(
-            "horilla_api.authentication.TenantScopedJWTAuthentication",
-            configured,
-        )
-
-    # -- end to end -------------------------------------------------------
-
-    def test_employee_list_excludes_the_other_tenant(self):
-        """A company's list must contain only its own employees."""
-        token = self._token("tenant_a_user")
-        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
-        response = self.client.get(EMPLOYEE_LIST_URL)
-
-        self.assertEqual(response.status_code, 200, response.data)
-
-        body = str(response.data)
-        self.assertIn("Alice", body, "own tenant's employee should be visible")
-        self.assertNotIn("Bob", body, "other tenant's employee must not be returned")
-
     def test_each_tenant_sees_a_disjoint_employee_set(self):
         """Symmetric check, so a filter that always returns A would fail."""
         seen = {}

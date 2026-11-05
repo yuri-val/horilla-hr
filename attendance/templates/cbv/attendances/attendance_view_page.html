@@ -4,14 +4,17 @@
 
 {% block content %}
     <meta name="csrf-token" content="{{ csrf_token }}">
-    {# Panel sizing for the tabs on this page is handled by the site-wide #}
-    {# script in horilla_theme/components/header_scripts.html. #}
+    <style>
+        #attendances-tab .heightContainer {
+            height: calc(100vh - 320px);
+        }
+    </style>
     {% include "generic/components.html" %}
     <button
         type="button"
         id="attendanceViewReload"
         hidden
-        hx-get="{% url 'attendances-tab-view' %}"
+        hx-get="{% url 'attendances-tab-view' %}?{{ request.GET.urlencode }}"
         hx-target="#listContainer"
         hx-swap="innerHTML"
     >
@@ -21,7 +24,7 @@
     <div
         class="oh-wrapper"
         id="listContainer"
-        hx-get="{% url 'attendances-tab-view' %}"
+        hx-get="{% url 'attendances-tab-view' %}?{{ request.GET.urlencode }}"
         hx-trigger="load"
     >
         <div class="animated-background"></div>
@@ -42,14 +45,16 @@
                         hx-post="{% url 'attendance-info-import' %}"
                         hx-encoding="multipart/form-data"
                         hx-target="#attendanceImport"
+                        hx-timeout="600000"
+                        hx-indicator="#uploading"
                         id="attendanceImportForm"
                     >
                         {% csrf_token %}
-                        <div class="oh-modal__dialog-body mr-5" id="uploading" style="display: none">
-                            <div class="loader-container">
-                                <div class="loader"></div>
-                                <div class="loader-text">{% trans "Uploading..." %}</div>
-                            </div>
+                        <div id="attendanceImportError"></div>
+                        <div id="uploading" class="oh-upload-loader" role="status" aria-live="polite">
+                            <p class="oh-upload-loader__title">{% trans "Uploading..." %}</p>
+                            <p class="oh-upload-loader__hint">{% trans "Don't refresh the page" %}</p>
+                            <div class="oh-upload-loader__bar"><span></span></div>
                         </div>
                         <div id="uploadContainer">
                             <label class="oh-dropdown__import-label" for="uploadFile">
@@ -102,5 +107,5 @@
         </div>
     </div>
 
-    <script src="{% static 'cbv/attendance_activity.js' %}"></script>
+    <script src="{% static 'cbv/attendance_activity.js' %}?v=2"></script>
 {% endblock content %}

@@ -6,11 +6,17 @@
     $("#id_is_active_parent_div").hide();
 
     (function () {
+        var employeeFieldId = "{{ form.employee_id.id_for_label }}";
         var defaultLeaveDays = parseInt({{ default_leave_days|default:0 }}, 10) || 0;
         var leaveDaysValues = {};
 
+        function getAvatar(id) {
+            var row = $(".oh-sticky-table__tr--custom[data-instance-id='" + id + "']");
+            return row.attr("data-avatar") || "";
+        }
+
         function renderLeaveDaysTable() {
-            var selected = $("#id_employee_id").val() || [];
+            var selected = $("#" + employeeFieldId).val() || [];
             var $container = $("#leaveDaysTableContainer");
 
             $container.find("input.leave-days-input").each(function () {
@@ -24,41 +30,56 @@
 
             var rows = "";
             selected.forEach(function (id) {
-                var name = $("#id_employee_id option[value='" + id + "']").text();
+                var name = $("#" + employeeFieldId + " option[value='" + id + "']").text();
                 var value = leaveDaysValues[id] !== undefined ? leaveDaysValues[id] : defaultLeaveDays;
                 rows +=
-                    '<tr>' +
-                    '<td class="p-2">' + name + '</td>' +
-                    '<td class="p-2">' +
+                    '<tr class="border-b border-[#f3f3f3]">' +
+                    '<td class="text-sm text-left px-1.5 py-1.5 text-[#666]">' +
+                    '<div class="oh-profile oh-profile--md w-full justify-normal">' +
+                    '<div class="oh-profile__avatar mr-1" style="width:22px;height:22px;">' +
+                    '<img src="' + getAvatar(id) + '" class="oh-profile__image oh-table-img avatar-thumb" width="22">' +
+                    '</div>' +
+                    '<span class="truncate flex-1 min-w-0">' + name + '</span>' +
+                    '</div>' +
+                    '</td>' +
+                    '<td class="text-sm text-left px-1.5 py-1.5 text-[#666]">' +
                     '<input type="number" step="1" min="0" inputmode="numeric" pattern="[0-9]*" ' +
-                    'class="oh-input w-100 leave-days-input" ' +
+                    'class="oh-input leave-days-input" ' +
                     'data-employee-id="' + id + '" name="leave_days_' + id + '" value="' + value + '">' +
                     '</td>' +
                     '</tr>';
             });
 
             $container.html(
-                '<label class="oh-label d-block mt-3">{% trans "Leave Days"|escapejs %}</label>' +
-                '<table class="w-100" style="border-collapse: collapse;">' +
-                '<thead><tr>' +
-                '<th class="p-2 text-start">{% trans "Employee"|escapejs %}</th>' +
-                '<th class="p-2 text-start">{% trans "Leave Days"|escapejs %}</th>' +
-                '</tr></thead>' +
+                '<label class="oh-label d-block mt-3 mb-2">{% trans "Leave Days"|escapejs %}</label>' +
+                '<div class="bg-white p-2 rounded-md shadow-card relative">' +
+                '<div class="max-h-[260px] overflow-hidden overflow-y-auto overflow-x-auto">' +
+                '<table class="fixed-table w-full border-separate">' +
+                '<thead class="sticky top-0 bg-[white] z-[1]">' +
+                '<tr class="border-b border-[#ececec]">' +
+                '<th class="text-sm font-medium text-left p-1.5">{% trans "Employee"|escapejs %}</th>' +
+                '<th class="text-sm font-medium text-left p-1.5">{% trans "Leave Days"|escapejs %}</th>' +
+                '</tr>' +
+                '</thead>' +
                 '<tbody>' + rows + '</tbody>' +
-                '</table>'
+                '</table>' +
+                '</div>' +
+                '</div>'
             );
         }
 
-        if (!$("#leaveDaysTableContainer").length) {
-            $("#id_employee_id_parent_div").after('<div id="leaveDaysTableContainer" class="col-12"></div>');
+        var $leaveDaysContainer = $("#leaveDaysTableContainer");
+        if (!$leaveDaysContainer.length) {
+            $leaveDaysContainer = $('<div id="leaveDaysTableContainer" class="col-12"></div>');
+            $("#id_employee_id_parent_div").after($leaveDaysContainer);
         }
 
-        $(document).on("change", "#id_employee_id", renderLeaveDaysTable);
-        $(document).on("input", "#leaveDaysTableContainer .leave-days-input", function () {
+        $("#" + employeeFieldId).on("change", renderLeaveDaysTable);
+        $leaveDaysContainer.on("input", ".leave-days-input", function () {
             var digitsOnly = $(this).val().replace(/[^0-9]/g, "");
             $(this).val(digitsOnly);
         });
-        $(document).on("keydown", "#leaveDaysTableContainer .leave-days-input", function (e) {
+        $leaveDaysContainer.on("keydown", ".leave-days-input", function (e) {
             if (e.key === "." || e.key === "-" || e.key === "e" || e.key === "+") {
                 e.preventDefault();
             }

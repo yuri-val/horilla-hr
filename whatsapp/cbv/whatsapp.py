@@ -38,11 +38,11 @@ class CredentialListView(HorillaListView):
     columns = [
         (_("Phone Number"), "meta_phone_number"),
         (_("Phone Number ID"), "meta_phone_number_id"),
-        (_("Bussiness ID"), "meta_business_id"),
+        (_("Business ID"), "meta_business_id"),
         (_("Webhook Token"), "get_webhook_token"),
         (_("Token"), "token_render"),
     ]
-    # sortby_mapping = [("Bussiness ID", "meta_business_id")]
+    # sortby_mapping = [("Business ID", "meta_business_id")]
     row_attrs = """ id = "credential{get_instance}" """
     option_method = "get_publish_button"
     header_attrs = {
@@ -144,9 +144,9 @@ class CredentialForm(HorillaFormView):
     def form_valid(self, form: WhatsappForm) -> HttpResponse:
         if form.is_valid():
             if self.form.instance.pk:
-                messages.success(self.request, _("Crediential updated successfully"))
+                messages.success(self.request, _("Credential updated successfully"))
             else:
-                messages.success(self.request, _("Crediential created successfully"))
+                messages.success(self.request, _("Credential created successfully"))
             form.save()
             return self.HttpResponse()
         return super().form_valid(form)
@@ -174,7 +174,7 @@ def _delete_credentials(request):
         return HttpResponse()
     count = WhatsappCredientials.objects.count()
     crediential.delete()
-    messages.success(request, _("Crediential deleted."))
+    messages.success(request, _("Credential deleted."))
     if count == 1:
         return HttpResponse("<script>$('.reload-record').click();</script>")
     return HttpResponse("<script>$('#reloadMessagesButton').click();</script>")

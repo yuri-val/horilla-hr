@@ -12,6 +12,7 @@ from django.dispatch import receiver
 from django.urls import reverse, reverse_lazy
 from django.utils.timesince import timesince
 from django.utils.translation import gettext_lazy as _
+from django.utils.translation import gettext_noop
 
 from base.horilla_company_manager import HorillaCompanyManager
 from base.models import Company
@@ -131,7 +132,9 @@ def create_initial_stage(sender, instance, created, **kwargs):
     """
     This is post save method, used to create initial stage for the recruitment
     """
-    if created:
+    # Not while loading a fixture: the dump already carries its own stages, so
+    # an extra "Notice Period" here would sit next to the loaded one.
+    if created and not kwargs.get("raw"):
         initial_stage = OffboardingStage()
         initial_stage.title = "Notice Period"
         initial_stage.offboarding_id = instance
@@ -594,7 +597,7 @@ class OffboardingTask(HorillaModel):
         null=True,
         blank=True,
     )
-    is_required = models.BooleanField(default=False, verbose_name=_("Is Required"))
+    is_required = models.BooleanField(default=False, verbose_name=_("Required"))
 
     class Meta:
         unique_together = ["title", "stage_id"]
@@ -639,11 +642,8 @@ class EmployeeTask(HorillaModel):
         notify.send(
             request.user.employee_get,
             recipient=self.employee_id.employee_id.employee_user_id,
-            verb=f'Offboarding task "{self.task_id.title}" has been assigned',
-            verb_ar=f"",
-            verb_de=f"",
-            verb_es=f"",
-            verb_fr=f"",
+            verb=gettext_noop('Offboarding task "%(title)s" has been assigned'),
+            verb_params={"title": str(self.task_id.title)},
             redirect="offboarding/offboarding-pipeline",
             icon="information",
         )

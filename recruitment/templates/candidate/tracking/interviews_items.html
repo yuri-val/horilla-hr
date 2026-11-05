@@ -1,0 +1,38 @@
+{% load i18n static %}
+{% now "Y-m-d" as now %}
+{% for interview in page_obj %}
+    <article class="flex items-center gap-[19px] h-[110px] px-[26px] border-b border-dark-50/60 hover:bg-primary-50/60 [transition:.2s]">
+        <div class="shrink-0 w-[70px] h-[69px] rounded-[18px] flex flex-col items-center justify-center {% if not interview.completed and interview.interview_date|date:'Y-m-d' >= now %}bg-brand-600 text-white{% else %}bg-primary-300 text-primary-800{% endif %}">
+            <span class="text-[28px] leading-[28px] font-bold">{{ interview.interview_date|date:"j" }}</span>
+            <span class="text-[13px] leading-[16px] font-bold uppercase">{{ interview.interview_date|date:"M y" }}</span>
+        </div>
+        <div class="flex-1 min-w-0">
+            <h3 class="text-[20px] leading-[28px] font-medium truncate" {% if interview.description %}title="{{ interview.description }}"{% endif %}>
+                {% firstof interview.description|truncatechars:80 _("Interview") %}
+            </h3>
+            <div class="mt-[3px] flex flex-wrap items-center gap-x-[23px] text-[16px] leading-[24px] text-[#7b6f6a]">
+                <span class="inline-flex items-center gap-[6px]">
+                    {% include "candidate/tracking/icon.html" with name="clock" size=17 %}{{ interview.interview_time|time:"g:i A" }}
+                </span>
+                {% for interviewer in interview.interviewers %}
+                    <span class="inline-flex items-center gap-[6px]">
+                        {% include "candidate/tracking/icon.html" with name="user" size=17 %}{{ interviewer.name }}{% if interviewer.role %} &middot; {{ interviewer.role }}{% endif %}
+                    </span>
+                {% endfor %}
+            </div>
+        </div>
+        {% if interview.completed %}
+            <span class="shrink-0 h-[30px] inline-flex items-center px-[13px] rounded-full text-[15px] font-medium bg-[#dcf5e4] text-[#1b9a52]">{% trans "Completed" %}</span>
+        {% elif interview.interview_date|date:"Y-m-d" < now %}
+            <span class="shrink-0 h-[30px] inline-flex items-center px-[13px] rounded-full text-[15px] font-medium bg-[#f1ede9] text-[#7b6f6a]">{% trans "Expired" %}</span>
+        {% else %}
+            <span class="shrink-0 h-[30px] inline-flex items-center px-[13px] rounded-full text-[15px] font-semibold bg-brand-600 text-white">{% trans "Upcoming" %}</span>
+        {% endif %}
+    </article>
+{% empty %}
+    <div class="flex flex-col items-center text-center py-16 px-6">
+        <img class="w-24 mb-3 opacity-90" src="{% static 'images/ui/interview.png' %}" alt="">
+        <p class="text-[16px] text-[#7b6f6a]">{% trans "No interviews match this filter" %}</p>
+    </div>
+{% endfor %}
+{% include "candidate/tracking/load_more.html" with section="interviews" %}

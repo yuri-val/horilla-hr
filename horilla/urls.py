@@ -27,15 +27,34 @@ from django.views.generic import RedirectView
 from django.views.i18n import JavaScriptCatalog
 
 import notifications.urls
+from horilla_crumbs.views import breadcrumbs_fragment
 
 from . import settings
+from .__version__ import API_VERSION
 
 logger = logging.getLogger(__name__)
 
 
 def health_check(request):
-    """Liveness probe — cheap, no dependency checks (Docker HEALTHCHECK)."""
-    return JsonResponse({"status": "ok"}, status=200)
+    """
+    Liveness probe — cheap, no dependency checks (Docker HEALTHCHECK).
+
+    Also identifies the product and the API contract it speaks. Mobile and
+    other API clients need to know whether a host is a Horilla server, and one
+    they can talk to, *before* posting credentials: a typo'd host should
+    report "not a Horilla server" rather than "invalid credentials".
+
+    Deliberately not the release string. This route is unauthenticated, and
+    published security advisories name exact patched versions -- handing the
+    precise release to anyone who asks turns a scan into a list of which
+    advisories apply to this host. ``product`` answers "is this Horilla" and
+    ``api`` answers "can I talk to it"; neither narrows an install to a patch
+    level. The exact version is still available to a signed-in client, in the
+    capabilities payload.
+    """
+    return JsonResponse(
+        {"status": "ok", "product": "horilla", "api": API_VERSION}, status=200
+    )
 
 
 def _scheduler_status():
@@ -127,12 +146,14 @@ urlpatterns = [
         name="accounts-login-redirect",
     ),
     path("accounts/", include("django.contrib.auth.urls")),
+    path("breadcrumbs-fragment/", breadcrumbs_fragment, name="breadcrumbs-fragment"),
     path("", include("base.urls")),
     path("", include("horilla_automations.urls")),
     path("", include("horilla_views.urls")),
     path("", include("horilla_audit.urls")),
     path("", include("horilla_tour.urls")),
     path("employee/", include("employee.urls")),
+    path("master-import/", include("master_import.urls")),
     path("horilla-widget/", include("horilla_widgets.urls")),
     re_path(
         "^inbox/notifications/", include(notifications.urls, namespace="notifications")

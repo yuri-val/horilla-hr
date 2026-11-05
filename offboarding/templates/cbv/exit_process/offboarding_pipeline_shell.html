@@ -1,20 +1,64 @@
-{% load i18n %}
-<div class="flex justify-end items-center mb-2">
-  {% if actions %}
-  <div onclick="event.stopPropagation()" class="relative inline-block dropdown-wrapper" role="button" title="{% trans 'Actions' %}">
-    <button class="cursor-pointer dropdown-toggle w-[20px]" onclick="event.stopPropagation(); var m = $(this).next('.dropdown-menu'); $('.dropdown-menu').not(m).addClass('hidden'); m.toggleClass('hidden');">
-      <i class="fa-solid fa-ellipsis-vertical text-black"></i>
-    </button>
-    <div class="dropdown-menu absolute right-0 min-w-[100px] bg-white rounded-lg shadow-card py-2 hidden z-50 transition-all duration-200" style="min-width:120px !important;">
-      <ul class="text-xs text-dark-600">
-        {% for action in actions %}
-        <li>
-          <a {{ action.attrs|safe }} class="block w-full text-left px-3 py-1 text-dark-600 hover:text-primary-600 transition duration-300 cursor-pointer">{{ action.action }}</a>
-        </li>
-        {% endfor %}
-      </ul>
-    </div>
-  </div>
-  {% endif %}
+{% load i18n static %}
+{% comment %}
+Load order matters here. Both of these used to fire on `load`, and the
+board's request fans out into one fetch per stage - so the single Nav
+request sat behind all of them in the queue and the toolbar
+(search/filter/view toggles/actions/create) did not appear until long
+after the stage rows were already on screen.
+
+The Nav now loads first and the board is triggered from the Nav's own
+htmx:afterSettle (`ohPipelineNavReady`), so the one request the user needs
+immediately isn't starved by the many that fill in behind it.
+{% endcomment %}
+<div id="pipelineNav{{ offboarding.pk }}" hx-get="{{ nav_url }}" hx-trigger="load"></div>
+<div
+    class="oh-checkpoint-badge mb-2"
+    id="selectedInstances"
+    data-ids="[]"
+    data-clicked=""
+    style="display: none"
+>
 </div>
-<div hx-get="{{ content_url }}" hx-trigger="load"></div>
+<div
+    class="oh-wrapper"
+    id="pipelineTabContent{{ offboarding.pk }}"
+    hx-get="{{ content_url }}"
+    hx-trigger="ohPipelineNavReady"
+>
+    <div class="animated-background"></div>
+</div>
+
+<script>
+    (function () {
+        // Fire the board's load once this tab's Nav has settled. Falls back
+        // to a timer so the board still loads if the Nav request fails -
+        // otherwise a failed toolbar would leave the page permanently empty.
+        var navEl = document.getElementById("pipelineNav{{ offboarding.pk }}");
+        var contentEl = document.getElementById("pipelineTabContent{{ offboarding.pk }}");
+        if (!navEl || !contentEl) return;
+        var fired = false;
+        function go() {
+            if (fired) return;
+            fired = true;
+            htmx.trigger(contentEl, "ohPipelineNavReady");
+        }
+        navEl.addEventListener("htmx:afterSettle", go);
+        navEl.addEventListener("htmx:responseError", go);
+        setTimeout(go, 8000);
+    })();
+</script>
+
+<script>
+    (function () {
+        var myContent = document.currentScript.closest(".oh-tabs__content");
+        var contents = myContent && myContent.closest(".oh-tabs__contents");
+        if (!contents) return;
+        var tabsRoot = contents.closest("#pipelineContainer") || contents.parentElement;
+        contents.querySelectorAll(".oh-tabs__content").forEach(function (el) {
+            if (el === myContent || !el.innerHTML.trim()) return;
+            el.innerHTML = "";
+            var btn = tabsRoot && tabsRoot.querySelector('[data-target="#' + el.id + '"]');
+            if (btn) btn.removeAttribute("data-loaded");
+        });
+    })();
+</script>

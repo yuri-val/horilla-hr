@@ -11,10 +11,10 @@ from django.shortcuts import render
 from django.urls import reverse, reverse_lazy
 from django.utils.decorators import method_decorator
 from django.utils.translation import gettext_lazy as _
+from django.utils.translation import gettext_noop
 
-from attendance.cbv.tab_shell import AttendanceTabContentShell
 from base.decorators import manager_can_enter
-from base.methods import choosesubordinates, is_reportingmanager
+from base.methods import is_reportingmanager
 from employee.cbv.employee_profile import EmployeeProfileView
 from employee.models import Employee
 from horilla.http.response import HorillaRedirect
@@ -25,6 +25,7 @@ from horilla_views.generic.cbv.views import (
     HorillaFormView,
     HorillaListView,
     HorillaNavView,
+    HorillaTabContentShell,
     HorillaTabView,
     TemplateView,
 )
@@ -183,7 +184,7 @@ class FeedbackListView(HorillaListView):
         ("archive", _("Archive")),
         ("start_date", _("Start Date")),
         ("end_date", _("End Date")),
-        ("cyclic_feedback", _("Is Cyclic Feedback")),
+        ("cyclic_feedback", _("Cyclic Feedback")),
     ]
 
 
@@ -437,19 +438,16 @@ class _FeedbackTabNavBase(HorillaNavView):
     tab.
     """
 
+    template_name = "generic/inline_nav.html"
+
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
+        self.search_in = [
+            ("employee_id", _("Employee")),
+            ("manager_id", _("Manager")),
+            ("employee_id__employee_work_info__department_id", _("Department")),
+        ]
         self.actions = [
-            {
-                "action": _("Add Anonymous"),
-                "attrs": f"""
-                    data-toggle = "oh-modal-toggle"
-                    data-target = "#genericModal"
-                    hx-target="#genericModalBody"
-                    hx-get ="{reverse('add-anonymous-feedback')}"
-                    style="cursor: pointer;"
-                """,
-            },
             {
                 "action": _("Archive"),
                 "attrs": """
@@ -558,27 +556,34 @@ class AnonymousFeedbackNav(_FeedbackTabNavBase):
         super().__init__(**kwargs)
         self.search_url = reverse("anonymous-feedback-tab")
         self.search_swap_target = "#anonymousFeedbackListContainer"
+        self.create_attrs = f"""
+            data-toggle="oh-modal-toggle"
+            data-target="#genericModal"
+            hx-target="#genericModalBody"
+            hx-get="{reverse('add-anonymous-feedback')}"
+            style="cursor: pointer;"
+        """
 
 
-class SelfFeedbackTabShell(AttendanceTabContentShell):
+class SelfFeedbackTabShell(HorillaTabContentShell):
     nav_url_name = "self-feedback-nav"
     container_id = "selfFeedbackListContainer"
     tabs_root_id = "feedbackTabs"
 
 
-class RequestedFeedbackTabShell(AttendanceTabContentShell):
+class RequestedFeedbackTabShell(HorillaTabContentShell):
     nav_url_name = "requested-feedback-nav"
     container_id = "requestedFeedbackListContainer"
     tabs_root_id = "feedbackTabs"
 
 
-class AllFeedbackTabShell(AttendanceTabContentShell):
+class AllFeedbackTabShell(HorillaTabContentShell):
     nav_url_name = "all-feedback-nav"
     container_id = "allFeedbackListContainer"
     tabs_root_id = "feedbackTabs"
 
 
-class AnonymousFeedbackTabShell(AttendanceTabContentShell):
+class AnonymousFeedbackTabShell(HorillaTabContentShell):
     nav_url_name = "anonymous-feedback-nav"
     container_id = "anonymousFeedbackListContainer"
     tabs_root_id = "feedbackTabs"
@@ -593,7 +598,7 @@ class AnonymousFeedbackTabShell(AttendanceTabContentShell):
         ("archive", _("Archive")),
         ("start_date", _("Start Date")),
         ("end_date", _("End Date")),
-        ("cyclic_feedback", _("Is Cyclic Feedback")),
+        ("cyclic_feedback", _("Cyclic Feedback")),
     ]
 
 
@@ -641,11 +646,7 @@ class AddAnonymousFeedbackForm(HorillaFormView):
                     notify.send(
                         HorillaUser.objects.filter(username="Horilla Bot").first(),
                         recipient=feedback.employee_id.employee_user_id,
-                        verb="You received an anonymous feedback!",
-                        verb_ar="لقد تلقيت تقييمًا مجهولًا!",
-                        verb_de="Sie haben anonymes Feedback erhalten!",
-                        verb_es="¡Has recibido un comentario anónimo!",
-                        verb_fr="Vous avez reçu un feedback anonyme!",
+                        verb=gettext_noop("You received anonymous feedback!"),
                         redirect=reverse("feedback-view"),
                         icon="bag-check",
                     )
@@ -661,6 +662,9 @@ class PerformanceTab(SelfFeedbacktab):
     performance tab in employee profile
     """
 
+    show_saved_filters = False
+    row_status_indications = []
+
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         pk = self.request.resolver_match.kwargs.get("pk")
@@ -671,18 +675,64 @@ class PerformanceTab(SelfFeedbacktab):
         # tab's "Select"/"Unselect" count. Scope it to this tab instead.
         self.selected_instances_key_id = "performanceSelectedInstances"
 
+    @staticmethod
+    def employee_feedbacks(employee_id):
+        """
+        Active feedbacks about the employee (self) plus those they were asked to answer (requested)
+        """
+        requested_ids = Feedback.objects.filter(
+            Q(manager_id=employee_id)
+            | Q(colleague_id=employee_id)
+            | Q(subordinate_id=employee_id)
+            | Q(others_id=employee_id),
+            employee_id__is_active=True,
+        ).values_list("id", flat=True)
+        return Feedback.objects.filter(
+            Q(employee_id=employee_id) | Q(pk__in=requested_ids), archive=False
+        )
+
     def get_queryset(self):
         queryset = super().get_queryset()
         pk = self.kwargs.get("pk")
-        queryset = Feedback.objects.filter(employee_id=pk, archive=False)
+        queryset = self.employee_feedbacks(pk)
         return queryset
+
+
+@method_decorator(login_required, name="dispatch")
+class PerformanceTabView(HorillaTabView):
+    """
+    Performance tab in employee profile, holding the Feedback and Key Results sub-tabs
+    """
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.view_id = "performance-tab"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        pk = self.kwargs.get("pk")
+        context["tabs"] = [
+            {
+                "title": _("Feedback"),
+                "url": reverse("individual-performance-tab-list", kwargs={"pk": pk}),
+                "badge": PerformanceTab.employee_feedbacks(pk).count(),
+            },
+            {
+                "title": _("Key Results"),
+                "url": reverse("individual-key-result-tab-list", kwargs={"pk": pk}),
+                "badge": EmployeeKeyResult.objects.filter(
+                    employee_objective_id__employee_id=pk
+                ).count(),
+            },
+        ]
+        return context
 
 
 EmployeeProfileView.add_tab(
     tabs=[
         {
             "title": _("Performance"),
-            "view": PerformanceTab.as_view(),
+            "view": PerformanceTabView.as_view(),
             "accessibility": "pms.cbv.accessibility.performance_accessibility",
         },
     ]

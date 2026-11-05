@@ -3,6 +3,32 @@
     {% include "generic/horilla_form.html" %}
 </div>
 
+{{ attachment_required_type_ids|json_script:"attachmentRequiredTypeIds" }}
+<script>
+    (function () {
+        var requiredIds = JSON.parse(
+            document.getElementById("attachmentRequiredTypeIds").textContent
+        ).map(String);
+        var hasExisting = {{ has_existing_attachment|yesno:"true,false" }};
+
+        function syncAttachmentRequired() {
+            var $form = $("#createTitle").closest("form");
+            var typeVal = String($form.find("[name=leave_type_id]").val() || "");
+            var needed = requiredIds.indexOf(typeVal) !== -1;
+            $form.find("label[for=id_attachment]").toggleClass("required-star", needed);
+            $form.find("[name=attachment]").prop("required", needed && !hasExisting);
+        }
+
+        $(document).on("change", "[name=leave_type_id]", syncAttachmentRequired);
+        $(document).on("htmx:afterSwap", function (e) {
+            if (e.target && e.target.id === "id_leave_type_id_parent_div") {
+                syncAttachmentRequired();
+            }
+        });
+        $(document).ready(syncAttachmentRequired);
+        syncAttachmentRequired();
+    })();
+</script>
 <script>
     $("#createTitle").on("htmx:beforeSwap",function(e){
         $('.available-leave-count').remove();
@@ -32,7 +58,7 @@
     test.find("button[type=submit]").hide();
     var button = `
     <div class="oh-modal__dialog-footer p-0 mt-3">
-      <button id="buttonID" class="oh-btn oh-btn--secondary oh-btn--shadow">{% trans 'Save'|escapejs %}</button>
+      <button type="button" id="buttonID" class="oh-btn oh-btn--secondary oh-btn--shadow">{% trans 'Save'|escapejs %}</button>
     </div>
     `;
     test.find(".d-flex").after(button);
@@ -40,7 +66,6 @@
     $("#buttonID").on("click", function (event) {
         var zeroDaysFlag = $("#requestedDaysZeroFlag").val();
         if (zeroDaysFlag === "true") {
-            event.preventDefault();
             event.stopImmediatePropagation();
             Swal.fire({
                 title: "{% trans 'Cannot submit leave request'|escapejs %}",
@@ -50,13 +75,15 @@
             });
             return false;
         }
+
+        {% if not "recruitment"|app_installed %}
+            test.find("[type=submit]:not([name=save_and_add_another])").click();
+        {% endif %}
     });
 
     {% if "recruitment"|app_installed %}
     $(document).ready(function () {
-        $("#buttonID").on("click", function () {
-            event.preventDefault();
-            event.stopPropagation();
+        $("#buttonID").on("click", function (event) {
             var startDate = test.find("[name=start_date]").val();
             var endDate = test.find("[name=end_date]").val();
             var parentForm = $(this).closest('form');
@@ -94,13 +121,13 @@
                                 confirmButtonText: i18nMessages.confirm,
                             }).then(function (result) {
                                 if (result.isConfirmed) {
-                                    test.find("[type=submit]").show();
+                                    test.find("[type=submit]:not([name=save_and_add_another])").show();
                                     $("#buttonID").hide();
-                                test.find("[type=submit]").click();
+                                test.find("[type=submit]:not([name=save_and_add_another])").click();
                             }
                         });
                     } else {
-                        test.find("[type=submit]").click();
+                        test.find("[type=submit]:not([name=save_and_add_another])").click();
                     }
                 },
             });

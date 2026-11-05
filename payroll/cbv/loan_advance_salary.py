@@ -10,13 +10,13 @@ from django.urls import reverse, reverse_lazy
 from django.utils.decorators import method_decorator
 from django.utils.translation import gettext_lazy as _
 
-from attendance.cbv.tab_shell import AttendanceTabContentShell
 from horilla_views.cbv_methods import login_required, permission_required
 from horilla_views.generic.cbv.views import (
     HorillaDetailedView,
     HorillaFormView,
     HorillaListView,
     HorillaNavView,
+    HorillaTabContentShell,
     HorillaTabView,
     TemplateView,
 )
@@ -121,7 +121,7 @@ class LoanListView(HorillaListView):
         (_("Title"), "title"),
         (_("Provided Date"), "provided_date"),
         (_("Installment Start Date"), "installment_start_date"),
-        (_("Toatal Installments"), "installments"),
+        (_("Total Installments"), "installments"),
         (_("Amount"), "loan_amount"),
         (_("Description"), "description"),
         (_("Progress Bar"), "progress_bar_col"),
@@ -131,7 +131,7 @@ class LoanListView(HorillaListView):
         (_("Employee"), "employee_id__get_full_name", "employee_id__get_avatar"),
         (_("Provided Date"), "provided_date"),
         (_("Installment Start Date"), "installment_start_date"),
-        (_("Toatal Installments"), "installments"),
+        (_("Total Installments"), "installments"),
         (_("Amount"), "loan_amount"),
     ]
 
@@ -275,19 +275,19 @@ class FineNav(_LoanTabNavBase):
         self._set_create_attrs("fine-create-form")
 
 
-class LoanTabShell(AttendanceTabContentShell):
+class LoanTabShell(HorillaTabContentShell):
     nav_url_name = "loan-nav"
     container_id = "loanListContainer"
     tabs_root_id = "loan-generic-tab-view"
 
 
-class AdvancedSalaryTabShell(AttendanceTabContentShell):
+class AdvancedSalaryTabShell(HorillaTabContentShell):
     nav_url_name = "advanced-salary-nav"
     container_id = "advancedSalaryListContainer"
     tabs_root_id = "loan-generic-tab-view"
 
 
-class FineTabShell(AttendanceTabContentShell):
+class FineTabShell(HorillaTabContentShell):
     nav_url_name = "fine-nav"
     container_id = "fineListContainer"
     tabs_root_id = "loan-generic-tab-view"

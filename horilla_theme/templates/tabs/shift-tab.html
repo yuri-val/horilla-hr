@@ -14,7 +14,7 @@
 
 <div class="oh-wrapper mt-4">
 	{% if employee.employee_work_info.shift_id %}
-	<span class="fw-bold" style="font-size:17px;"> {% if employee.employee_work_info.shift_id %} {% trans "Current Shifeet" %} &nbsp : &nbsp {{employee.employee_work_info.shift_id}} {% endif %}</span>
+	<span class="fw-bold" style="font-size:17px;"> {% if employee.employee_work_info.shift_id %} {% trans "Current Shift" %} &nbsp : &nbsp {{employee.employee_work_info.shift_id}} {% endif %}</span>
 	<button style="display:inline-block;"
 			class="oh-btn oh-btn--secondary ms-3"
 			data-toggle="oh-modal-toggle"
@@ -317,7 +317,7 @@
                                                         <button
                                                             type="submit"
                                                             class="oh-btn oh-btn--danger w-100"
-                                                            title="{% trans 'Remove' %}"
+                                                            title="{% trans 'Delete' %}"
                                                         >
                                                             <ion-icon
                                                                 name="trash-outline"
@@ -522,7 +522,7 @@
                                         </div>
                                         <div class="oh-sticky-table__td">
                                             {% if rshift.is_active %}
-                                                {% trans "Is Active" %}
+                                                {% trans "Active" %}
                                             {% else %}
                                                 {% trans "Archived" %}
                                             {% endif %}
@@ -614,7 +614,7 @@
                                                             <button
                                                                 type="submit"
                                                                 class="oh-btn oh-btn--danger w-100"
-                                                                title="{% trans 'Remove' %}"
+                                                                title="{% trans 'Delete' %}"
                                                             >
                                                                 <ion-icon
                                                                     name="trash-outline"
@@ -748,7 +748,7 @@
                                         </div>
                                         <div class="oh-sticky-table__td">
                                             {% if rwork_type.is_active %}
-                                                {% trans "Is Active" %}
+                                                {% trans "Active" %}
                                             {% else %}
                                                 {% trans "Archived" %}
                                             {% endif %}
@@ -829,7 +829,7 @@
                                                                 <button
                                                                     type="submit"
                                                                     class="oh-btn oh-btn--danger w-100"
-                                                                    title="{% trans 'Remove' %}"
+                                                                    title="{% trans 'Delete' %}"
                                                                 >
                                                                     <ion-icon
                                                                         name="trash-outline"
@@ -991,7 +991,7 @@
                                                         <button
                                                             type="submit"
                                                             class="oh-btn oh-btn--danger w-100"
-                                                            title="{% trans 'Remove' %}"
+                                                            title="{% trans 'Delete' %}"
                                                         >
                                                         <ion-icon name="trash-outline"></ion-icon>
                                                         </button>

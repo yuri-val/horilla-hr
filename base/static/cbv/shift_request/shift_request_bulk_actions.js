@@ -57,6 +57,7 @@ function openShiftRequestTabAfterInject(container) {
 function refreshShiftRequestList() {
     var doneMessages = function () {
         if (typeof jQuery !== "undefined" && $("#reloadMessagesButton").length) {
+
             $("#reloadMessagesButton").click();
         }
     };
@@ -72,7 +73,12 @@ function refreshShiftRequestList() {
     // the correct current request.path, so reuse that instead of guessing
     // the endpoint - it reloads just the list, which is all a single
     // approve/reject/delete actually needs to refresh.
-    var $reloadBtn = $("#listContainer .reload-record").first();
+    // Embedded in the employee detail "Work Type & Shift" tab: reload that
+    // tab's own list, not the employee list that owns #listContainer there.
+    var $reloadBtn = $("#shift-reques-individual-divReload");
+    if (!$reloadBtn.length) {
+        $reloadBtn = $("#listContainer .reload-record").first();
+    }
     if ($reloadBtn.length) {
         $reloadBtn.one("htmx:afterRequest", doneMessages);
         $reloadBtn.trigger("click");
@@ -146,11 +152,29 @@ function shiftRequestRowApprove(url, confirmText) {
     });
 }
 
+// The list keeps its selection in a store named by selected_instances_key_id:
+// "shiftselectedInstances" (Shift Requests) or "allocatedselectedInstances"
+// (Shift Allocations), not the "selectedInstances" these bulk actions used to
+// read - which is why Approve / Reject / Delete saw no rows (or crashed on
+// JSON.parse(undefined)) there. Read whichever store the list on screen uses.
+function shiftRequestSelectedIds() {
+    var key =
+        $(".hlv-container[data-selected-instances-key]")
+            .first()
+            .attr("data-selected-instances-key") || "selectedInstances";
+    var $store = $("#" + key);
+    if (!$store.length) {
+        $store = $("#selectedInstances");
+    }
+    try {
+        return JSON.parse($store.attr("data-ids") || "[]");
+    } catch (e) {
+        return [];
+    }
+}
+
 function shiftRequestApprove() {
-
-
-
-    ids = [];
+  ids = [];
     // function addIdsTab(tabId){
     //   var dataIds = $("#"+tabId).attr("data-ids");
     //   if (dataIds){
@@ -159,8 +183,7 @@ function shiftRequestApprove() {
     // }
     // addIdsTab("shiftselectedInstances");
     // addIdsTab("allocatedselectedInstances");
-    ids.push($("#selectedInstances").attr("data-ids"));
-    ids = JSON.parse($("#selectedInstances").attr("data-ids"));
+    ids = shiftRequestSelectedIds();
     if (ids.length === 0) {
         Swal.fire({
             text: i18nMessages.noRowsSelected,
@@ -208,8 +231,7 @@ function shiftRequestReject() {
     // }
     // addIdsTab("shiftselectedInstances");
     // addIdsTab("allocatedselectedInstances");
-    ids.push($("#selectedInstances").attr("data-ids"));
-    ids = JSON.parse($("#selectedInstances").attr("data-ids"));
+    ids = shiftRequestSelectedIds();
     if (ids.length === 0) {
         Swal.fire({
             text: i18nMessages.noRowsSelected,
@@ -253,8 +275,7 @@ function shiftRequestDelete() {
     // }
     // addIdsTab("shiftselectedInstances");
     // addIdsTab("allocatedselectedInstances");
-    ids.push($("#selectedInstances").attr("data-ids"));
-    ids = JSON.parse($("#selectedInstances").attr("data-ids"));
+    ids = shiftRequestSelectedIds();
     if (ids.length === 0) {
         Swal.fire({
             text: i18nMessages.noRowsSelected,

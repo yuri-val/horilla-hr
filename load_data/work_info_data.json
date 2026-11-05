@@ -3180,13 +3180,13 @@
       "title": "Code Policy",
       "body": "<p><p></p></p><h3 style=\"text-align: center; \"><strong><u>Code of Conduct Policy</u></strong></h3><p><strong>Purpose:</strong><br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;To set expectations for professional behavior and ensure a respectful and ethical workplace.</p><p><strong>Body:</strong><br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; All employees must adhere to the highest standards of ethical conduct in their professional relationships with clients, colleagues, and stakeholders. This includes honesty, integrity, and compliance with company regulations. Harassment, discrimination, and unethical behavior will not be tolerated and may lead to disciplinary actions, including termination. Employees are also expected to maintain confidentiality and avoid conflicts of interest.</p>",
       "is_visible_to_all": true,
-      "specific_employees": [],
       "attachments": [],
       "company_id": [
         1,
         2,
         3
-      ]
+      ],
+      "employees": []
     }
   },
   {
@@ -3200,13 +3200,13 @@
       "title": "Security Policy",
       "body": "<h3 style=\"text-align: center; \"><strong>Information Security Policy</strong></h3><p><strong>Purpose:</strong><br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; To protect company data and systems from unauthorized access, breaches, and misuse.</p><p><strong>Body:</strong><br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;Employees must safeguard all confidential and sensitive information, including customer data, intellectual property, and internal communications. Use secure passwords, two-factor authentication, and encryption when handling sensitive data. Access to data should be limited based on job responsibilities. Employees must report any security incidents or suspected breaches immediately to the IT department. Personal use of company systems must not compromise security.</p>",
       "is_visible_to_all": true,
-      "specific_employees": [],
       "attachments": [],
       "company_id": [
         1,
         2,
         3
-      ]
+      ],
+      "employees": []
     }
   },
   {
@@ -3220,13 +3220,13 @@
       "title": "Work Policy",
       "body": "<h3 style=\"text-align: center; \"><strong>Remote Work Policy</strong></h3><p><strong>Purpose:</strong><br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; To provide guidelines for employees working remotely and maintain productivity and communication standards.</p><p><strong>Body:</strong><br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; Employees working remotely are expected to maintain regular working hours, be available for meetings, and ensure clear communication with their teams. All company-owned devices should be used with appropriate security measures, including VPNs and updated antivirus software. Any work-related tasks should be conducted using approved tools and platforms. Employees must maintain a professional work environment and ensure their internet connection is stable for smooth workflow.</p>",
       "is_visible_to_all": true,
-      "specific_employees": [],
       "attachments": [],
       "company_id": [
         1,
         2,
         3
-      ]
+      ],
+      "employees": []
     }
   },
   {
@@ -3240,13 +3240,13 @@
       "title": "Data Policy",
       "body": "<h3 style=\"text-align: center; \"><strong>Data Privacy Policy</strong></h3><p><strong>Purpose:</strong><br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;To ensure the company complies with data protection regulations like GDPR and CCPA.</p><p><strong>Body:</strong><br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; All personal data collected, processed, or stored by the company must be handled in accordance with applicable data protection laws. Employees should only collect the minimum required data, and consent must be obtained from individuals where necessary. The company is committed to protecting the privacy of its clients and employees, and any data breach must be reported immediately. Employees handling personal data must follow specific protocols for its safe storage, transfer, and deletion.</p>",
       "is_visible_to_all": true,
-      "specific_employees": [],
       "attachments": [],
       "company_id": [
         1,
         2,
         3
-      ]
+      ],
+      "employees": []
     }
   },
   {
@@ -3260,13 +3260,13 @@
       "title": "Device Policy",
       "body": "<h3 style=\"text-align: center; \"><strong>Employee Device Usage Policy</strong></h3><p><strong>Purpose:</strong><br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; To regulate the use of company-provided and personal devices for work purposes.</p><p><strong>Body:</strong><br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; Company-provided devices are for professional use only and must be treated responsibly. Employees must ensure that all software on these devices is up-to-date and complies with security standards. Personal devices used for work purposes must also adhere to company security policies, including password protection and approved applications. The IT department may request access to company-provided devices for maintenance or audits.</p>",
       "is_visible_to_all": true,
-      "specific_employees": [],
       "attachments": [],
       "company_id": [
         1,
         2,
         3
-      ]
+      ],
+      "employees": []
     }
   },
   {
@@ -3280,13 +3280,13 @@
       "title": "Support Policy",
       "body": "<h3 style=\"text-align: center; \"><strong>IT Support Policy</strong></h3><p><strong>Purpose:</strong><br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; To provide employees with guidelines for receiving technical support.</p><p><strong>Body:</strong><br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;Employees encountering technical issues must submit a support ticket through the companyÆs IT service desk. Priority will be given to high-impact issues that affect business operations. IT support staff will resolve issues within a specified time frame based on severity. Employees are encouraged to check for common solutions in the knowledge base before requesting support. Any hardware issues with company devices should also be reported to IT for troubleshooting or replacement.</p>",
       "is_visible_to_all": true,
-      "specific_employees": [],
       "attachments": [],
       "company_id": [
         1,
         2,
         3
-      ]
+      ],
+      "employees": []
     }
   },
   {
@@ -3300,13 +3300,13 @@
       "title": "NDA Policy",
       "body": "<h3 style=\"text-align: center; \"><strong>Non-Disclosure Agreement (NDA) Policy</strong></h3><p><strong>Purpose:</strong><br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; To protect confidential company information from unauthorized disclosure.</p><p><strong>Body:</strong><br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; All employees are required to sign a non-disclosure agreement upon joining the company. Employees must not share any proprietary, confidential, or trade secret information with external parties during or after their employment. Violating the NDA may lead to legal consequences and termination of employment. Employees must also ensure that confidential information is not discussed in public places or through unsecured communication channels.</p>",
       "is_visible_to_all": true,
-      "specific_employees": [],
       "attachments": [],
       "company_id": [
         1,
         2,
         3
-      ]
+      ],
+      "employees": []
     }
   },
   {
@@ -3320,13 +3320,13 @@
       "title": "Software Policy",
       "body": "<h3 style=\"text-align: center; \"><strong>Software Use Policy</strong></h3><p><strong>Purpose:</strong><br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; To regulate the usage of licensed software and prevent the use of unauthorized programs.</p><p><strong>Body:</strong><br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; Employees must use only company-approved and licensed software for work purposes. The installation of personal or unauthorized software on company systems is prohibited and may result in disciplinary action. IT regularly audits all company devices to ensure compliance. If employees require additional software, they must submit a request to the IT department for approval.</p>",
       "is_visible_to_all": true,
-      "specific_employees": [],
       "attachments": [],
       "company_id": [
         1,
         2,
         3
-      ]
+      ],
+      "employees": []
     }
   },
   {
@@ -3340,13 +3340,13 @@
       "title": "Internet Policy",
       "body": "<h3 style=\"text-align: center; \"><strong>Internet Usage Policy</strong></h3><p><strong>Purpose:</strong><br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;To manage the appropriate use of the companyÆs internet and network resources.</p><p><strong>Body:</strong><br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; Employees are expected to use the companyÆs internet resources primarily for work-related activities. Access to social media, streaming services, and non-work-related websites should be limited during working hours unless part of the employee's job. Monitoring systems are in place to track internet usage, and any misuse of company bandwidth may result in restricted access. Downloading unauthorized files or software from the internet is strictly prohibited.</p>",
       "is_visible_to_all": true,
-      "specific_employees": [],
       "attachments": [],
       "company_id": [
         1,
         2,
         3
-      ]
+      ],
+      "employees": []
     }
   },
   {

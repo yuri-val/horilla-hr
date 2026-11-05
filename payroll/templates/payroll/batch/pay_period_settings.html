@@ -1,0 +1,81 @@
+{% extends 'index.html' %}
+{% load i18n %}
+{% load static %}
+
+{% block content %}
+<main :class="sidebarOpen ? 'oh-main__sidebar-visible' : ''">
+  {% include "payroll/batch/_batch.css.html" %}
+
+  <section class="oh-wrapper pb pb--wizard">
+
+    <div class="oh-main__titlebar oh-main__titlebar--left mb-3">
+      <div style="font-size:.78rem;">
+        <a href="{% url 'payroll-batch-home' %}">&larr; {% trans "Payroll Batches" %}</a>
+      </div>
+      <h1 class="oh-main__titlebar-title fw-bold mb-0">{% trans "Pay period" %}</h1>
+      <div style="font-size:.8rem;color:#6b7280;">
+        {% trans "Set once for the company. New payroll batches start from these dates." %}
+      </div>
+    </div>
+
+    {% if messages and request.META.HTTP_HX_REQUEST %}
+      <div class="oh-alert-container">
+        {% for message in messages %}
+        <div class="oh-alert oh-alert--animated {{ message.tags }}">{{ message }}</div>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    <form method="post">
+      {% csrf_token %}
+
+      <div class="pb__split">
+        <div class="pb__panel">
+          <div class="pb__panel-head">{% trans "When a pay month begins and ends" %}</div>
+          <div style="padding:1.1rem 1rem 1rem;">
+            <div class="pb__fields pb__fields--two">
+              <div class="pb__field pb__field-full">
+                <label class="oh-label" for="{{ form.cycle_start_day.id_for_label }}">{{ form.cycle_start_day.label }}</label>
+                {{ form.cycle_start_day }}
+                {% if form.cycle_start_day.help_text %}<div class="pb__field-help">{{ form.cycle_start_day.help_text }}</div>{% endif %}
+                {% for error in form.cycle_start_day.errors %}<div class="pb__problem pb__problem--blocking">{{ error }}</div>{% endfor %}
+              </div>
+              <div class="pb__field">
+                <label class="oh-label" for="{{ form.pay_day.id_for_label }}">{{ form.pay_day.label }}</label>
+                {{ form.pay_day }}
+                {% if form.pay_day.help_text %}<div class="pb__field-help">{{ form.pay_day.help_text }}</div>{% endif %}
+                {% for error in form.pay_day.errors %}<div class="pb__problem pb__problem--blocking">{{ error }}</div>{% endfor %}
+              </div>
+            </div>
+            {% for error in form.non_field_errors %}
+              <div class="pb__problem pb__problem--blocking mt-3">{{ error }}</div>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div class="pb__split-aside">
+          <div class="pb__panel">
+            <div class="pb__panel-head">{% trans "This month, with these settings" %}</div>
+            <div class="pb__figure">
+              <div class="pb__figure-label">{% trans "Period" %}</div>
+              <div class="pb__figure-value">{{ example_start|date:"j M Y" }} &ndash; {{ example_end|date:"j M Y" }}</div>
+            </div>
+            <div class="pb__figure">
+              <div class="pb__figure-label">{% trans "Pay date" %}</div>
+              <div class="pb__figure-value">{{ example_pay_date|date:"j M Y" }}</div>
+            </div>
+            <div class="pb__aside-note">{% trans "Based on the saved settings. Save to see a change reflected here." %}</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="pb__actions">
+        <a href="{% url 'payroll-batch-home' %}" class="pb__btn">{% trans "Cancel" %}</a>
+        <button type="submit" class="oh-btn oh-btn--secondary">{% trans "Save" %}</button>
+      </div>
+    </form>
+
+  </section>
+</main>
+
+{% endblock content %}

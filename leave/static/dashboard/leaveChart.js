@@ -7,7 +7,7 @@ $(document).ready(function () {
 
     const { tickColor } = ChartTheme.getColors();
     const dataset = [{
-      label: "Leave count",
+      label: gettext("Leave count"),
       data: data,
       backgroundColor: ["#cfe9ff", "#ffc9de", "#e6ccff"], // Customize as needed
       borderWidth: 0,

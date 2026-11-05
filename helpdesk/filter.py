@@ -70,6 +70,7 @@ class TicketFilter(HorillaFilterSet):
     """
 
     search = CharFilter(method="search_method")
+    search_field = django_filters.CharFilter(method="search_in")
     from_date = DateFilter(
         field_name="deadline",
         lookup_expr="gte",
@@ -77,6 +78,17 @@ class TicketFilter(HorillaFilterSet):
     )
     to_date = DateFilter(
         field_name="deadline",
+        lookup_expr="lte",
+        widget=forms.DateInput(attrs={"type": "date"}),
+    )
+
+    created_date_from = DateFilter(
+        field_name="created_date",
+        lookup_expr="gte",
+        widget=forms.DateInput(attrs={"type": "date"}),
+    )
+    created_date_till = DateFilter(
+        field_name="created_date",
         lookup_expr="lte",
         widget=forms.DateInput(attrs={"type": "date"}),
     )
@@ -89,6 +101,10 @@ class TicketFilter(HorillaFilterSet):
     )
     is_overdue = django_filters.BooleanFilter(
         method="filter_is_overdue",
+        widget=django_filters.widgets.BooleanWidget(),
+    )
+    is_unassigned = django_filters.BooleanFilter(
+        method="filter_is_unassigned",
         widget=django_filters.widgets.BooleanWidget(),
     )
     department = django_filters.NumberFilter(
@@ -145,19 +161,13 @@ class TicketFilter(HorillaFilterSet):
         filter(**{field__lookup: value}) call), offering the full
         gte/lte/gt/lt/exact set instead of the fixed gte-only from_date/
         lte-only to_date pair the template used to render (from_date
-        was declared but never actually rendered anywhere).
+        was declared but never actually rendered anywhere).1
         """
         fields = [
             {
                 "key": "deadline",
                 "field": "deadline",
                 "label": str(_("Deadline")),
-                "type": "date_range",
-            },
-            {
-                "key": "created_date",
-                "field": "created_date",
-                "label": str(_("Created Date")),
                 "type": "date_range",
             },
             {
@@ -208,12 +218,26 @@ class TicketFilter(HorillaFilterSet):
             )
         return queryset
 
+    def filter_is_unassigned(self, queryset, name, value):
+        """
+        Matches the dashboard's "Unassigned" KPI: still in an open status
+        with nobody in Assigned To.
+        """
+        if value:
+            return queryset.filter(
+                status__in=["new", "in_progress"],
+                assigned_to__isnull=True,
+            )
+        return queryset
+
     def search_method(self, queryset, name, value):
         """
         Search by ticket title or the owning employee's name.
         """
         value = (value or "").strip()
         if not value:
+            return queryset
+        if self.data.get("search_field"):
             return queryset
         return (
             queryset.filter(title__icontains=value)

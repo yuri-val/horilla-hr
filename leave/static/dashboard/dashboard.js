@@ -157,7 +157,7 @@ $(document).ready(function () {
             stacked: true,
             title: {
               display: true,
-              text: "Employees",
+              text: gettext("Employees"),
               font: {
                 weight: "bold",
                 size: 16,
@@ -170,7 +170,7 @@ $(document).ready(function () {
             stacked: true,
             title: {
               display: true,
-              text: "Number of days",
+              text: gettext("Number of days"),
               font: {
                 weight: "bold",
                 size: 16,
@@ -209,22 +209,22 @@ $(document).ready(function () {
       };
       const dataObjects = [
         {
-          label: "Draft",
+          label: gettext("Draft"),
           data: [0, 0, 0],
           backgroundColor: "rgba(255, 99, 132, 1)",
         },
         {
-          label: "Review Ongoing",
+          label: gettext("Review Ongoing"),
           data: [0, 0, 0],
           backgroundColor: "rgba(255, 206, 86, 1)",
         },
         {
-          label: "Confirmed",
+          label: gettext("Confirmed"),
           data: [0, 0, 0],
           backgroundColor: "rgba(54, 162, 235, 1)",
         },
         {
-          label: "Paid",
+          label: gettext("Paid"),
           data: [0, 0, 0],
           backgroundColor: "rgba(75, 242, 182, 1)",
         },

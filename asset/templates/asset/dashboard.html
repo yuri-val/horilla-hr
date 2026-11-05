@@ -2,7 +2,8 @@
 {% load static i18n %}
 
 {% block content %}
-    <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+    <script src="https://cdn.jsdelivr.net/npm/apexcharts@7.8.0/dist/apexcharts.min.js"></script>
+    {% include "components/legend_prefs.html" %}
     <style>
         :root {
             --as-indigo: var(--primary-600, #E54F38);
@@ -157,6 +158,10 @@
             background: #fee2e2;
             color: #991b1b;
         }
+        .as-badge--blue {
+            background: #dbeafe;
+            color: #1e40af;
+        }
         .dark .as-badge--green {
             background: #166534;
             color: #bbf7d0;
@@ -169,10 +174,14 @@
             background: #7f1d1d;
             color: #fca5a5;
         }
+        .dark .as-badge--blue {
+            background: #1e3a8a;
+            color: #bfdbfe;
+        }
 
         .as-layout {
             display: grid;
-            grid-template-columns: 1fr 300px;
+            grid-template-columns: minmax(0, 1fr) 300px;
             align-items: start;
             gap: 20px;
         }
@@ -185,10 +194,19 @@
             top: 90px;
             flex-direction: column;
             gap: 16px;
+            max-height: calc(100vh - 90px - 24px);
+            overflow-y: auto;
+        }
+        .as-sidebar::-webkit-scrollbar {
+            width: 3px;
+        }
+        .as-sidebar::-webkit-scrollbar-thumb {
+            border-radius: 3px;
+            background: rgba(128, 128, 128, 0.2);
         }
         .as-chart-grid {
             display: grid;
-            grid-template-columns: repeat(2, 1fr);
+            grid-template-columns: repeat(2, minmax(0, 1fr));
             margin-bottom: 20px;
             gap: 16px;
         }
@@ -258,6 +276,7 @@
         .as-info-panel {
             display: flex;
             flex-direction: column;
+            flex-shrink: 0;
             overflow: hidden;
             border: 1px solid rgba(128, 128, 128, 0.12);
             border-radius: 12px;
@@ -276,9 +295,30 @@
             border-bottom: 1px solid rgba(128, 128, 128, 0.08);
         }
         .as-info-panel__title {
+            display: flex;
+            align-items: center;
+            gap: 8px;
             font-weight: 700;
             font-size: 13px;
         }
+        /* How many records the card holds, beside its title. Hidden at zero. */
+        .as-count-badge[hidden] { display: none; }
+        .as-count-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 24px;
+            height: 24px;
+            padding: 0 6px;
+            border-radius: 999px;
+            background: var(--as-indigo);
+            color: #fff;
+            font-size: 12px;
+            font-weight: 600;
+        }
+    /* Title on top, the date period / basis the card lists on the line below. */
+    .as-info-panel__heading { min-width: 0; }
+    .as-info-panel__sub { font-size: 11px; opacity: 0.5; margin-top: 2px; }
         .as-info-panel__body {
             flex: 1;
             max-height: 350px;
@@ -545,7 +585,8 @@
 
         /* Period Picker */
         .as-period-picker {
-            display: none !important; /* TEMP: hide period picker */
+            display: flex;
+            flex-wrap: wrap;
             align-items: center;
             gap: 6px;
             font-size: 12px;
@@ -638,19 +679,168 @@
         #chart-value-category .apexcharts-pie-slice-donut,
         #chart-dept-assets .apexcharts-pie-slice-donut,
         #chart-by-category .apexcharts-bar-area,
+        #chart-by-category .apexcharts-grid,
+        #chart-by-category .apexcharts-xaxis-label,
+        #chart-dept-assets .apexcharts-bar-area,
         #chart-age-dist .apexcharts-bar-area {
             cursor: pointer;
+        }
+
+        /* The tooltip card every dashboard chart shares: bold title, a coloured-dot row per value. */
+        /* A long title wraps inside a bounded card instead of stretching the tooltip until it
+       flips off the chart and is clipped by the page edge; and it stacks above neighbours. */
+    .apexcharts-tooltip { z-index: 60 !important; }
+    .as-tip { max-width: 260px; white-space: normal; overflow-wrap: anywhere; }
+    .as-tip { min-width: 150px; padding: 10px 12px; font-size: 12px; }
+        .as-tip__title { margin-bottom: 4px; font-size: 12px; font-weight: 700; }
+        .as-tip__row { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-top: 4px; }
+        .as-tip__label { display: inline-flex; align-items: center; gap: 6px; }
+        .as-tip__dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+        .as-tip__sub { font-weight: 400; opacity: 0.65; }
+
+        .as-pie-legend {
+            display: flex;
+            flex-wrap: nowrap;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            padding: 6px 12px 14px;
+        }
+        .as-pie-chips {
+            display: contents;
+        }
+        .as-pie-chip__name {
+            max-width: 130px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .as-pie-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 3px 10px;
+            border: 1px solid rgba(128, 128, 128, 0.2);
+            border-radius: 999px;
+            background: none;
+            color: inherit;
+            font-size: 11px;
+            font-weight: 500;
+            white-space: nowrap;
+            flex-shrink: 0;
+            cursor: pointer;
+            transition: opacity 0.15s, border-color 0.15s;
+        }
+        .as-pie-chip:hover {
+            border-color: var(--as-indigo);
+        }
+        .as-pie-chip.is-off {
+            opacity: 0.45;
+        }
+        .as-pie-chip.is-off .as-pie-chip__dot {
+            filter: grayscale(1);
+        }
+        .as-pie-chip__dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+        .as-pie-chip--more {
+            text-transform: capitalize;
+            color: var(--as-indigo);
+            font-weight: 600;
+            border-style: dashed;
+        }
+        .as-pie-more {
+            position: relative;
+            display: inline-block;
+        }
+        .as-pie-pop {
+            display: none;
+            position: absolute;
+            right: 0;
+            bottom: 100%;
+            padding-bottom: 8px;
+            z-index: 40;
+        }
+        .as-pie-more:hover .as-pie-pop,
+        .as-pie-more:focus-within .as-pie-pop {
+            display: block;
+        }
+        .as-pie-pop__box {
+            width: max-content;
+            min-width: 230px;
+            max-width: 340px;
+            border: 1px solid rgba(128, 128, 128, 0.15);
+            border-radius: 10px;
+            background: #fff;
+            box-shadow: 0 8px 28px rgba(0, 0, 0, 0.15);
+            padding: 8px 4px 6px;
+        }
+        .dark .as-pie-pop__box {
+            background: #242424;
+        }
+        .as-pie-pop__list {
+            max-height: 190px;
+            overflow-y: auto;
+        }
+        .as-pie-pop__row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 5px 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            cursor: pointer;
+        }
+        .as-pie-pop__row:hover {
+            background: rgba(128, 128, 128, 0.1);
+        }
+        .as-pie-pop__text {
+            display: flex;
+            flex: 1;
+            flex-direction: column;
+            min-width: 0;
+            line-height: 1.25;
+        }
+        .as-pie-pop__text > span {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .as-pie-pop__text > small {
+            white-space: nowrap;
+            font-size: 10px;
+            opacity: 0.6;
+        }
+        .as-pie-pop__row input {
+            accent-color: var(--as-indigo);
+            margin: 0;
+        }
+        .as-pie-pop__count {
+            flex-shrink: 0;
+            white-space: nowrap;
+            margin-left: auto;
+            font-size: 11px;
+            opacity: 0.55;
+        }
+        .as-chart-card:has(.as-pie-more:hover),
+        .as-chart-card:has(.as-pie-more:focus-within) {
+            position: relative;
+            z-index: 30;
         }
 
         /* Responsive */
         @media (max-width: 1280px) {
             .as-layout {
-                grid-template-columns: 1fr;
+                grid-template-columns: minmax(0, 1fr);
             }
             .as-sidebar {
                 display: grid;
                 position: static;
                 grid-template-columns: 1fr 1fr;
+                max-height: none;
+                overflow-y: visible;
             }
         }
         @media (max-width: 1024px) {
@@ -658,7 +848,7 @@
                 grid-template-columns: repeat(2, 1fr);
             }
             .as-chart-grid {
-                grid-template-columns: 1fr;
+                grid-template-columns: minmax(0, 1fr);
             }
             .as-chart-card--wide {
                 grid-column: span 1;
@@ -692,15 +882,18 @@
                 </div>
             </div>
             <div style="display: flex; gap: 8px">
-                <div class="as-period-picker" hidden>
+                <div class="as-period-picker">
+                    <button class="as-period-preset" data-preset="today">{% trans "Today" %}</button>
+                    <button class="as-period-preset" data-preset="this_week">{% trans "This Week" %}</button>
+                    <button class="as-period-preset" data-preset="last_week">{% trans "Last Week" %}</button>
                     <button class="as-period-preset" data-preset="this_month">{% trans "This Month" %}</button>
                     <button class="as-period-preset" data-preset="last_month">{% trans "Last Month" %}</button>
-                    <button class="as-period-preset" data-preset="this_quarter">{% trans "Quarter" %}</button>
+                    <button class="as-period-preset" data-preset="this_year">{% trans "This Year" %}</button>
                     <input type="date" id="as-from-date" title="{% trans 'From' %}">
                     <span class="as-period-picker__sep">&rarr;</span>
                     <input type="date" id="as-to-date" title="{% trans 'To' %}">
                 </div>
-                <button class="as-btn-customize" id="as-open-customize" title="{% trans 'Customize' %}">
+                <button class="oh-btn oh-btn--secondary" id="as-open-customize" style="display: flex; align-items: center; gap: 5px; font-size: 13px" title="{% trans 'Customize' %}">
                     ⚙ {% trans "Customize" %}
                 </button>
             </div>
@@ -751,11 +944,12 @@
                             <div>
                                 <div class="as-chart-card__title">{% trans "Assets by Category" %}</div>
                                 <div class="as-chart-card__subtitle">
-                                    {% trans "In use vs available per category" %}
+                                    {% trans "Share of in use, available and not available per category" %}
                                 </div>
                             </div>
                         </div>
                         <div class="as-chart-card__body"><div id="chart-by-category"></div></div>
+                        <div class="as-pie-legend" id="as-pie-legend-category"></div>
                     </div>
                     <div
                         class="as-chart-card"
@@ -768,7 +962,10 @@
                                 <div class="as-chart-card__subtitle">{% trans "Total purchase cost" %}</div>
                             </div>
                         </div>
-                        <div class="as-chart-card__body"><div id="chart-value-category"></div></div>
+                        <div class="as-chart-card__body">
+                            <div id="chart-value-category"></div>
+                            <div class="as-pie-legend" id="as-pie-legend-value"></div>
+                        </div>
                     </div>
                     <div
                         class="as-chart-card"
@@ -782,6 +979,7 @@
                             </div>
                         </div>
                         <div class="as-chart-card__body"><div id="chart-dept-assets"></div></div>
+                        <div class="as-pie-legend" id="as-pie-legend-dept"></div>
                     </div>
                     <div
                         class="as-chart-card"
@@ -802,8 +1000,10 @@
             <div class="as-sidebar">
                 <div class="as-info-panel">
                     <div class="as-info-panel__header">
-                        <div class="as-info-panel__title">{% trans "Expiring Soon" %}</div>
-                        <span style="font-size: 11px; opacity: 0.5">{% trans "Next 60 days" %}</span>
+                        <div class="as-info-panel__heading">
+                            <div class="as-info-panel__title">{% trans "Expiring Soon" %}<span id="as-expiring-count" class="as-count-badge" hidden title="{% trans 'Assets expiring in the next 30 days' %}">0</span></div>
+                            <div class="as-info-panel__sub">{% trans "Next 30 Days" %}</div>
+                        </div>
                     </div>
                     <div class="as-info-panel__body" id="as-expiring">
                         <div class="as-info-panel__empty">{% trans "Loading..." %}</div>
@@ -811,7 +1011,10 @@
                 </div>
                 <div class="as-info-panel">
                     <div class="as-info-panel__header">
-                        <div class="as-info-panel__title">{% trans "Recent Allocations" %}</div>
+                        <div class="as-info-panel__heading">
+                            <div class="as-info-panel__title">{% trans "Recent Allocations" %}<span id="as-allocations-count" class="as-count-badge" hidden title="{% trans 'Assets allocated in this period' %}">0</span></div>
+                            <div class="as-info-panel__sub" data-period-label></div>
+                        </div>
                     </div>
                     <div class="as-info-panel__body" id="as-allocations">
                         <div class="as-info-panel__empty">{% trans "Loading..." %}</div>
@@ -844,6 +1047,46 @@
             const COLORS = ['#E54F38','#22c55e','#f59e0b','#ef4444','#3b82f6','#a855f7','#06b6d4','#ec4899','#14b8a6','#f97316'];
             const emptyHtml = (msg) => `<div class="as-empty"><img src="/static/images/ui/no_records.svg" alt="">${msg}</div>`;
             const fmt = v => Number(v).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+            const TOOLTIP_STYLE = { theme: isDark ? 'dark' : 'light', style: { fontSize: '12px' } };
+            const tipEsc = v => String(v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+            const tipCard = (title, rows) => `<div class="as-tip"><div class="as-tip__title">${tipEsc(title)}</div>`
+                + rows.map(r => `<div class="as-tip__row"><span class="as-tip__label">${r.color ? `<i class="as-tip__dot" style="background:${r.color}"></i>` : ''}${tipEsc(r.label)}</span><span${r.total ? ' style="font-weight:700"' : ''}>${tipEsc(String(r.value))}${r.sub ? ` <span class="as-tip__sub">${tipEsc(r.sub)}</span>` : ''}</span></div>`).join('')
+                + '</div>';
+            // One tooltip for every chart. `total` adds a Total row to a stacked chart; `sub` names
+            // something to show beside a donut slice instead of its share.
+            const stdTooltip = ({ rowLabel = '', total = false, percent = false, sub = null, format = v => fmt(v), onHover = null } = {}) => ({
+                ...TOOLTIP_STYLE, shared: true, intersect: false,
+                // A pie/donut tooltip is otherwise painted in the slice colour with white text.
+                fillSeriesColor: false,
+                custom: ({ series, seriesIndex, dataPointIndex, w }) => {
+                    const g = w.globals;
+                    const type = w.config.chart.type;
+                    if (type === 'pie' || type === 'donut') {
+                        const sum = g.seriesTotals.reduce((a, b) => a + b, 0);
+                        const v = series[seriesIndex];
+                        return tipCard(g.labels[seriesIndex], [{ color: g.colors[seriesIndex], label: rowLabel, value: format(v),
+                            sub: sub ? sub(seriesIndex) : (sum ? Math.round(v / sum * 100) + '%' : '') }]);
+                    }
+                    if (onHover) onHover(dataPointIndex);
+                    const raw = (g.categoryLabels && g.categoryLabels[dataPointIndex]) || g.labels[dataPointIndex] || '';
+                    const title = Array.isArray(raw) ? raw.join(' ') : raw;
+                    const distributed = w.config.plotOptions.bar && w.config.plotOptions.bar.distributed;
+                    const stackTotal = series.reduce((a, s) => a + (+s[dataPointIndex] || 0), 0);
+                    const rows = series.map((s, i) => ({
+                        color: distributed ? g.colors[dataPointIndex] : g.colors[i],
+                        label: g.seriesNames[i] || rowLabel,
+                        value: format(s[dataPointIndex]),
+                        // each part's share of the whole column, for a chart drawn in percent
+                        sub: percent && stackTotal ? '(' + Math.round((+s[dataPointIndex] || 0) / stackTotal * 100) + '%)' : '',
+                    }));
+                    if (total && series.length > 1) {
+                        rows.unshift({ total: true, label: '{% trans "Total"|escapejs %}', value: format(stackTotal) });
+                    }
+                    return tipCard(title, rows);
+                },
+            });
+            const assetAllocationUrl = "{% url 'asset-request-allocation-view' %}";
+            const assetAllocationUrlFor = id => id ? `${assetAllocationUrl}?assigned_to_employee_id=${id}&open_tab=2` : '#';
 
             document.getElementById('as-date').textContent = new Date().toLocaleDateString('en-US', {
                 weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
@@ -853,30 +1096,62 @@
             const PERIOD_KEY = 'as_period_v2';
             const fromInput = document.getElementById('as-from-date');
             const toInput = document.getElementById('as-to-date');
-            function getToday() { return new Date().toISOString().split('T')[0]; }
-            function getFirstOfMonth(d) { const dt = new Date(d || getToday()); dt.setDate(1); return dt.toISOString().split('T')[0]; }
-            function getLastOfMonth(d) { const dt = new Date(d || getToday()); return new Date(dt.getFullYear(), dt.getMonth()+1, 0).toISOString().split('T')[0]; }
+            // Local-time YYYY-MM-DD (toISOString() shifts the day outside UTC).
+            function ymdLocal(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+            function getWeekBounds(today) {
+                const dow = (today.getDay() + 6) % 7; // 0 = Monday
+                const from = new Date(today.getFullYear(), today.getMonth(), today.getDate() - dow);
+                return [from, new Date(from.getFullYear(), from.getMonth(), from.getDate() + 6)];
+            }
+            function presetRange(p) {
+                const t = new Date();
+                if (p === 'today') return [t, t];
+                if (p === 'this_week') return getWeekBounds(t);
+                if (p === 'last_week') return getWeekBounds(new Date(t.getFullYear(), t.getMonth(), t.getDate() - 7));
+                if (p === 'this_month') return [new Date(t.getFullYear(), t.getMonth(), 1), new Date(t.getFullYear(), t.getMonth() + 1, 0)];
+                if (p === 'last_month') return [new Date(t.getFullYear(), t.getMonth() - 1, 1), new Date(t.getFullYear(), t.getMonth(), 0)];
+                if (p === 'this_year') return [new Date(t.getFullYear(), 0, 1), new Date(t.getFullYear(), 11, 31)];
+                return null;
+            }
             function initPeriod() {
                 const saved = sessionStorage.getItem(PERIOD_KEY);
                 if (saved) { try { const p = JSON.parse(saved); fromInput.value = p.from; toInput.value = p.to; return; } catch {} }
-                fromInput.value = getFirstOfMonth(); toInput.value = getLastOfMonth();
+                const [f, t] = presetRange('this_month');
+                fromInput.value = ymdLocal(f); toInput.value = ymdLocal(t);
             }
             function savePeriod() { sessionStorage.setItem(PERIOD_KEY, JSON.stringify({ from: fromInput.value, to: toInput.value })); }
             function periodParams() { const f = fromInput.value, t = toInput.value; return (f && t) ? ("from_date=" + encodeURIComponent(f) + "&to_date=" + encodeURIComponent(t)) : ""; }
             function urlWithPeriod(u) { return u + (u.includes('?') ? '&' : '?') + periodParams(); }
             function fetchP(url) { return fetch(urlWithPeriod(url)); }
+            function syncPresetActive() {
+                document.querySelectorAll('.as-period-preset').forEach(b => {
+                    const r = presetRange(b.dataset.preset);
+                    b.classList.toggle('as-period-preset--active', !!r && fromInput.value === ymdLocal(r[0]) && toInput.value === ymdLocal(r[1]));
+                });
+            }
+            // Card tags: the period the cards are scoped to.
+            function applyPeriodLabels() {
+                const d = v => new Date(v + 'T00:00:00').toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+                if (!fromInput.value || !toInput.value) return;
+                document.querySelectorAll('[data-period-label]').forEach(el => { el.textContent = d(fromInput.value) + ' – ' + d(toInput.value); });
+            }
+            // Apply the period in place: remember it, re-mark the preset, then re-run every load.
+            function applyPeriod() {
+                savePeriod();
+                syncPresetActive();
+                applyPeriodLabels();
+                refreshAllData();
+            }
             function setPreset(p) {
-                const t = new Date(); let f, to;
-                if (p === 'this_month') { f = new Date(t.getFullYear(), t.getMonth(), 1); to = new Date(t.getFullYear(), t.getMonth()+1, 0); }
-                else if (p === 'last_month') { f = new Date(t.getFullYear(), t.getMonth()-1, 1); to = new Date(t.getFullYear(), t.getMonth(), 0); }
-                else if (p === 'this_quarter') { f = new Date(t.getFullYear(), Math.floor(t.getMonth()/3)*3, 1); to = new Date(t.getFullYear(), Math.floor(t.getMonth()/3)*3+3, 0); }
-                fromInput.value = f.toISOString().split('T')[0]; toInput.value = to.toISOString().split('T')[0];
-                savePeriod(); document.querySelectorAll('.as-period-preset').forEach(b => b.classList.toggle('as-period-preset--active', b.dataset.preset === p));
-                location.reload();
+                const [f, to] = presetRange(p);
+                fromInput.value = ymdLocal(f); toInput.value = ymdLocal(to);
+                applyPeriod();
             }
             document.querySelectorAll('.as-period-preset').forEach(b => b.addEventListener('click', () => setPreset(b.dataset.preset)));
-            [fromInput, toInput].forEach(i => i.addEventListener('change', () => { savePeriod(); location.reload(); }));
+            [fromInput, toInput].forEach(i => i.addEventListener('change', () => { if (fromInput.value && toInput.value) applyPeriod(); }));
             initPeriod();
+            syncPresetActive();
+            applyPeriodLabels();
 
             // ── Chart Customize ──
             const CUST_KEY = 'as_chart_prefs';
@@ -943,9 +1218,21 @@
                     chartInstances[key].destroy();
                     chartInstances[key] = null;
                 }
-                const chart = new ApexCharts(el, options);
+                // A draw can still be mounting when the next one replaces it (two loads close
+                // together, a tab coming back from the background). destroy() on a chart that has
+                // not mounted yet leaves its drawing behind and it lands in the page anyway: the same
+                // chart, twice. So each draw gets its own holder, and putting that holder in place
+                // throws away whatever the previous draw left, finished or not.
+                const holder = document.createElement('div');
+                el.replaceChildren(holder);
+                const chart = new ApexCharts(holder, options);
                 chartInstances[key] = chart;
-                chart.render();
+                const drawn = chart.render();
+                // A chart replaced while still drawing would otherwise land in the page anyway,
+                // as a second copy; the stale one removes itself once it has mounted.
+                if (drawn && drawn.then) {
+                    drawn.then(() => { if (chartInstances[key] !== chart) { try { chart.destroy(); } catch (e) { /* already gone */ } } });
+                }
                 return chart;
             }
 
@@ -997,29 +1284,29 @@
                 .then(r => r.json())
                 .then(data => {
                     document.getElementById('as-kpi-grid').innerHTML = `
-                <a href="{% url 'asset-category-view' %}" class="as-kpi-card">
+                <a href="{% url 'asset-category-view' %}?nested_fields=" class="as-kpi-card">
                     <div class="as-kpi-card__icon as-kpi-card__icon--blue"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg></div>
                     <div class="as-kpi-card__label">{% trans "Total Assets"|escapejs %}</div>
                     <div class="as-kpi-card__value">${data.total_assets}</div>
-                    <div class="as-kpi-card__sub"><span class="as-badge as-badge--green">${data.in_use} {% trans "in use"|escapejs %}</span> <span class="as-badge as-badge--amber">${data.available} {% trans "available"|escapejs %}</span></div>
+                    <div class="as-kpi-card__sub"><span class="as-badge as-badge--green">${data.in_use} {% trans "In Use"|escapejs %}</span> <span class="as-badge as-badge--amber">${data.available} {% trans "Available"|escapejs %}</span> <span class="as-badge as-badge--red">${data.not_available} {% trans "Not Available"|escapejs %}</span></div>
                 </a>
-                <a href="{% url 'asset-request-allocation-view' %}?open_tab=2&asset_request_status=Requested" class="as-kpi-card">
+                <a href="{% url 'asset-request-allocation-view' %}?open_tab=2&asset_request_status=Requested&custom_field=asset_request_date&custom_lookup=gte&custom_value=${data.period_from_date}&custom_field=asset_request_date&custom_lookup=lte&custom_value=${data.period_to_date}&filter_applied=1" class="as-kpi-card">
                     <div class="as-kpi-card__icon as-kpi-card__icon--amber"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg></div>
                     <div class="as-kpi-card__label">{% trans "Pending Requests"|escapejs %}</div>
                     <div class="as-kpi-card__value">${data.pending_requests}</div>
-                    <div class="as-kpi-card__sub">${data.return_requests > 0 ? '<span class="as-badge as-badge--red">' + data.return_requests + ' {% trans "return req"|escapejs %}</span>' : '{% trans "Awaiting approval"|escapejs %}'}</div>
+                    <div class="as-kpi-card__sub"><span class="as-badge as-badge--amber">{% trans "Awaiting Approval"|escapejs %}</span></div>
                 </a>
-                <a href="{% url 'asset-category-view' %}?asset_purchase_date_from=${data.period_from_date}&asset_purchase_date_till=${data.period_to_date}&filter_applied=1" class="as-kpi-card">
-                    <div class="as-kpi-card__icon as-kpi-card__icon--green"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div>
-                    <div class="as-kpi-card__label">{% trans "Total Value"|escapejs %}</div>
-                    <div class="as-kpi-card__value">${fmt(data.total_value)}</div>
-                    <div class="as-kpi-card__sub">{% trans "Purchase cost"|escapejs %}</div>
+                <a href="{% url 'asset-request-allocation-view' %}?open_tab=4&status=Requested&filter_applied=1" class="as-kpi-card">
+                    <div class="as-kpi-card__icon as-kpi-card__icon--green"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></div>
+                    <div class="as-kpi-card__label">{% trans "Service Requests"|escapejs %}</div>
+                    <div class="as-kpi-card__value">${data.service_requests}</div>
+                    <div class="as-kpi-card__sub"><span class="as-badge as-badge--blue">{% trans "Requested"|escapejs %}</span></div>
                 </a>
-                <a href="{% url 'asset-renewal' %}" class="as-kpi-card">
+                <a href="{% url 'asset-category-view' %}?expiry_date__gte=${data.expiring_soon_from_date}&expiry_date__lte=${data.expiring_soon_to_date}&filter_applied=1" class="as-kpi-card">
                     <div class="as-kpi-card__icon as-kpi-card__icon--red"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
-                    <div class="as-kpi-card__label">{% trans "Expiring Soon"|escapejs %}</div>
+                    <div class="as-kpi-card__label">{% trans "Warranty Expiring Soon"|escapejs %}</div>
                     <div class="as-kpi-card__value">${data.expiring_soon}</div>
-                    <div class="as-kpi-card__sub">{% trans "Next 30 days"|escapejs %}</div>
+                    <div class="as-kpi-card__sub"><span class="as-badge as-badge--amber">{% trans "Next 30 Days"|escapejs %}</span></div>
                 </a>`;
                 })
                 .catch(() => { document.getElementById('as-kpi-grid').innerHTML = emptyHtml('{% trans "Could not load KPIs"|escapejs %}'); });
@@ -1046,7 +1333,7 @@
                         plotOptions: { pie: { donut: { size: '65%', labels: { show: true, total: { show: true, label: '{% trans "Total"|escapejs %}', color: textColor, fontSize: '13px', fontWeight: 600, formatter: w => w.globals.seriesTotals.reduce((a,b)=>a+b,0) } } } } },
                         stroke: { width: 2, colors: [cardBg] }, dataLabels: { enabled: false },
                         legend: { position: 'bottom', labels: { colors: textColor }, fontSize: '11px', markers: { width: 8, height: 8, radius: 2 } },
-                        tooltip: { theme: isDark ? 'dark' : 'light' },
+                        tooltip: stdTooltip({ rowLabel: '{% trans "Assets"|escapejs %}' }),
                     });
                 })
                 .catch(() => { document.querySelector("#chart-asset-status").innerHTML = emptyHtml('{% trans "Could not load data"|escapejs %}'); });
@@ -1065,7 +1352,7 @@
                         chart: { type: 'donut', height: 300, background: 'transparent', fontFamily: 'inherit',
                             events: { dataPointSelection: (e, ctx, config) => {
                                 const status = data.statuses[config.dataPointIndex].status;
-                                window.location.href = "{% url 'asset-request-allocation-view' %}?asset_request_status=" + encodeURIComponent(status);
+                                window.location.href = "{% url 'asset-request-allocation-view' %}?open_tab=2&asset_request_status=" + encodeURIComponent(status) + "&filter_applied=1";
                             }}
                         },
                         labels: data.statuses.map(s => s.label),
@@ -1073,40 +1360,176 @@
                         plotOptions: { pie: { donut: { size: '65%', labels: { show: true, total: { show: true, label: '{% trans "Total"|escapejs %}', color: textColor, fontSize: '13px', fontWeight: 600, formatter: w => w.globals.seriesTotals.reduce((a,b)=>a+b,0) } } } } },
                         stroke: { width: 2, colors: [cardBg] }, dataLabels: { enabled: false },
                         legend: { position: 'bottom', labels: { colors: textColor }, fontSize: '11px', markers: { width: 8, height: 8, radius: 2 } },
-                        tooltip: { theme: isDark ? 'dark' : 'light' },
+                        tooltip: stdTooltip({ rowLabel: '{% trans "Requests"|escapejs %}' }),
                     });
                 })
                 .catch(() => { document.querySelector("#chart-request-status").innerHTML = emptyHtml('{% trans "Could not load data"|escapejs %}'); });
             }
             loadRequestStatus();
 
+            const escHtml = (v) => String(v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+            function createPieLegend({ el, chartKey, noun, topN = 5, format = v => v, onChange = null }) {
+                const prefId = el.id || chartKey;
+                let items = [];
+                let selected = null;
+                let visible = 0;
+                const dot = (c) => `<span class="as-pie-chip__dot" style="background:${c}"></span>`;
+
+                function series() {
+                    return items.map(it => selected.has(it.name) ? it.value : 0);
+                }
+                function chipsHtml(k) {
+                    return items.slice(0, k).map(it => {
+                        const on = selected.has(it.name);
+                        return `<button type="button" class="as-pie-chip${on ? '' : ' is-off'}" data-name="${escHtml(it.name)}" title="${escHtml(it.name)}: ${escHtml(it.detail != null ? it.detail : format(it.value))}">${dot(it.color)}<span class="as-pie-chip__name">${escHtml(it.name)}</span></button>`;
+                    }).join('');
+                }
+                function refreshState() {
+                    const chips = el.querySelector('.as-pie-chips');
+                    if (chips) chips.innerHTML = chipsHtml(visible);
+                    el.querySelectorAll('input[data-name]').forEach(cb => {
+                        cb.checked = selected.has(cb.dataset.name);
+                    });
+                }
+                function toggle(name) {
+                    if (selected.has(name)) {
+                        if (selected.size > 1) selected.delete(name);
+                    } else {
+                        selected.add(name);
+                    }
+                    LegendPrefs.save(prefId, items.map(i => i.name), selected);
+                    refreshState();
+                    // A chart whose columns come and go redraws itself; a donut just re-weights.
+                    if (onChange) { onChange(); return; }
+                    const chart = chartInstances[chartKey];
+                    if (chart) chart.updateSeries(series());
+                }
+                function build(k) {
+                    visible = k;
+                    const rest = items.slice(k);
+                    let html = `<span class="as-pie-chips">${chipsHtml(k)}</span>`;
+                    if (rest.length) {
+                        html += `<span class="as-pie-more"><button type="button" class="as-pie-chip as-pie-chip--more">+${rest.length} ${escHtml(noun)}</button>`
+                            + `<div class="as-pie-pop"><div class="as-pie-pop__box"><div class="as-pie-pop__list">`
+                            + rest.map(it => `<label class="as-pie-pop__row"><input type="checkbox" data-name="${escHtml(it.name)}"${selected.has(it.name) ? ' checked' : ''}>${dot(it.color)}<span class="as-pie-pop__text"><span>${escHtml(it.name)}</span>${it.detail != null ? `<small>${escHtml(it.detail)}</small>` : ''}</span><span class="as-pie-pop__count">${escHtml(format(it.value))}</span></label>`).join('')
+                            + `</div></div></div></span>`;
+                    }
+                    el.innerHTML = html;
+                }
+                function render() {
+                    let k = Math.min(topN, items.length);
+                    build(k);
+                    while (k > 1 && el.scrollWidth > el.clientWidth + 1) {
+                        k--;
+                        build(k);
+                    }
+                }
+                el.addEventListener('click', (e) => {
+                    const chip = e.target.closest('.as-pie-chip[data-name]');
+                    if (chip) toggle(chip.dataset.name);
+                });
+                el.addEventListener('change', (e) => {
+                    if (e.target.matches('input[data-name]')) toggle(e.target.dataset.name);
+                });
+                let lastWidth = 0;
+                new ResizeObserver(() => {
+                    if (el.clientWidth === lastWidth) return;
+                    lastWidth = el.clientWidth;
+                    if (items.length) render();
+                }).observe(el);
+                if (document.fonts && document.fonts.ready) {
+                    document.fonts.ready.then(() => { if (items.length) render(); });
+                }
+                return {
+                    set(newItems) {
+                        items = newItems;
+                        const names = items.map(i => i.name);
+                        selected = LegendPrefs.initial(prefId, names);
+                        render();
+                    },
+                    series,
+                    selectedNames() { return items.filter(it => selected.has(it.name)).map(it => it.name); },
+                    clear() { items = []; el.innerHTML = ''; },
+                };
+            }
+            const valueLegend = createPieLegend({
+                el: document.getElementById('as-pie-legend-value'),
+                chartKey: 'value-category',
+                noun: '{% trans "categories"|escapejs %}',
+                format: fmt,
+            });
+
             // ─── ASSETS BY CATEGORY ───
+            // Vertical stacked columns, one per category. The chips under the chart are the
+            // categories (the same chip legend as the dashboards elsewhere): click one to take
+            // its column out of the chart, the "+N" chip lists the rest. In use / available is
+            // the legend at the top.
+            const categoryColor = i => COLORS[i % COLORS.length];
+            let categoryData = null;
+            const categoryLegend = createPieLegend({
+                el: document.getElementById('as-pie-legend-category'),
+                chartKey: 'by-category',
+                noun: '{% trans "categories"|escapejs %}',
+                onChange: () => drawByCategory(),
+            });
+            let categoryHoverIndex = -1;
+            function openCategory(rows, index) {
+                const cat = index != null && index >= 0 ? rows[index] : null;
+                if (!cat) return;
+                const base = "{% url 'asset-category-view' %}";
+                // "category" is an exact asset_category_id match; the free-text "search" field this
+                // used to send matches asset_name/asset_tracking_id too, so e.g. "Car" also caught
+                // a laptop named "...X1 Carbon".
+                window.location.href = cat.category_id != null
+                    ? base + "?category=" + cat.category_id + "&nested_fields=asset_status&filter_applied=1"
+                    : base;
+            }
+            function drawByCategory() {
+                if (!categoryData) return;
+                const names = new Set(categoryLegend.selectedNames());
+                const rows = categoryData.categories.filter(c => names.has(c.category));
+                renderChart('by-category', document.querySelector("#chart-by-category"), {
+                    series: [
+                        { name: '{% trans "In Use"|escapejs %}', data: rows.map(c => c.in_use) },
+                        { name: '{% trans "Available"|escapejs %}', data: rows.map(c => c.available) },
+                        { name: '{% trans "Not Available"|escapejs %}', data: rows.map(c => c.not_available) },
+                    ],
+                    // 100% stacked: every column is the same height and the y axis reads in percent,
+                    // so categories of different sizes compare by their mix. The counts stay as the
+                    // labels in the segments and in the tooltip.
+                    chart: { type: 'bar', height: 300, toolbar: { show: false }, zoom: { enabled: false }, background: 'transparent', fontFamily: 'inherit', stacked: true, stackType: '100%',
+                        events: {
+                            // A click anywhere on a column (not only on a segment) opens that
+                            // category's assets grouped by status -- the groups are the segments the
+                            // column is made of, and each group's count is the segment's number.
+                            // The column is the one the pointer is over (tracked by the tooltip).
+                            click: (e, ctx, cfg) => openCategory(rows, categoryHoverIndex >= 0 ? categoryHoverIndex : (cfg && cfg.dataPointIndex)),
+                            xAxisLabelClick: (e, ctx, { labelIndex }) => openCategory(rows, labelIndex),
+                            mouseLeave: () => { categoryHoverIndex = -1; },
+                        }
+                    },
+                    colors: ['#3b82f6', '#22c55e', '#94a3b8'],
+                    plotOptions: { bar: { borderRadius: 4, horizontal: false, columnWidth: '45%' } },
+                    xaxis: { categories: rows.map(c => c.category), labels: { rotate: 0, trim: true, hideOverlappingLabels: true, style: { colors: textColor, fontSize: '11px' } }, axisBorder: { show: false }, axisTicks: { show: false } },
+                    yaxis: { min: 0, max: 100, tickAmount: 5, labels: { style: { colors: textColor, fontSize: '11px' }, formatter: v => Math.round(v) + '%' } },
+                    grid: { borderColor: gridColor, strokeDashArray: 4 },
+                    // In a 100% chart the label value is the percentage; the segment shows its count.
+                    dataLabels: { enabled: true, style: { fontSize: '11px' }, formatter: (val, { seriesIndex, dataPointIndex, w }) => w.config.series[seriesIndex].data[dataPointIndex] || '' },
+                    legend: { position: 'top', horizontalAlign: 'right', labels: { colors: textColor }, fontSize: '11px', fontWeight: 500, markers: { width: 8, height: 8, radius: 3 }, itemMargin: { horizontal: 8 } },
+                    tooltip: stdTooltip({ total: true, percent: true, rowLabel: '{% trans "Assets"|escapejs %}', onHover: i => { categoryHoverIndex = i; } }),
+                });
+            }
             function loadByCategory() {
             fetchP("{% url 'asset-dashboard-category' %}")
                 .then(r => r.json())
                 .then(data => {
-                    if (!data.categories.length) { document.querySelector("#chart-by-category").innerHTML = emptyHtml('{% trans "No data"|escapejs %}'); return; }
-                    renderChart('by-category', document.querySelector("#chart-by-category"), {
-                        series: [
-                            { name: '{% trans "In Use"|escapejs %}', data: data.categories.map(c => c.in_use) },
-                            { name: '{% trans "Available"|escapejs %}', data: data.categories.map(c => c.available) },
-                        ],
-                        chart: { type: 'bar', height: 300, toolbar: { show: false }, background: 'transparent', fontFamily: 'inherit', stacked: true,
-                            events: { dataPointSelection: (e, ctx, config) => {
-                                const cat = data.categories[config.dataPointIndex];
-                                const base = "{% url 'asset-category-view' %}";
-                                window.location.href = cat && cat.category ? base + "?search=" + encodeURIComponent(cat.category) : base;
-                            }}
-                        },
-                        colors: ['#3b82f6', '#22c55e'],
-                        plotOptions: { bar: { borderRadius: 4, horizontal: true, barHeight: '55%' } },
-                        xaxis: { categories: data.categories.map(c => c.category), labels: { style: { colors: textColor } } },
-                        yaxis: { labels: { style: { colors: textColor, fontSize: '11px' } } },
-                        grid: { borderColor: gridColor },
-                        dataLabels: { enabled: true, style: { fontSize: '11px' } },
-                        legend: { position: 'top', horizontalAlign: 'right', labels: { colors: textColor }, fontSize: '11px', markers: { width: 8, height: 8, radius: 2 } },
-                        tooltip: { theme: isDark ? 'dark' : 'light' },
-                    });
+                    if (!data.categories.length) { document.querySelector("#chart-by-category").innerHTML = emptyHtml('{% trans "No data"|escapejs %}'); categoryLegend.clear(); return; }
+                    categoryData = data;
+                    categoryLegend.set(data.categories.map((c, i) => ({
+                        name: c.category, value: c.total, color: categoryColor(i),
+                        detail: c.in_use + ' {% trans "in use"|escapejs %} · ' + c.available + ' {% trans "available"|escapejs %} · ' + c.not_available + ' {% trans "not available"|escapejs %}',
+                    })));
+                    drawByCategory();
                 })
                 .catch(() => { document.querySelector("#chart-by-category").innerHTML = emptyHtml('{% trans "Could not load data"|escapejs %}'); });
             }
@@ -1117,22 +1540,26 @@
             fetchP("{% url 'asset-dashboard-value' %}")
                 .then(r => r.json())
                 .then(data => {
-                    if (!data.categories.length) { document.querySelector("#chart-value-category").innerHTML = emptyHtml('{% trans "No data"|escapejs %}'); return; }
+                    if (!data.categories.length) { document.querySelector("#chart-value-category").innerHTML = emptyHtml('{% trans "No data"|escapejs %}'); valueLegend.clear(); return; }
+                    const valueColor = i => COLORS[i % COLORS.length];
+                    valueLegend.set(data.categories.map((c, i) => ({ name: c.category, value: c.value, color: valueColor(i), detail: c.count + ' {% trans "assets"|escapejs %}' })));
                     renderChart('value-category', document.querySelector("#chart-value-category"), {
-                        series: data.categories.map(c => c.value),
+                        series: valueLegend.series(),
                         chart: { type: 'donut', height: 300, background: 'transparent', fontFamily: 'inherit',
                             events: { dataPointSelection: (e, ctx, config) => {
                                 const cat = data.categories[config.dataPointIndex];
                                 const base = "{% url 'asset-category-view' %}";
-                                window.location.href = cat && cat.category ? base + "?search=" + encodeURIComponent(cat.category) : base;
+                                window.location.href = cat && cat.category_id != null
+                                    ? base + "?category=" + cat.category_id + "&filter_applied=1"
+                                    : base;
                             }}
                         },
                         labels: data.categories.map(c => c.category),
-                        colors: COLORS.slice(0, data.categories.length),
+                        colors: data.categories.map((c, i) => valueColor(i)),
                         plotOptions: { pie: { donut: { size: '65%', labels: { show: true, total: { show: true, label: '{% trans "Total"|escapejs %}', color: textColor, fontSize: '12px', fontWeight: 600, formatter: w => fmt(w.globals.seriesTotals.reduce((a,b)=>a+b,0)) } } } } },
                         stroke: { width: 2, colors: [cardBg] }, dataLabels: { enabled: false },
-                        legend: { position: 'bottom', labels: { colors: textColor }, fontSize: '11px', markers: { width: 8, height: 8, radius: 2 } },
-                        tooltip: { theme: isDark ? 'dark' : 'light', y: { formatter: (v, { seriesIndex: i }) => `${fmt(v)} (${data.categories[i].count} assets)` } },
+                        legend: { show: false },
+                        tooltip: stdTooltip({ rowLabel: '{% trans "Value"|escapejs %}', sub: i => data.categories[i].count + ' {% trans "assets"|escapejs %}' }),
                     });
                 })
                 .catch(() => { document.querySelector("#chart-value-category").innerHTML = emptyHtml('{% trans "Could not load data"|escapejs %}'); });
@@ -1140,29 +1567,56 @@
             loadValueCategory();
 
             // ─── ASSETS BY DEPARTMENT ───
+            // Vertical columns, one per department, each in its own colour; the chips under the
+            // chart name them and take a department out of the chart when clicked.
+            let deptData = null;
+            const deptColor = i => COLORS[i % COLORS.length];
+            const deptLegend = createPieLegend({
+                el: document.getElementById('as-pie-legend-dept'),
+                chartKey: 'dept-assets',
+                noun: '{% trans "departments"|escapejs %}',
+                onChange: () => drawDeptAssets(),
+            });
+            function drawDeptAssets() {
+                if (!deptData) return;
+                const names = new Set(deptLegend.selectedNames());
+                const rows = deptData.departments
+                    .map((d, i) => ({ ...d, color: deptColor(i) }))
+                    .filter(d => names.has(d.department));
+                renderChart('dept-assets', document.querySelector("#chart-dept-assets"), {
+                    series: [{ name: '{% trans "Assets"|escapejs %}', data: rows.map(d => d.count) }],
+                    chart: { type: 'bar', height: 300, toolbar: { show: false }, zoom: { enabled: false }, background: 'transparent', fontFamily: 'inherit',
+                        events: { dataPointSelection: (e, ctx, config) => {
+                            const deptId = rows[config.dataPointIndex] && rows[config.dataPointIndex].department_id;
+                            const url = "{% url 'asset-request-allocation-view' %}";
+                            // open_tab=3 -- "Asset Allocation" is the destination's 3rd tab; without
+                            // it, whichever tab was last active there (persisted per user) wins
+                            // instead, landing on "Asset" or "Asset Request" where this filter means
+                            // nothing.
+                            // held=true: the bar counts assets still out, not returned ones.
+                            window.location.href = deptId
+                                ? url + "?open_tab=3&assigned_to_employee_id__employee_work_info__department_id=" + deptId + "&held=true&filter_applied=1"
+                                : url + "?open_tab=3&held=true";
+                        }}
+                    },
+                    colors: rows.map(d => d.color),
+                    plotOptions: { bar: { borderRadius: 6, horizontal: false, columnWidth: '45%', distributed: true } },
+                    xaxis: { categories: rows.map(d => d.department), labels: { rotate: 0, trim: true, hideOverlappingLabels: true, style: { colors: textColor, fontSize: '11px' } }, axisBorder: { show: false }, axisTicks: { show: false } },
+                    yaxis: { min: 0, forceNiceScale: true, labels: { style: { colors: textColor, fontSize: '11px' }, formatter: v => Number.isInteger(+v) ? v : '' } },
+                    grid: { borderColor: gridColor, strokeDashArray: 4 },
+                    dataLabels: { enabled: true, style: { fontSize: '11px' } },
+                    legend: { show: false },
+                    tooltip: stdTooltip({ rowLabel: '{% trans "Assets"|escapejs %}' }),
+                });
+            }
             function loadDeptAssets() {
             fetchP("{% url 'asset-dashboard-dept' %}")
                 .then(r => r.json())
                 .then(data => {
-                    if (!data.departments.length) { document.querySelector("#chart-dept-assets").innerHTML = emptyHtml('{% trans "No allocated assets"|escapejs %}'); return; }
-                    renderChart('dept-assets', document.querySelector("#chart-dept-assets"), {
-                        series: [{ name: '{% trans "Assets"|escapejs %}', data: data.departments.map(d => d.count) }],
-                        chart: { type: 'bar', height: 300, toolbar: { show: false }, background: 'transparent', fontFamily: 'inherit',
-                            events: { dataPointSelection: (e, ctx, config) => {
-                                const deptId = data.departments[config.dataPointIndex] && data.departments[config.dataPointIndex].department_id;
-                                const url = "{% url 'asset-request-allocation-view' %}";
-                                window.location.href = deptId ? url + "?assigned_to_employee_id__employee_work_info__department_id=" + deptId : url;
-                            }}
-                        },
-                        colors: COLORS,
-                        plotOptions: { bar: { borderRadius: 6, horizontal: true, barHeight: '55%', distributed: true } },
-                        xaxis: { categories: data.departments.map(d => d.department), labels: { style: { colors: textColor } } },
-                        yaxis: { labels: { style: { colors: textColor, fontSize: '11px' } } },
-                        grid: { borderColor: gridColor },
-                        dataLabels: { enabled: true, style: { fontSize: '11px' } },
-                        legend: { show: false },
-                        tooltip: { theme: isDark ? 'dark' : 'light', y: { formatter: v => v + ' {% trans "asset(s)"|escapejs %}' } },
-                    });
+                    if (!data.departments.length) { document.querySelector("#chart-dept-assets").innerHTML = emptyHtml('{% trans "No allocated assets"|escapejs %}'); deptLegend.clear(); return; }
+                    deptData = data;
+                    deptLegend.set(data.departments.map((d, i) => ({ name: d.department, value: d.count, color: deptColor(i), detail: d.count + ' {% trans "assets"|escapejs %}' })));
+                    drawDeptAssets();
                 })
                 .catch(() => { document.querySelector("#chart-dept-assets").innerHTML = emptyHtml('{% trans "Could not load data"|escapejs %}'); });
             }
@@ -1179,7 +1633,30 @@
                         series: [{ name: '{% trans "Assets"|escapejs %}', data: data.brackets.map(b => b.count) }],
                         chart: { type: 'bar', height: 280, toolbar: { show: false }, background: 'transparent', fontFamily: 'inherit',
                             events: { dataPointSelection: (e, ctx, config) => {
-                                window.location.href = "{% url 'asset-category-view' %}";
+                                const base = "{% url 'asset-category-view' %}";
+                                const b = data.brackets[config.dataPointIndex];
+                                // Bracket boundaries (in days-ago) mirror the backend's
+                                // own age_years = (today - purchase_date).days / 365.25
+                                // bucketing exactly, so the destination's date range
+                                // matches the bar that was actually clicked instead of
+                                // dumping every asset regardless of age.
+                                const bracketDays = {
+                                    '< 1 year': [0, 365], '1–2 years': [365, 730],
+                                    '2–3 years': [730, 1095], '3–5 years': [1095, 1825],
+                                    '5+ years': [1825, null],
+                                };
+                                const range = b && bracketDays[b.bracket];
+                                if (!range) { window.location.href = base; return; }
+                                const today = new Date();
+                                const till = new Date(today); till.setDate(till.getDate() - range[0]);
+                                const params = new URLSearchParams();
+                                params.append('asset_purchase_date__lte', till.toISOString().slice(0, 10));
+                                if (range[1] !== null) {
+                                    const from = new Date(today); from.setDate(from.getDate() - range[1]);
+                                    params.append('asset_purchase_date__gte', from.toISOString().slice(0, 10));
+                                }
+                                params.append('filter_applied', '1');
+                                window.location.href = base + "?" + params.toString();
                             }}
                         },
                         colors: ageColors.slice(0, data.brackets.length),
@@ -1189,12 +1666,18 @@
                         grid: { borderColor: gridColor, strokeDashArray: 4 },
                         dataLabels: { enabled: true, style: { fontSize: '12px', colors: ['#fff'] } },
                         legend: { show: false },
-                        tooltip: { theme: isDark ? 'dark' : 'light' },
+                        tooltip: stdTooltip({ rowLabel: '{% trans "Assets"|escapejs %}' }),
                     });
                 })
                 .catch(() => { document.querySelector("#chart-age-dist").innerHTML = emptyHtml('{% trans "Could not load data"|escapejs %}'); });
             }
             loadAgeDist();
+
+            function setCountBadge(id, n) {
+                const b = document.getElementById(id);
+                b.textContent = n || 0;
+                b.hidden = !n;
+            }
 
             // ─── EXPIRING SOON ───
             function loadExpiring() {
@@ -1202,19 +1685,20 @@
                 .then(r => r.json())
                 .then(data => {
                     const el = document.getElementById('as-expiring');
+                    setCountBadge('as-expiring-count', data.total);
                     if (!data.assets.length) { el.innerHTML = '<div class="as-info-panel__empty">{% trans "No assets expiring soon"|escapejs %}</div>'; return; }
                     el.innerHTML = data.assets.map(a => {
                         let badge = '';
                         if (a.days_left <= 7) badge = `<span class="as-badge as-badge--red">${a.days_left}d</span>`;
                         else if (a.days_left <= 30) badge = `<span class="as-badge as-badge--amber">${a.days_left}d</span>`;
                         else badge = `<span class="as-badge as-badge--green">${a.days_left}d</span>`;
-                        return `<a href="/asset/asset-information/${a.id}/" class="as-list-item">
+                        return `<div class="as-list-item">
                     <div class="as-list-item__info">
                         <div class="as-list-item__name">${a.name}</div>
                         <div class="as-list-item__detail">${a.category} · ${a.tracking_id}</div>
                     </div>
                     <div class="as-list-item__badge">${badge}</div>
-                </a>`;
+                </div>`;
                     }).join('');
                 }).catch(() => { document.getElementById('as-expiring').innerHTML = '<div class="as-info-panel__empty">{% trans "No data"|escapejs %}</div>'; });
             }
@@ -1226,11 +1710,12 @@
                 .then(r => r.json())
                 .then(data => {
                     const el = document.getElementById('as-allocations');
+                    setCountBadge('as-allocations-count', data.total);
                     if (!data.allocations.length) { el.innerHTML = '<div class="as-info-panel__empty">{% trans "No recent allocations"|escapejs %}</div>'; return; }
                     el.innerHTML = data.allocations.map(a => {
                         const initials = a.employee.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
                         const avatarInner = a.avatar ? `<img src="${a.avatar}" alt="">` : initials;
-                        return `<a href="/employee/employee-view/${a.id}/" class="as-list-item">
+                        return `<a href="${assetAllocationUrlFor(a.id)}" class="as-list-item">
                     <div class="as-list-item__avatar">${avatarInner}</div>
                     <div class="as-list-item__info">
                         <div class="as-list-item__name">${a.employee}</div>
@@ -1257,5 +1742,33 @@
             }
 
         })();
-    </script>
+
+/* Keep every chart tooltip inside its card. Apex flips a wide tooltip to the left of the
+   bar and, near the card's left edge, that puts it past the edge where the page clips it.
+   After Apex positions it, nudge it back in. */
+(function () {
+    if (window.__tooltipClamp) return;
+    window.__tooltipClamp = true;
+    var queued = false;
+    function clamp() {
+        queued = false;
+        document.querySelectorAll('.apexcharts-tooltip.apexcharts-active').forEach(function (t) {
+            var holder = t.closest('[id^="chart-"]') || t.parentElement;
+            var card = (holder && holder.parentElement) || holder;
+            if (!card) return;
+            var box = card.getBoundingClientRect(), r = t.getBoundingClientRect();
+            if (r.width > box.width) return;
+            var margin = 8, shift = 0;
+            if (r.left < box.left + margin) shift = box.left + margin - r.left;
+            else if (r.right > box.right - margin) shift = box.right - margin - r.right;
+            if (shift) t.style.left = (parseFloat(t.style.left) || 0) + shift + 'px';
+        });
+    }
+    // After Apex has placed the tooltip for this move (a moment later), pull it inside its card.
+    // No mutation observer: nothing here listens for its own change.
+    document.addEventListener('mousemove', function () {
+        if (!queued) { queued = true; setTimeout(clamp, 40); }
+    }, { passive: true });
+})();
+</script>
 {% endblock %}

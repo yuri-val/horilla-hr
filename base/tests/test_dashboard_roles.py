@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import re
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from django.test import RequestFactory, SimpleTestCase
+from django.test import RequestFactory, SimpleTestCase, TestCase
+from django.urls import Resolver404, resolve, reverse
 
 from base.dashboard import _normalize_dashboard_chart_prefs
 from base.dashboard_roles import (
@@ -16,6 +18,7 @@ from base.dashboard_roles import (
     role_default_prefs,
 )
 from base.views import _charts_use_modern_prefs
+from horilla.testkit.factories import make_company, make_employee, make_user
 
 
 class ResolveHomeRoleTests(SimpleTestCase):
@@ -85,21 +88,32 @@ class ResolveHomeRoleTests(SimpleTestCase):
 
 
 class RoleDefaultPrefsTests(SimpleTestCase):
-    def test_manager_default_visible_at_most_six(self):
+    def test_manager_default_visible_at_most_eight(self):
         prefs = role_default_prefs("manager")
         visible = [p["id"] for p in prefs if p["visible"]]
-        self.assertLessEqual(len(visible), 6)
+        self.assertLessEqual(len(visible), 8)
         for demoted in DEMOTED_BY_DEFAULT:
             self.assertNotIn(demoted, visible)
         for expected in ROLE_DEFAULT_VISIBLE["manager"]:
             self.assertIn(expected, visible)
 
-    def test_hr_includes_turnover_not_payroll(self):
+    def test_hr_includes_turnover(self):
         prefs = role_default_prefs("hr")
         visible = {p["id"] for p in prefs if p["visible"]}
         self.assertIn("employee_turnover", visible)
-        self.assertNotIn("payroll_summary", visible)
-        self.assertNotIn("gender_distribution", visible)
+        self.assertIn("gender_distribution", visible)
+
+    def test_every_default_chart_has_a_card(self):
+        """Every chart id in the defaults has a card in templates/dashboard.html."""
+        import re
+        from pathlib import Path
+
+        text = Path("templates/dashboard.html").read_text(encoding="utf-8")
+        cards = set(re.findall(r'data-chart-id="([a-z_]+)"', text))
+        named = {p["id"] for p in role_default_prefs("leadership")}
+        for visible in ROLE_DEFAULT_VISIBLE.values():
+            named.update(visible)
+        self.assertEqual(named - cards, set())
 
 
 class PrefsMigrationTests(SimpleTestCase):
@@ -111,81 +125,63 @@ class PrefsMigrationTests(SimpleTestCase):
 
     def test_modern_prefs_preserved(self):
         modern = [
-            {"id": "attendance_trend", "visible": True},
+            {"id": "leave_trends", "visible": True},
             {"id": "gender_distribution", "visible": False},
         ]
         self.assertEqual(_normalize_dashboard_chart_prefs(modern), modern)
 
     def test_modern_prefs_guard_helper(self):
         self.assertTrue(
-            _charts_use_modern_prefs([{"id": "attendance_trend", "visible": True}])
+            _charts_use_modern_prefs([{"id": "leave_trends", "visible": True}])
         )
         self.assertFalse(_charts_use_modern_prefs(["gender_chart"]))
         self.assertFalse(_charts_use_modern_prefs([]))
 
 
-class ModernDashboardFetchInventoryTests(SimpleTestCase):
-    def test_dashboard_template_avoids_legacy_module_chart_urls(self):
-        from pathlib import Path
+class ModernDashboardFetchInventoryTests(TestCase):
+    """The dashboard page must only call data endpoints that exist."""
 
-        text = Path("templates/dashboard.html").read_text(encoding="utf-8")
-        banned = (
-            "department-overtime-chart",
-            "leave-over-period",
-            "overall-leave",
-            "department-leave-chart",
-            "url 'recruitment-pipeline'",
-            "/employee/dashboard-employee",
-            "url 'dashboard-attendance'",
-            "url 'dashboard-hiring'",
+    @classmethod
+    def setUpTestData(cls):
+        company = make_company("Dash Co")
+        cls.user = make_user("dash-boss", is_superuser=True)
+        make_employee(company=company, email="dash-boss@dash.test", user=cls.user)
+
+    def test_dashboard_fetches_only_current_chart_endpoints(self):
+        self.client.force_login(self.user)
+        response = self.client.get(reverse("home-page"), follow=True)
+        self.assertEqual(response.status_code, 200)
+
+        # Every URL the page's scripts fetch must resolve to a live view. A
+        # chart endpoint removed from urls.py but still fetched leaves a
+        # spinner that never ends.
+        fetched = set(
+            re.findall(r"""fetch[P]?\(\s*["'`]([^"'`?]+)""", response.content.decode())
         )
-        for token in banned:
-            self.assertNotIn(token, text, msg=f"legacy fetch still present: {token}")
+        # The shared layout fetches its own endpoints too (notifications and so
+        # on); only the dashboard's data endpoints are this test's business.
+        names = set()
+        for path in sorted(p for p in fetched if "dashboard" in p):
+            try:
+                match = resolve(path)
+            except Resolver404:
+                self.fail(f"dashboard fetches a dead endpoint: {path}")
+            names.add(match.url_name)
+
+        # The charts the simplified dashboard still draws.
         for required in (
-            "dashboard-employee-status",
             "dashboard-attendance-overview",
-            "dashboard-department-overtime",
             "dashboard-leave-trends",
-            "dashboard-leave-by-department",
-            "dashboard-department-leave-days",
             "dashboard-hiring-timeline",
             "dashboard-recruitment-by-stage",
         ):
-            self.assertIn(required, text)
-
-    def test_kpi_clickthroughs_use_destination_filters(self):
-        from pathlib import Path
-
-        text = Path("templates/dashboard.html").read_text(encoding="utf-8")
-        self.assertIn("status=approved&today_leave=true&filter_applied=on", text)
-        self.assertIn("attendance_date={% now 'Y-m-d' %}&filter_applied=on", text)
-        self.assertIn("is_active=True&filter_applied=on", text)
-        self.assertIn("closed=false&filter_applied=on", text)
-        self.assertIn("asset_request_status=Requested&filter_applied=1", text)
-        self.assertIn(
-            "view-reimbursement' %}?open_tab=1&status=requested&type=reimbursement&filter_applied=1",
-            text,
-        )
-        self.assertIn(
-            "shift-request-view' %}?open_tab=1&status=requested&filter_applied=1", text
-        )
-        self.assertIn(
-            "work-type-request-view' %}?status=requested&filter_applied=1", text
-        )
-        self.assertIn("request-view' %}?status=requested&filter_applied=1", text)
-        self.assertIn("request-attendance-view' %}?open_tab=1", text)
-        self.assertNotIn("approval_status=pending", text)
-        self.assertNotIn("request-attendance-view' %}?approved=false", text)
-        self.assertNotIn("approved=false&canceled=false", text)
-        self.assertNotIn("is_validate_request=true", text)
-        self.assertNotIn("dashboard-compliance-strip", text)
-        # Home no longer surfaces report pin / suggested pack UI
-        for removed in (
-            "standard-report-suggested-pack",
-            "standard-report-dashboard-pins",
-            "standard-report-pin-recommended",
-            "md-std-pins",
-            "md-suggested",
-            "md-compliance-strip",
+            self.assertIn(required, names)
+        # Endpoints removed with the KPI redesign must not come back.
+        for legacy in (
+            "department-overtime-chart",
+            "overall-leave",
+            "department-leave-chart",
+            "recruitment-pipeline",
+            "dashboard-hiring",
         ):
-            self.assertNotIn(removed, text)
+            self.assertNotIn(legacy, names)

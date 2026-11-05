@@ -4,16 +4,24 @@ scheduler.py
 This module is used to register scheduled tasks
 """
 
-import json
+import logging
 from datetime import date, timedelta
 
 from dateutil.relativedelta import relativedelta
 
 from horilla.scheduling import register_job
-from payroll.methods.methods import calculate_employer_contribution, save_payslip
-from payroll.views.component_views import payroll_calculation
+from payroll.methods.methods import payslip_fields, save_payslip
+from payroll.methods.payroll_run import payroll_calculation
+from payroll.methods.tax_calc import TaxComputationError
 
+from .methods.contract_periods import (
+    PAYABLE_STATUSES,
+    contracts_in_period,
+    use_contract,
+)
 from .models.models import Contract, Payslip
+
+logger = logging.getLogger(__name__)
 
 
 def expire_contract():
@@ -45,47 +53,48 @@ def generate_payslip(date, companies, all):
                 employee_work_info__company_id=company
             )
 
-    # Filter out employees who don't have a contract_set or whose contract status is not active
-    active_employees = employees.filter(
-        contract_set__isnull=False, contract_set__contract_status="active"
-    )
-
-    # Remove duplicates if an employee has multiple active contracts
-    active_employees = active_employees.distinct()
-    # find the date range
     period_start = date - relativedelta(months=1)
     period_end = date - timedelta(days=1)
-    # Payslip creation
-    for employee in active_employees:
-        payslip = Payslip.objects.filter(
-            employee_id=employee, start_date=period_start, end_date=period_end
-        ).first()
-        if payslip:
-            continue
-        contract = Contract.objects.filter(
-            employee_id=employee, contract_status="active"
-        ).first()
-        if period_end < contract.contract_start_date:
-            continue
-        # A contract starting mid-period shortens only that employee's payslip,
-        # so the adjusted start must stay local to this iteration.
-        start_date = max(period_start, contract.contract_start_date)
-        payslip_data = payroll_calculation(employee, start_date, period_end)
-        payslip_data["payslip"] = payslip
-        data = {}
-        data["employee"] = employee
-        data["start_date"] = payslip_data["start_date"]
-        data["end_date"] = payslip_data["end_date"]
-        data["status"] = "draft"
-        data["contract_wage"] = payslip_data["contract_wage"]
-        data["basic_pay"] = payslip_data["basic_pay"]
-        data["gross_pay"] = payslip_data["gross_pay"]
-        data["deduction"] = payslip_data["total_deductions"]
-        data["net_pay"] = payslip_data["net_pay"]
-        data["pay_data"] = json.loads(payslip_data["json_data"])
-        calculate_employer_contribution(data)
-        data["installments"] = payslip_data["installments"]
-        payslip_data["instance"] = save_payslip(**data)
+    generate_payslips(employees, period_start, period_end)
+
+
+def generate_payslips(employees, period_start, period_end):
+    """
+    Create draft payslips for ``employees`` who have an active contract, for one period.
+    Returns how many were created.
+    """
+    created = 0
+    # Anyone with a contract that could have days in the period, ended ones included: an ended
+    # contract still has its last days to be paid.
+    candidates = employees.filter(
+        contract_set__contract_status__in=PAYABLE_STATUSES,
+        contract_set__contract_start_date__lte=period_end,
+    ).distinct()
+    for employee in candidates:
+        # One payslip per contract in force, each for its own days. A contract that began or ended
+        # mid-period shortens only its own slice.
+        for contract, start_date, end_date in contracts_in_period(
+            employee, period_start, period_end
+        ):
+            if Payslip.objects.filter(
+                employee_id=employee, start_date__lte=end_date, end_date__gte=start_date
+            ).exists():
+                continue
+            try:
+                with use_contract(contract):
+                    payslip_data = payroll_calculation(employee, start_date, end_date)
+            except TaxComputationError as exc:
+                # Unattended job: skip the employee whose filing status is broken
+                # rather than saving them a 0-tax payslip or aborting the run for
+                # everyone else. The next scheduled run picks them up once fixed.
+                logger.error("Scheduled payslip skipped: %s", exc)
+                continue
+            payslip_data["payslip"] = None
+            payslip_data["instance"] = save_payslip(
+                **payslip_fields(payslip_data, employee, status="draft")
+            )
+            created += 1
+    return created
 
 
 def is_last_day_of_month(date):
@@ -95,48 +104,76 @@ def is_last_day_of_month(date):
 
 def auto_payslip_generate():
     """
-    Generating payslips for active contract employees
+    Deprecated: replaced by ``generate_pay_period_payslips``. Kept as a no-op so old callers
+    do not break.
     """
-    from base.models import Company
 
-    from .models.models import PayslipAutoGenerate
 
-    # from payroll.models import PayslipAutoGenerate
-    if PayslipAutoGenerate.objects.filter(auto_generate=True).exists():
-        today = date.today()
-        day_today = today.day
-        last_day = (today + timedelta(days=1)).replace(day=1) - timedelta(days=1)
-        auto_payslips = PayslipAutoGenerate.objects.filter(auto_generate=True)
-        companies = []
-        auto_companies = [auto.company_id for auto in auto_payslips]
-        for auto in auto_payslips:
-            generate_day = auto.generate_day
-            if generate_day == "last day":
-                if is_last_day_of_month(today):
-                    companies.append(auto.company_id)
-            else:
-                generate_day = int(generate_day)
-                if generate_day >= last_day.day and day_today == last_day.day:
-                    companies.append(auto.company_id)
-                elif generate_day == day_today:
-                    companies.append(auto.company_id)
+def employees_for(setting):
+    """The employees a pay period setting covers: its company, or the companies with no row."""
+    from employee.models import Employee
 
-        companies = list(set(companies))  # Remove duplicates
-        # Check if 'All company' case exists, i.e., None is in companies
-        if companies:
-            if None in companies:
-                company_all = Company.objects.all()
-                generate_companies = []
-                # Append the companies that are not in PayslipAutoGenerate
-                for company in company_all:
-                    if company not in auto_companies:
-                        generate_companies.append(company)
-                generate_payslip(
-                    date=date.today(), companies=generate_companies, all=True
-                )
-            else:
-                generate_payslip(date=date.today(), companies=companies, all=False)
+    from .models.models import PayPeriodSettings
+
+    if setting.company_id_id:
+        return Employee.objects.filter(
+            employee_work_info__company_id=setting.company_id_id
+        )
+    own_companies = (
+        PayPeriodSettings.objects.entire()
+        .filter(company_id__isnull=False)
+        .values_list("company_id", flat=True)
+    )
+    return Employee.objects.filter(
+        employee_work_info__company_id__isnull=True
+    ) | Employee.objects.exclude(employee_work_info__company_id__in=list(own_companies))
+
+
+def generate_for_setting(setting, today, force=False):
+    """
+    Generate the last completed period's payslips for one setting; returns how many were made,
+    or None when this period was already claimed.
+
+    The period is claimed in one UPDATE before any work, so two runs (two processes, or a
+    retry) can never both generate it; a failure releases the claim. ``force`` is the manual
+    run: it does not need the claim, and payslips that exist are never made twice.
+    """
+    from .models.models import PayPeriodSettings
+
+    start, end = setting.last_completed_period(today)
+    rows = PayPeriodSettings.objects.entire().filter(pk=setting.pk)
+    previous = rows.values_list("last_generated_end", flat=True).first()
+    if force:
+        rows.update(last_generated_end=end)
+    elif not rows.exclude(last_generated_end__gte=end).update(last_generated_end=end):
+        return None
+    try:
+        return generate_payslips(employees_for(setting), start, end)
+    except Exception:
+        rows.update(last_generated_end=previous)
+        raise
+
+
+def generate_pay_period_payslips(today=None):
+    """
+    For each pay period setting with Generate Payslips Automatically on, create draft payslips
+    on the day after its period ends. A setting for all companies covers the companies that
+    have none of their own.
+    """
+    from .models.models import PayPeriodSettings
+
+    today = today or date.today()
+    for setting in PayPeriodSettings.objects.entire().filter(auto_generate=True):
+        _start, end = setting.last_completed_period(today)
+        if today != end + timedelta(days=1):
+            continue
+        try:
+            generate_for_setting(setting, today)
+        except Exception:
+            # One company's failure must not stop the others; the next run (every 3 hours,
+            # still on that day) tries it again.
+            logger.exception("Payslip generation failed for %s", setting.get_company())
 
 
 register_job(expire_contract, "interval", hours=4)
-register_job(auto_payslip_generate, "interval", hours=3)
+register_job(generate_pay_period_payslips, "interval", hours=3)

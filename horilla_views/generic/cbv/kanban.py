@@ -4,9 +4,11 @@ horilla_views/generic/cbv/kanban.py
 
 import json
 
+from django.contrib import messages
 from django.core.paginator import EmptyPage, PageNotAnInteger, Paginator
 from django.db import models
 from django.http import HttpResponse, JsonResponse
+from django.utils.translation import gettext as _
 
 from horilla_views.cbv_methods import get_nested_field
 from horilla_views.generic.cbv.views import HorillaCardView
@@ -23,9 +25,17 @@ class HorillaKanbanView(HorillaCardView):
     custom_card_content_template: str = ""
     group_actions: list = []
     show_kanban_confirmation: bool = True
+    # When True the board writes its number of columns into the tab badge it
+    # sits in. A board that wants the tab to count its records instead (the
+    # recruitment / onboarding / offboarding pipelines) sets this to False.
+    records_count_in_tab: bool = True
     folded_groups: list = []
     action_method: str = """"""
     group_label_key: str = ""
+    # Plural noun for this board's columns, shown in the "No <label> found"
+    # empty state when there are none (e.g. "stages", "statuses"). Falls
+    # back to "groups" in the template when left blank.
+    empty_group_label: str = ""
 
     def get_related_groups(self, *args, **kwargs):
         related_groups = self.group_filter_class(self.request.GET).qs
@@ -102,30 +112,37 @@ class HorillaKanbanView(HorillaCardView):
         """Move the dragged record into a new group and resequence that column."""
         group = self.resolve_kanban_group(self.request.POST.get("groupId"))
         if group is None:
+            messages.error(self.request, _("Invalid group."))
             return JsonResponse({"error": "Invalid group."}, status=400)
         order = self.get_kanban_order()
         if not order:
+            messages.error(self.request, _("Missing order."))
             return JsonResponse({"error": "Missing order."}, status=400)
         records = self.get_queryset().filter(pk__in=order)
         updated = self.assign_kanban_values(records, order, group=group)
+        messages.success(self.request, _("Stage updated"))
         return JsonResponse({"status": "success", "updated": updated})
 
     def kanban_reorder_items(self):
         """Resequence records within a single column."""
         order = self.get_kanban_order()
         if not order:
+            messages.error(self.request, _("Missing order."))
             return JsonResponse({"error": "Missing order."}, status=400)
         records = self.get_queryset().filter(pk__in=order)
         updated = self.assign_kanban_values(records, order)
+        messages.success(self.request, _("Sequence updated"))
         return JsonResponse({"status": "success", "updated": updated})
 
     def kanban_reorder_groups(self):
         """Resequence the board's group columns."""
         groups = self.get_kanban_group_queryset()
         if groups is None:
+            messages.info(self.request, _("This board's groups cannot be reordered."))
             return JsonResponse({"info": "This board's groups cannot be reordered."})
         order = self.get_kanban_order("sequence")
         if not order:
+            messages.error(self.request, _("Missing sequence."))
             return JsonResponse({"error": "Missing sequence."}, status=400)
         group_map = {str(group.pk): group for group in groups.filter(pk__in=order)}
         updated = []
@@ -137,6 +154,7 @@ class HorillaKanbanView(HorillaCardView):
             updated.append(group)
         if updated:
             groups.model._default_manager.bulk_update(updated, [self.group_order_by])
+        messages.success(self.request, _("Group sequence updated successfully."))
         return JsonResponse({"status": "success", "updated": len(updated)})
 
     def kanban_card_count(self):
@@ -162,8 +180,10 @@ class HorillaKanbanView(HorillaCardView):
         }
         handler = handlers.get(request.POST.get("kanban_action"))
         if not handler:
+            messages.error(request, _("Unknown kanban action."))
             return JsonResponse({"error": "Unknown kanban action."}, status=400)
         if not self.has_kanban_change_permission():
+            messages.info(request, _("You don't have permission."))
             return JsonResponse({"error": "Permission denied."}, status=403)
         return handler()
 
@@ -262,6 +282,7 @@ class HorillaKanbanView(HorillaCardView):
                     "filter_class": self.filter_class.__name__,
                     "group_by_field": self.group_key,
                     "kanban_attrs": self.kanban_attrs,
+                    "empty_group_label": self.empty_group_label,
                 }
             )
 

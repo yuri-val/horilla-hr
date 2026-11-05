@@ -13,7 +13,6 @@ from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
 from django.db import models
 from django.db.models import Q, Sum
-from django.http import HttpResponse
 from django.utils.translation import gettext_lazy as _
 
 from base.methods import get_pagination
@@ -43,10 +42,13 @@ def format_time(seconds):
         seconds : seconds
     """
 
-    hour = int(seconds // 3600)
-    minutes = int((seconds % 3600) // 60)
-    seconds = int((seconds % 3600) % 60)
-    return f"{hour:02d}:{minutes:02d}"
+    # Floor division on a negative value steps to the next hour down and
+    # leaves a positive remainder, so -1:29 was stored as -2:31.
+    sign = "-" if seconds < 0 else ""
+    seconds = abs(int(seconds))
+    hour = seconds // 3600
+    minutes = (seconds % 3600) // 60
+    return f"{sign}{hour:02d}:{minutes:02d}"
 
 
 def strtime_seconds(time):
@@ -56,8 +58,12 @@ def strtime_seconds(time):
         time : time in H:M format
     """
 
+    negative = isinstance(time, str) and time.startswith("-")
+    if negative:
+        time = time[1:]
     ftr = [3600, 60, 1]
-    return sum(a * b for a, b in zip(ftr, map(int, time.split(":"))))
+    total = sum(a * b for a, b in zip(ftr, map(int, time.split(":"))))
+    return -total if negative else total
 
 
 def get_diff_obj(first_instance, other_instance, exclude_fields=None):
@@ -158,6 +164,64 @@ def get_diff_dict(first_dict, other_dict, model=None):
     return difference
 
 
+def get_client_ip(request):
+    """
+    The caller's IP, the same address django-axes uses for lockouts
+    (horilla.client_ip): X-Forwarded-For counts only when the connection comes
+    from a trusted reverse proxy (HORILLA_TRUSTED_PROXIES). Trusting the
+    header unconditionally lets any client claim to be calling from an
+    allowed office network, since it is attacker-supplied.
+    """
+    from horilla.client_ip import client_ip
+
+    return client_ip(request)
+
+
+def geofence_denial_web(request, company):
+    """
+    The web clock-in/out views' counterpart to
+    horilla_api...attendance.views.geofence_denial(): that one reads
+    request.data, which only exists on a DRF Request, not the plain
+    HttpRequest these views get. The mobile/API flow enforces a configured
+    geo-fence; the web flow previously didn't check it at all, so an
+    employee outside the fence could still punch in from a browser.
+
+    Fails closed, the same reasoning as the API version: a fence that is
+    enabled but can't be evaluated (no coordinates submitted, or the browser
+    denied location access) should block the punch, not silently allow it.
+
+    Returns an error message to show the employee, or None if the punch may
+    proceed.
+    """
+    from geopy.distance import geodesic
+
+    from geofencing.models import GeoFencing
+
+    if company is None:
+        # "All companies" is selected, so the clock-in/out view has no company of its own. The
+        # punch still belongs to the employee, whose own company decides which fence applies.
+        employee = getattr(request.user, "employee_get", None)
+        company = employee.get_company() if employee else None
+    if company is None:
+        return None
+    fence = GeoFencing.for_company(company)
+    if fence is None or not fence.start:
+        return None
+
+    try:
+        latitude = float(request.GET.get("latitude"))
+        longitude = float(request.GET.get("longitude"))
+    except (TypeError, ValueError):
+        return _(
+            "Could not verify your location. Please allow location access and try again."
+        )
+
+    distance = geodesic((fence.latitude, fence.longitude), (latitude, longitude)).meters
+    if distance > fence.radius_in_meters:
+        return _("Check-In Restricted: You are outside the permitted work location.")
+    return None
+
+
 def employee_exists(request):
     """
     This method return the employee instance and work info if not exists return None instead
@@ -193,6 +257,15 @@ def shift_schedule_today(day, shift):
     return (minimum_hour, start_time_sec, end_time_sec)
 
 
+def real_overtime_seconds(worked, minimum_hour, overtime_second):
+    """The stored overtime, held to what was really worked beyond the minimum hours."""
+    stored = overtime_second or 0
+    if not stored:
+        return 0
+    minimum = strtime_seconds(minimum_hour) if minimum_hour else 0
+    return min(stored, max(0, (worked or 0) - minimum))
+
+
 def overtime_calculation(attendance):
     """
     This method is used to calculate overtime of the attendance, it will
@@ -226,7 +299,11 @@ def is_reportingmanger(request, instance):
             instance.employee_id.employee_work_info.reporting_manager_id
         )
     except Exception:
-        return HttpResponse("This Employee Dont Have any work information")
+        # An HttpResponse object here used to be returned as-is, and every
+        # caller uses this in a boolean `or` -- any truthy value (which an
+        # HttpResponse is) granted access. An employee with no work info
+        # record yet let ANY authenticated caller act as their manager.
+        return False
     return manager == employee_workinfo_manager
 
 
@@ -384,15 +461,6 @@ def pending_hour_data(labels, records):
         dept_records.append(total_sum / 3600 if total_sum else 0)
     data["data"] = dept_records
     return data
-
-
-def get_employee_last_name(attendance):
-    """
-    This method is used to return the last name
-    """
-    if attendance.employee_id.employee_last_name:
-        return attendance.employee_id.employee_last_name
-    return ""
 
 
 def attendance_day_checking(attendance_date, minimum_hour, employee=None):
@@ -561,6 +629,11 @@ class Request:
         self.time = time
         self.datetime = datetime
         self.META = META()
+        # Empty dict stands in for Django's QueryDict here -- only .get() is
+        # ever called on request.GET (e.g. horilla_crumbs' breadcrumbs context
+        # processor), and dict.get() already returns None for a missing key
+        # exactly like QueryDict.get() does.
+        self.GET = {}
 
     def build_absolute_uri(self, location=None):
         """
@@ -612,6 +685,14 @@ class META:
         Required for Django context processors that call request.META.get().
         """
         return default
+
+    def __contains__(self, key):
+        """
+        Support ``key in request.META`` (e.g. horilla_crumbs' breadcrumbs
+        context processor checks "HTTP_HX_REQUEST" in request.META directly,
+        not just via .keys()).
+        """
+        return key in self.keys()
 
 
 def parse_time(time_str):

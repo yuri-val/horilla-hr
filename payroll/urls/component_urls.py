@@ -17,9 +17,58 @@ from payroll.cbv import (
     salary_structure,
 )
 from payroll.models.models import Deduction
-from payroll.views import component_views
+from payroll.views import (
+    component_formula_views,
+    component_views,
+    salary_structure_preview,
+)
 
 urlpatterns = [
+    path(
+        "component-code-check/",
+        component_formula_views.check_component_code,
+        name="component-code-check",
+    ),
+    path(
+        "employee-pick-rows/",
+        component_formula_views.employee_pick_rows,
+        name="employee-pick-rows",
+    ),
+    path(
+        "component-applies-rows/",
+        component_formula_views.component_applies_rows,
+        name="component-applies-rows",
+    ),
+    path(
+        "component-formula-preview/",
+        component_formula_views.preview_component_formula,
+        name="component-formula-preview",
+    ),
+    path(
+        "component-limit-preview/",
+        component_formula_views.preview_maximum_unit,
+        name="component-limit-preview",
+    ),
+    path(
+        "component-library/",
+        component_formula_views.component_library_picker,
+        name="component-library",
+    ),
+    path(
+        "load-component-library/",
+        component_formula_views.load_component_library,
+        name="load-component-library",
+    ),
+    path(
+        "salary-structure-preview/<int:pk>/",
+        salary_structure_preview.preview_salary_structure,
+        name="salary-structure-preview",
+    ),
+    path(
+        "salary-structure-employees/<int:pk>/",
+        salary_structure_preview.salary_structure_employees,
+        name="salary-structure-employees",
+    ),
     path(
         "individual-payslip-tab-list/<int:pk>/",
         payslip.PayrollTab.as_view(),
@@ -28,6 +77,16 @@ urlpatterns = [
     path("view-payslip/", payslip.PayslipView.as_view(), name="view-payslip"),
     path("payslip-list/", payslip.PayslipList.as_view(), name="payslip-list"),
     path("payslip-navbar/", payslip.PayslipNav.as_view(), name="payslip-navbar"),
+    path(
+        "payslip-run-list/<int:batch_id>/",
+        payslip.PayslipRunList.as_view(),
+        name="payslip-run-list",
+    ),
+    path(
+        "payslip-run-navbar/<int:batch_id>/",
+        payslip.PayslipRunNav.as_view(),
+        name="payslip-run-navbar",
+    ),
     path(
         "payslip-bulk-export-data",
         payslip.PayslipBulkExport.as_view(),
@@ -380,6 +439,11 @@ urlpatterns = [
         "get-assigned-leaves/",
         component_views.get_assigned_leaves,
         name="get-assigned-leaves",
+    ),
+    path(
+        "bonus-points-note/",
+        component_views.bonus_points_note,
+        name="bonus-points-note",
     ),
     path(
         "approve-reimbursements/",

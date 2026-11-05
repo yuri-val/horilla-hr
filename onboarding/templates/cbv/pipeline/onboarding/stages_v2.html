@@ -1,0 +1,104 @@
+{% load i18n recruitmentfilters generic_template_filters %}
+{# Mirrors horilla_theme/templates/cbv/pipeline/stages.html (the template  #}
+{# actually rendered by /recruitment/cbv-pipeline/): shared .oh-tabs__movable #}
+{# card framing (border, tinted background) and the header dropdown moved   #}
+{# out in favour of the per-stage "Actions" button inside this stage's own   #}
+{# body (cbv/pipeline/onboarding/candidate_list.html), plus stages with no   #}
+{# candidates collapsed on first render. #}
+<div id="{{view_id}}">
+  {% for group in groups %}
+  <div id="{{selected_instances_key_name}}{{ group.id }}" data-ids="[]"></div>
+  <div class="oh-tabs__movable-area mb-2">
+    <div class="oh-tabs__movable group">
+      <div class="oh-tabs__movable-header bg-primary-100 text-primary-600 group-hover:bg-primary-200" style="cursor:pointer;"
+           onclick="var icon = this.querySelector('.movable-toggle-icon'); if (icon) { var name = icon.getAttribute('name'); icon.setAttribute('name', name === 'chevron-down-outline' ? 'chevron-up-outline' : 'chevron-down-outline'); } $(this).parent().find('.oh-tabs__movable-body').toggleClass('d-none');">
+        <span class="oh-tabs__movable-title" style="display:flex;align-items:center;gap:0.5rem;">
+          <span class="stage-count-badge w-6 h-6 bg-primary-600 rounded-full text-white flex items-center justify-center text-xs"
+                data-server-count="{{ group.candidate_count }}">
+            {{ group.candidate_count }}
+          </span>
+          {{group}}
+        </span>
+
+        {# The per-stage actions (Edit/Bulk mail/Delete) now render as      #}
+        {# their own "Actions" button inside this stage's own body          #}
+        {# (cbv/pipeline/onboarding/candidate_list.html), not here - only   #}
+        {# the fold chevron (pure view state) stays in-header.              #}
+        <div class="flex items-center gap-4">
+          <ion-icon name="{% if group.candidate_count == 0 %}chevron-down-outline{% else %}chevron-up-outline{% endif %}" class="movable-toggle-icon icon text-lg"></ion-icon>
+        </div>
+      </div>
+      {# Collapse empty stages immediately on render #}
+      <div
+        class="oh-tabs__movable-body position-relative{% if group.candidate_count == 0 %} d-none{% endif %}"
+        hx-get="{{url}}?{% for parameter in parameters %}{{parameter|format:group}}&{% endfor %}{{request.GET.urlencode}}"
+        hx-trigger="load"
+        data-count-loaded="1"
+      ></div>
+    </div>
+  </div>
+  {% endfor %}
+  <script>
+    (function () {
+      var VIEW_ID = "{{view_id}}";
+
+      function refreshStageBadgesFromHtmx() {
+        var $root = $("#" + VIEW_ID);
+        if (!$root.length) return;
+
+        $root.find(".oh-tabs__movable-body").each(function () {
+          var $body = $(this);
+          var count = $body.find("[data-total-count]").attr("data-total-count");
+          if (count !== undefined) {
+            var $movable = $body.closest(".oh-tabs__movable");
+            $movable
+              .find(".stage-count-badge")
+              .text(Number(count) > 999 ? "999+" : count)
+              .attr("title", count);
+          }
+        });
+      }
+
+      var HANDLER_KEY = "__stageBadgeHandler_" + VIEW_ID;
+      if (window[HANDLER_KEY]) {
+        document.body.removeEventListener("htmx:afterSettle", window[HANDLER_KEY]);
+      }
+      window[HANDLER_KEY] = refreshStageBadgesFromHtmx;
+      document.body.addEventListener("htmx:afterSettle", refreshStageBadgesFromHtmx);
+    })();
+  </script>
+  <script>
+    (function () {
+      var VIEW_ID = "{{view_id}}";
+
+      // ── Job tab's own badge: total across every stage below ─────────────
+      // The tab bar (horilla_tabs.html) is rendered once, so its badge is
+      // patched here, found via the tab button whose data-target points at
+      // this content div's id. It is the sum of the stage counts, refreshed
+      // whenever a stage count changes (add / move / delete).
+      function syncTabBadge() {
+        var contentEl = document.getElementById(VIEW_ID);
+        var tabContent = contentEl && contentEl.closest(".oh-tabs__content");
+        if (!tabContent) return;
+        var tabButton = document.querySelector('[data-target="#' + tabContent.id + '"]');
+        var badge = tabButton && tabButton.querySelector(".tab-badge");
+        if (!badge) return;
+        var total = 0;
+        contentEl.querySelectorAll(".stage-count-badge").forEach(function (b) {
+          total += parseInt(b.textContent, 10) || 0;
+        });
+        badge.textContent = total > 999 ? "999+" : total;
+        badge.title = total + " " + (badge.getAttribute("data-badge-label") || "Items");
+      }
+
+      syncTabBadge();
+      // Keep it live as stage counts change.
+      var TAB_KEY = "__tabBadgeHandler_" + VIEW_ID;
+      if (window[TAB_KEY]) {
+        document.body.removeEventListener("htmx:afterSettle", window[TAB_KEY]);
+      }
+      window[TAB_KEY] = syncTabBadge;
+      document.body.addEventListener("htmx:afterSettle", syncTabBadge);
+    })();
+  </script>
+</div>

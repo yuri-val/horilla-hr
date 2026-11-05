@@ -10,11 +10,14 @@ from datetime import timedelta
 from urllib.parse import parse_qs
 
 from django.contrib import messages
+from django.db.models import Q
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
+from django.utils.translation import gettext_noop
 
+from base.forms import TagsForm
 from base.methods import (
     closest_numbers,
     eval_validate,
@@ -37,14 +40,24 @@ from horilla_auth.models import HorillaUser
 from notifications.signals import notify
 
 
+def _visible_policies(request, policies):
+    """
+    Restrict policies to the ones marked visible to all, or specifically
+    targeted at the requesting employee via employees/department/job position.
+    """
+    if request.user.has_perm("employee.view_policy"):
+        return policies
+    employee = Employee.objects.filter(employee_user_id=request.user).first()
+    targeted = Q(filtered_employees=employee) if employee else Q(pk__in=[])
+    return policies.filter(Q(is_visible_to_all=True) | targeted).distinct()
+
+
 @login_required
 def view_policies(request):
     """
     Method is used render template to view all the policy records
     """
-    policies = Policy.objects.all()
-    if not request.user.has_perm("employee.view_policy"):
-        policies = policies.filter(is_visible_to_all=True)
+    policies = _visible_policies(request, Policy.objects.all())
     return render(
         request,
         "policies/view_policies.html",
@@ -80,11 +93,77 @@ def policies_discipline_policies_tab(request):
 
 @login_required
 @hx_request_required
+def policies_discipline_faq_tab(request):
+    """
+    HTMX tab body for FAQs under policies & discipline. Reuses the FAQ
+    model/templates from the helpdesk app -- only this page's tab and
+    the standalone helpdesk FAQ URLs surface it, the feature itself
+    still lives in helpdesk.
+    """
+    from helpdesk.models import FAQ, FAQCategory
+
+    faq_categories = FAQCategory.objects.all()
+    questions = FAQ.objects.values_list("question", flat=True)
+    return render(
+        request,
+        "policies/policies_discipline_faq_tab.html",
+        {
+            "faq_categories": faq_categories,
+            "questions": list(questions),
+            "embed_in_policies": True,
+        },
+    )
+
+
+@login_required
+@hx_request_required
+def policies_discipline_faq_view(request, obj_id):
+    """
+    HTMX fragment showing one FAQ category's questions, swapped into the
+    same tab container as policies_discipline_faq_tab() above -- staying on
+    the Policies & Discipline page instead of navigating to helpdesk's own
+    standalone FAQ page (helpdesk.views.faq_view), which always renders a
+    full index.html page.
+    """
+    from helpdesk.filter import FAQFilter
+    from helpdesk.models import FAQ, FAQCategory
+
+    faq_category = FAQCategory.objects.filter(id=obj_id).first()
+    if not faq_category:
+        messages.info(request, _("No FAQ found for the given category."))
+        return policies_discipline_faq_tab(request)
+
+    faqs = FAQ.objects.filter(category=obj_id)
+    faqs = paginator_qry(faqs, request.GET.get("page"))
+    return render(
+        request,
+        "policies/policies_discipline_faq_list.html",
+        {
+            "faqs": faqs,
+            "f": FAQFilter(request.GET),
+            "cat_id": obj_id,
+            "pd": request.GET.urlencode(),
+            "create_tag_f": TagsForm(),
+        },
+    )
+
+
+@login_required
+@hx_request_required
 def policies_discipline_action_type_tab(request):
     """
     HTMX tab body for disciplinary action types under policies & discipline.
     """
     return render(request, "policies/policies_discipline_action_type_tab.html")
+
+
+@login_required
+@hx_request_required
+def policies_discipline_penalty_tab(request):
+    """
+    HTMX tab body for penalties under policies & discipline.
+    """
+    return render(request, "policies/policies_discipline_penalty_tab.html")
 
 
 @login_required
@@ -115,9 +194,7 @@ def search_policies(request):
     """
     This method is used to search in policies
     """
-    policies = PolicyFilter(request.GET).qs
-    if not request.user.has_perm("employee.view_policy"):
-        policies = policies.filter(is_visible_to_all=True)
+    policies = _visible_policies(request, PolicyFilter(request.GET).qs)
     return render(
         request,
         "policies/records.html",
@@ -135,7 +212,11 @@ def view_policy(request):
     This method is used to view the policy
     """
     instance_id = request.GET.get("instance_id")
-    policy = Policy.objects.filter(id=instance_id).first() if instance_id else None
+    policy = (
+        _visible_policies(request, Policy.objects.filter(id=instance_id)).first()
+        if instance_id
+        else None
+    )
     if not policy:
         messages.error(request, _("Policy not found."))
         return HorillaRedirect(request)
@@ -164,10 +245,8 @@ def delete_policies(request):
     except ValueError:
         messages.error(request, _("Policies Not Found"))
     if request.META.get("HTTP_HX_REQUEST"):
-        policies_qs = Policy.objects.all()
-        if not request.user.has_perm("employee.view_policy"):
-            policies_qs = policies_qs.filter(is_visible_to_all=True)
-        return render(
+        policies_qs = _visible_policies(request, Policy.objects.all())
+        response = render(
             request,
             "policies/records.html",
             {
@@ -175,6 +254,18 @@ def delete_policies(request):
                 "pd": request.GET.urlencode(),
             },
         )
+        # `hx-on::after-request="...reloadMessagesButton...click()..."` on the
+        # delete link (records.html) is the usual way this app surfaces a
+        # message after an htmx swap, but for this element it never actually
+        # fires -- the toast only ever showed up on the next full page load.
+        # A plain inline <script> in the swapped response, like every other
+        # htmx-driven view in this app that reliably shows its message,
+        # sidesteps that and runs immediately.
+        response.content += (
+            b"<script>var b=document.getElementById('reloadMessagesButton');"
+            b"if(b)b.click();</script>"
+        )
+        return response
     return redirect(view_policies)
 
 
@@ -199,7 +290,16 @@ def add_attachment(request):
         attachments.append(attachment)
     policy.attachments.add(*attachments)
     messages.success(request, _("Attachments added"))
-    return render(request, "policies/attachments.html", {"policy": policy})
+    response = render(request, "policies/attachments.html", {"policy": policy})
+    # See the matching comment in remove_attachment() below: the add-files
+    # form's own hx-target (#attachmentContainer) swaps out the element the
+    # request was made from, so an hx-on::after-request there would never
+    # fire -- an inline <script> in the response runs regardless.
+    response.content += (
+        b"<script>var b=document.getElementById('reloadMessagesButton');"
+        b"if(b)b.click();</script>"
+    )
+    return response
 
 
 @login_required
@@ -216,7 +316,18 @@ def remove_attachment(request):
 
     ids = request.GET.getlist("ids")
     PolicyMultipleFile.objects.filter(id__in=ids).delete()
-    return render(request, "policies/attachments.html", {"policy": policy})
+    messages.success(request, _("Attachment removed"))
+    response = render(request, "policies/attachments.html", {"policy": policy})
+    # `hx-on::after-request` on the remove icon never actually fires here --
+    # the icon's own hx-target (#attachmentContainer) swaps out the content it
+    # is itself part of before the event can reach it, same as the toast-never-
+    # shows-until-refresh case already worked around in delete_policy() above.
+    # An inline <script> in the swapped response runs regardless.
+    response.content += (
+        b"<script>var b=document.getElementById('reloadMessagesButton');"
+        b"if(b)b.click();</script>"
+    )
+    return response
 
 
 @login_required
@@ -311,11 +422,7 @@ def create_actions(request):
             notify.send(
                 request.user.employee_get,
                 recipient=employees,
-                verb="Disciplinary action is taken on you.",
-                verb_ar="تم اتخاذ إجراء disziplinarisch ضدك.",
-                verb_de="Disziplinarische Maßnahmen wurden gegen Sie ergriffen.",
-                verb_es="Se ha tomado acción disciplinaria en tu contra.",
-                verb_fr="Des mesures disciplinaires ont été prises à votre encontre.",
+                verb=gettext_noop("Disciplinary action is taken on you."),
                 redirect="/employee/disciplinary-actions/",
                 icon="chatbox-ellipses",
             )
@@ -355,11 +462,7 @@ def update_actions(request, action_id):
             notify.send(
                 request.user.employee_get,
                 recipient=employees,
-                verb="Disciplinary action is taken on you.",
-                verb_ar="تم اتخاذ إجراء disziplinarisch ضدك.",
-                verb_de="Disziplinarische Maßnahmen wurden gegen Sie ergriffen.",
-                verb_es="Se ha tomado acción disciplinaria en tu contra.",
-                verb_fr="Des mesures disciplinaires ont été prises à votre encontre.",
+                verb=gettext_noop("Disciplinary action is taken on you."),
                 redirect="/employee/disciplinary-actions/",
                 icon="chatbox-ellipses",
             )

@@ -2,7 +2,8 @@
 {% load static i18n %}
 
 {% block content %}
-<script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+<script id="pd-apexcharts" src="https://cdn.jsdelivr.net/npm/apexcharts@7.8.0/dist/apexcharts.min.js"></script>
+{% include "components/legend_prefs.html" %}
 <style>
     :root {
         --pd-indigo: var(--primary-600, #E54F38);
@@ -40,20 +41,25 @@
     .pd-kpi-card__label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.5; margin-bottom: 4px; }
     .pd-kpi-card__value { font-size: 22px; font-weight: 800; line-height: 1; margin-bottom: 4px; }
     .pd-kpi-card__sub { font-size: 11px; opacity: 0.6; }
+    .pd-kpi-card__sub--compare { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; }
+    .pd-kpi-card__vs { font-size: 11px; font-weight: 500; opacity: 0.65; }
+    .pd-badge--muted { background: rgba(148,163,184,0.18); color: #64748b; }
     .pd-badge { display: inline-flex; align-items: center; gap: 3px; font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 999px; }
     .pd-badge--green { background: #dcfce7; color: #166534; } .pd-badge--amber { background: #fef3c7; color: #92400e; }
-    .pd-badge--red { background: #fee2e2; color: #991b1b; }
+    .pd-badge--red { background: #fee2e2; color: #991b1b; } .pd-badge--blue { background: #dbeafe; color: #1e40af; }
     .dark .pd-badge--green { background: #166534; color: #bbf7d0; } .dark .pd-badge--amber { background: #92400e; color: #fde68a; }
-    .dark .pd-badge--red { background: #7f1d1d; color: #fca5a5; }
+    .dark .pd-badge--red { background: #7f1d1d; color: #fca5a5; } .dark .pd-badge--blue { background: #1e3a8a; color: #bfdbfe; }
 
     /* Layout */
-    .pd-layout { display: grid; grid-template-columns: 1fr 300px; gap: 20px; align-items: start; }
+    .pd-layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 20px; align-items: start; }
     .pd-main { min-width: 0; }
-    .pd-sidebar { display: flex; flex-direction: column; gap: 16px; position: sticky; top: 90px; }
+    .pd-sidebar { display: flex; flex-direction: column; gap: 16px; position: sticky; top: 90px; max-height: calc(100vh - 90px - 24px); overflow-y: auto; }
+    .pd-sidebar::-webkit-scrollbar { width: 3px; }
+    .pd-sidebar::-webkit-scrollbar-thumb { border-radius: 3px; background: rgba(128,128,128,0.2); }
 
     /* Chart Grid */
-    .pd-chart-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-bottom: 20px; }
-    .pd-chart-card { border-radius: 12px; background: #ffffff; border: 1px solid rgba(128,128,128,0.12); overflow: visible; }
+    .pd-chart-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-bottom: 20px; }
+    .pd-chart-card { min-width: 0; border-radius: 12px; background: #ffffff; border: 1px solid rgba(128,128,128,0.12); overflow: visible; }
     .dark .pd-chart-card { background: #242424; border-color: rgba(255,255,255,0.08); }
     .pd-chart-card--wide { grid-column: span 2; }
     .pd-chart-card__header { padding: 14px 18px 0; display: flex; justify-content: space-between; align-items: center; }
@@ -68,10 +74,16 @@
     .pd-skeleton--kpi { height: 100px; }
 
     /* Sidebar panels */
-    .pd-info-panel { border-radius: 12px; background: #ffffff; border: 1px solid rgba(128,128,128,0.12); overflow: hidden; display: flex; flex-direction: column; }
+    .pd-info-panel { border-radius: 12px; background: #ffffff; border: 1px solid rgba(128,128,128,0.12); overflow: hidden; display: flex; flex-direction: column; flex-shrink: 0; }
     .dark .pd-info-panel { background: #242424; border-color: rgba(255,255,255,0.08); }
     .pd-info-panel__header { padding: 14px 16px 10px; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; border-bottom: 1px solid rgba(128,128,128,0.08); }
-    .pd-info-panel__title { font-size: 13px; font-weight: 700; }
+    .pd-info-panel__title { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; }
+    /* How many items the panel holds, beside its title. Hidden at zero. */
+    .pd-count-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 24px; height: 24px; padding: 0 6px; border-radius: 999px; background: var(--pd-indigo); color: #fff; font-size: 12px; font-weight: 600; line-height: 1; }
+    .pd-count-badge[hidden] { display: none; }
+    /* Title on top, the date period / basis the card lists on the line below. */
+    .pd-info-panel__heading { min-width: 0; }
+    .pd-info-panel__sub { font-size: 11px; opacity: 0.5; margin-top: 2px; }
     .pd-info-panel__body { padding: 8px 16px 12px; overflow-y: auto; flex: 1; max-height: 350px; }
     .pd-info-panel__empty { text-align: center; padding: 30px 0; opacity: 0.4; font-size: 12px; }
 
@@ -93,7 +105,8 @@
 
     /* Pipeline steps */
     .pd-pipeline { display: flex; gap: 4px; padding: 10px 0; }
-    .pd-pipeline-step { flex: 1; text-align: center; padding: 12px 8px; border-radius: 8px; }
+    .pd-pipeline-step { flex: 1; text-align: center; padding: 12px 8px; border-radius: 8px; text-decoration: none; color: inherit; display: block; transition: all 0.2s; }
+    .pd-pipeline-step:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.08); transform: translateY(-1px); text-decoration: none; color: inherit; }
     .pd-pipeline-step__count { font-size: 22px; font-weight: 800; line-height: 1; margin-bottom: 4px; }
     .pd-pipeline-step__label { font-size: 10px; font-weight: 600; text-transform: uppercase; opacity: 0.7; }
 
@@ -132,7 +145,7 @@
     @media (max-width: 640px) { .pd-customize-panel { width: 100%; right: -100%; } }
 
     /* Period Picker */
-    .pd-period-picker { display: none !important; /* TEMP: hide period picker */ align-items: center; gap: 6px; font-size: 12px; }
+    .pd-period-picker { display: flex; align-items: center; gap: 6px; font-size: 12px; }
     .pd-period-picker input[type="date"] { padding: 5px 8px; border-radius: 6px; border: 1px solid rgba(128,128,128,0.2); font-size: 12px; background: transparent; color: inherit; outline: none; transition: border-color 0.15s; }
     .pd-period-picker input[type="date"]:focus { border-color: var(--pd-indigo); }
     .pd-period-picker__sep { opacity: 0.4; font-size: 11px; }
@@ -151,10 +164,51 @@
     .pd-refresh__toggle:hover { opacity: 1; }
 
 
+    /* Standard chart tooltip card and chip legend, as on the main dashboard */
+    /* A long title wraps inside a bounded card instead of stretching the tooltip until it
+       flips off the chart and is clipped by the page edge; and it stacks above neighbours. */
+    .apexcharts-tooltip { z-index: 60 !important; }
+    .pd-tip { max-width: 260px; white-space: normal; overflow-wrap: anywhere; }
+    .pd-tip { min-width: 150px; padding: 10px 12px; font-size: 12px; }
+    .pd-tip__title { margin-bottom: 4px; font-size: 12px; font-weight: 700; }
+    .pd-tip__row { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-top: 4px; }
+    .pd-tip__label { display: inline-flex; align-items: center; gap: 6px; }
+    .pd-tip__dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .pd-tip__sub { font-weight: 400; opacity: 0.65; }
+    .pd-pie-legend { display: flex; flex-wrap: nowrap; align-items: center; justify-content: center; gap: 6px; padding: 6px 12px 14px; }
+    .pd-pie-chips { display: contents; }
+    .pd-pie-chip__name { max-width: 130px; overflow: hidden; text-overflow: ellipsis; }
+    .pd-pie-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border: 1px solid rgba(128,128,128,0.2); border-radius: 999px; background: none; color: inherit; font-size: 11px; font-weight: 500; white-space: nowrap; flex-shrink: 0; cursor: pointer; transition: opacity 0.15s, border-color 0.15s; }
+    .pd-pie-chip:hover { border-color: var(--pd-indigo); }
+    .pd-pie-chip.is-off { opacity: 0.45; }
+    .pd-pie-chip.is-off .pd-pie-chip__dot { filter: grayscale(1); }
+    .pd-pie-chip__dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .pd-pie-chip--more { text-transform: capitalize; color: var(--pd-indigo); font-weight: 600; border-style: dashed; }
+    .pd-pie-more { position: relative; display: inline-block; }
+    .pd-pie-pop { display: none; position: absolute; right: 0; bottom: 100%; padding-bottom: 8px; z-index: 40; }
+    .pd-pie-more:hover .pd-pie-pop, .pd-pie-more:focus-within .pd-pie-pop { display: block; }
+    .pd-pie-pop__box { width: max-content; min-width: 230px; max-width: 340px; border: 1px solid rgba(128,128,128,0.15); border-radius: 10px; background: #fff; box-shadow: 0 8px 28px rgba(0,0,0,0.15); padding: 8px 4px 6px; }
+    .dark .pd-pie-pop__box { background: #242424; }
+    .pd-pie-pop__list { max-height: 190px; overflow-y: auto; }
+    .pd-pie-pop__row { display: flex; align-items: center; gap: 8px; padding: 5px 10px; border-radius: 6px; font-size: 12px; cursor: pointer; }
+    .pd-pie-pop__row:hover { background: rgba(128,128,128,0.1); }
+    .pd-pie-pop__text { display: flex; flex: 1; flex-direction: column; min-width: 0; line-height: 1.25; }
+    .pd-pie-pop__text > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .pd-pie-pop__text > small { white-space: nowrap; font-size: 10px; opacity: 0.6; }
+    .pd-pie-pop__row input { accent-color: var(--pd-indigo); margin: 0; }
+    .pd-pie-pop__count { flex-shrink: 0; white-space: nowrap; margin-left: auto; font-size: 11px; opacity: 0.55; }
+    .pd-chart-card:has(.pd-pie-more:hover), .pd-chart-card:has(.pd-pie-more:focus-within) { z-index: 30; position: relative; }
+    .pd-loan-count { font-size: 11px; font-weight: 600; min-width: 34px; text-align: right; font-variant-numeric: tabular-nums; }
+
     /* Responsive */
-    @media (max-width: 1280px) { .pd-kpi-grid { grid-template-columns: repeat(3, 1fr); } .pd-layout { grid-template-columns: 1fr; } .pd-sidebar { position: static; display: grid; grid-template-columns: 1fr 1fr 1fr; } }
+    @media (max-width: 1280px) { .pd-kpi-grid { grid-template-columns: repeat(3, 1fr); } .pd-layout { grid-template-columns: 1fr; } .pd-sidebar { position: static; display: grid; grid-template-columns: 1fr 1fr 1fr; max-height: none; overflow-y: visible; } }
     @media (max-width: 1024px) { .pd-kpi-grid { grid-template-columns: repeat(2, 1fr); } .pd-chart-grid { grid-template-columns: 1fr; } .pd-chart-card--wide { grid-column: span 1; } .pd-sidebar { grid-template-columns: 1fr; } .pd-pipeline { flex-wrap: wrap; } .pd-pipeline-step { min-width: 70px; } }
     @media (max-width: 640px) { .pd-kpi-grid { grid-template-columns: 1fr; } }
+    /* Light card tooltip for legend chips (replaces the browser's dark native title box) */
+    .pd-pie-chip[data-tip] { position: relative; }
+    .pd-pie-chip[data-tip]::after { content: attr(data-tip); position: absolute; left: 50%; bottom: calc(100% + 8px); transform: translateX(-50%); padding: 6px 10px; border-radius: 8px; border: 1px solid rgba(128,128,128,0.2); background: #fff; color: #334155; box-shadow: 0 4px 16px rgba(0,0,0,0.12); font-size: 11px; font-weight: 500; white-space: nowrap; pointer-events: none; opacity: 0; visibility: hidden; transition: opacity 0.12s; z-index: 50; }
+    .pd-pie-chip[data-tip]:hover::after { opacity: 1; visibility: visible; }
+    .dark .pd-pie-chip[data-tip]::after { background: #242424; color: #e2e8f0; border-color: rgba(255,255,255,0.12); }
 </style>
 
 <div class="pd-dashboard">
@@ -166,15 +220,18 @@
             <div class="pd-refresh"><span class="pd-refresh__dot" id="pd-refresh-dot"></span><span id="pd-refresh-text">{% trans "Just now" %}</span><button class="pd-refresh__toggle" id="pd-refresh-toggle" title="{% trans 'Toggle auto-refresh' %}">⟳</button></div>
         </div>
         <div style="display:flex;gap:8px;">
-            <div class="pd-period-picker" hidden>
+            <div class="pd-period-picker">
+                <button class="pd-period-preset" data-preset="today">{% trans "Today" %}</button>
+                <button class="pd-period-preset" data-preset="this_week">{% trans "This Week" %}</button>
+                <button class="pd-period-preset" data-preset="last_week">{% trans "Last Week" %}</button>
                 <button class="pd-period-preset" data-preset="this_month">{% trans "This Month" %}</button>
                 <button class="pd-period-preset" data-preset="last_month">{% trans "Last Month" %}</button>
-                <button class="pd-period-preset" data-preset="this_quarter">{% trans "Quarter" %}</button>
+                <button class="pd-period-preset" data-preset="this_year">{% trans "This Year" %}</button>
                 <input type="date" id="pd-from-date" title="{% trans 'From' %}">
                 <span class="pd-period-picker__sep">&rarr;</span>
                 <input type="date" id="pd-to-date" title="{% trans 'To' %}">
             </div>
-            <button class="pd-btn-customize" id="pd-open-customize" title="{% trans 'Customize' %}">⚙ {% trans "Customize" %}</button>
+            <button class="oh-btn oh-btn--secondary" id="pd-open-customize" style="display: flex; align-items: center; gap: 5px; font-size: 13px" title="{% trans 'Customize' %}">⚙ {% trans "Customize" %}</button>
         </div>
     </div>
 
@@ -194,7 +251,7 @@
 
                 <!-- Payslip Status Pipeline -->
                 <div class="pd-chart-card pd-chart-card--wide" data-chart-id="payslip_pipeline" data-chart-label="{% trans 'Payslip Pipeline' %}">
-                    <div class="pd-chart-card__header"><div><div class="pd-chart-card__title">{% trans "Payslip Pipeline" %}</div><div class="pd-chart-card__subtitle">{% trans "Current month — status distribution" %}</div></div></div>
+                    <div class="pd-chart-card__header"><div><div class="pd-chart-card__title">{% trans "Payslip Pipeline" %}</div><div class="pd-chart-card__subtitle">{% trans "Selected period — status distribution" %}</div></div></div>
                     <div class="pd-chart-card__body"><div id="pd-pipeline"></div></div>
                 </div>
 
@@ -208,21 +265,31 @@
                 <div class="pd-chart-card" data-chart-id="dept_cost" data-chart-label="{% trans 'Cost by Department' %}">
                     <div class="pd-chart-card__header"><div><div class="pd-chart-card__title">{% trans "Cost by Department" %}</div><div class="pd-chart-card__subtitle"><span id="dept-month">{% trans "This month" %}</span> — {% trans "Net pay by department" %}</div></div></div>
                     <div class="pd-chart-card__body"><div id="chart-dept-cost"></div></div>
+                    <div class="pd-pie-legend" id="pd-legend-dept"></div>
                 </div>
 
                 <!-- Reimbursement Summary -->
                 <div class="pd-chart-card" data-chart-id="reimbursement" data-chart-label="{% trans 'Reimbursements' %}">
-                    <div class="pd-chart-card__header"><div><div class="pd-chart-card__title">{% trans "Reimbursements" %}</div><div class="pd-chart-card__subtitle">{% trans "Requests by type and status" %}</div></div></div>
+                    <div class="pd-chart-card__header"><div><div class="pd-chart-card__title">{% trans "Reimbursements" %}</div><div class="pd-chart-card__subtitle">{% trans "Requests by status" %}</div></div></div>
                     <div class="pd-chart-card__body"><div id="chart-reimbursement"></div></div>
+                    <div class="pd-pie-legend" id="pd-legend-reimbursement"></div>
                 </div>
 
-                <div class="pd-chart-card" data-chart-id="salary_dist" data-chart-label="{% trans 'Salary Distribution' %}">
-                    <div class="pd-chart-card__header"><div><div class="pd-chart-card__title">{% trans "Salary Distribution" %}</div><div class="pd-chart-card__subtitle">{% trans "Employee count by pay band" %}</div></div></div>
-                    <div class="pd-chart-card__body"><div id="chart-salary-dist"></div></div>
+                <!-- Pending Requests by Type -->
+                <div class="pd-chart-card" data-chart-id="pending_requests" data-chart-label="{% trans 'Reimbursements & Encashments' %}">
+                    <div class="pd-chart-card__header"><div><div class="pd-chart-card__title">{% trans "Reimbursements & Encashments" %}</div><div class="pd-chart-card__subtitle">{% trans "Pending requests by type" %}</div></div></div>
+                    <div class="pd-chart-card__body"><div id="chart-pending-requests"></div></div>
                 </div>
-                <div class="pd-chart-card" data-chart-id="component_breakdown" data-chart-label="{% trans 'Deduction Components' %}">
-                    <div class="pd-chart-card__header"><div><div class="pd-chart-card__title">{% trans "Deduction Components" %}</div><div class="pd-chart-card__subtitle">{% trans "Top components this period" %}</div></div></div>
-                    <div class="pd-chart-card__body"><div id="chart-components"></div></div>
+
+                <div class="pd-chart-card" data-chart-id="contribution_cost" data-chart-label="{% trans 'Contribution Cost' %}">
+                    <div class="pd-chart-card__header"><div><div class="pd-chart-card__title">{% trans "Contribution Cost" %}</div><div class="pd-chart-card__subtitle" id="contribution-basis">{% trans "Employee and employer share, paid payslips" %}</div></div></div>
+                    <div class="pd-chart-card__body"><div id="chart-contribution-cost"></div></div>
+                    <div class="pd-pie-legend" id="pd-legend-contribution"></div>
+                </div>
+                <div class="pd-chart-card" data-chart-id="run_coverage" data-chart-label="{% trans 'Payroll Run Progress' %}">
+                    <div class="pd-chart-card__header"><div><div class="pd-chart-card__title">{% trans "Payroll Run Progress" %}</div><div class="pd-chart-card__subtitle" id="coverage-basis">{% trans "Employees by payslip status" %}</div></div></div>
+                    <div class="pd-chart-card__body"><div id="chart-run-coverage"></div></div>
+                    <div class="pd-pie-legend" id="pd-legend-coverage"></div>
                 </div>
 
             </div>
@@ -232,17 +299,10 @@
         <div class="pd-sidebar">
             <div class="pd-info-panel">
                 <div class="pd-info-panel__header">
-                    <div class="pd-info-panel__title">{% trans "Top Earners" %}</div>
-                    <span style="font-size:11px;opacity:0.5;" id="earners-month">{% trans "This month" %}</span>
-                </div>
-                <div class="pd-info-panel__body" id="pd-top-earners">
-                    <div class="pd-info-panel__empty">{% trans "Loading..." %}</div>
-                </div>
-            </div>
-            <div class="pd-info-panel">
-                <div class="pd-info-panel__header">
-                    <div class="pd-info-panel__title">{% trans "Contracts Ending" %}</div>
-                    <span style="font-size:11px;opacity:0.5;">{% trans "Next 60 days" %}</span>
+                    <div class="pd-info-panel__heading">
+                        <div class="pd-info-panel__title">{% trans "Contracts Ending" %}<span id="pd-contracts-count" class="pd-count-badge" hidden title="{% trans 'Contracts ending or expired' %}">0</span></div>
+                        <div class="pd-info-panel__sub">{% trans "Next 60 days" %}</div>
+                    </div>
                 </div>
                 <div class="pd-info-panel__body" id="pd-contracts">
                     <div class="pd-info-panel__empty">{% trans "Loading..." %}</div>
@@ -250,7 +310,10 @@
             </div>
             <div class="pd-info-panel">
                 <div class="pd-info-panel__header">
-                    <div class="pd-info-panel__title">{% trans "Active Loans" %}</div>
+                    <div class="pd-info-panel__heading">
+                        <div class="pd-info-panel__title">{% trans "Active Loans" %}<span id="pd-loans-count" class="pd-count-badge" hidden title="{% trans 'Active loans' %}">0</span></div>
+                        <div class="pd-info-panel__sub" data-period-label></div>
+                    </div>
                 </div>
                 <div class="pd-info-panel__body" id="pd-loans">
                     <div class="pd-info-panel__empty">{% trans "Loading..." %}</div>
@@ -276,7 +339,7 @@
 </div>
 
 <script>
-(function() {
+function pdInit() {
     const isDark = document.documentElement.classList.contains('dark') || document.body.classList.contains('dark');
     const textColor = isDark ? '#e2e8f0' : '#334155';
     const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
@@ -284,41 +347,83 @@
     const COLORS = ['#E54F38','#22c55e','#f59e0b','#ef4444','#3b82f6','#a855f7','#06b6d4','#ec4899','#14b8a6','#f97316'];
     const emptyHtml = (msg) => `<div class="pd-empty"><img src="/static/images/ui/no_records.svg" alt="">${msg}</div>`;
     const fmt = v => Number(v).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
-    const empViewUrl = "{% url 'employee-view-individual' obj_id=0 %}";
-    const empUrlFor = id => id ? empViewUrl.replace('/0/', '/' + id + '/') : '#';
+    const CURRENCY_SYMBOL = "{{ currency|escapejs }}";
+    const CURRENCY_POSITION = "{{ position|escapejs }}";
+    const fmtMoney = v => CURRENCY_POSITION === 'postfix' ? `${fmt(v)} ${CURRENCY_SYMBOL}` : `${CURRENCY_SYMBOL} ${fmt(v)}`;
+    const payslipUrl = "{% url 'view-payslip' %}";
+    const payslipUrlFor = id => id ? `${payslipUrl}?employee_id=${id}` : '#';
+    const contractUrl = "{% url 'view-contract' %}";
+    const contractUrlFor = id => id ? `${contractUrl}?employee_id=${id}` : '#';
+    const loanUrl = "{% url 'view-loan' %}";
+    const loanUrlFor = id => id ? `${loanUrl}?employee_id=${id}` : '#';
 
     document.getElementById('pd-date').textContent = new Date().toLocaleDateString('en-US', {
         weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
     });
 
     // ── Period Picker ──
-    const PERIOD_KEY = 'pd_period_v2';
+    const PERIOD_KEY = 'pd_period_v3';
     const fromInput = document.getElementById('pd-from-date');
     const toInput = document.getElementById('pd-to-date');
-    function getToday() { return new Date().toISOString().split('T')[0]; }
-    function getFirstOfMonth(d) { const dt = new Date(d || getToday()); dt.setDate(1); return dt.toISOString().split('T')[0]; }
-    function getLastOfMonth(d) { const dt = new Date(d || getToday()); return new Date(dt.getFullYear(), dt.getMonth()+1, 0).toISOString().split('T')[0]; }
+    // Local calendar dates, not toISOString(): that is UTC, so in any timezone
+    // ahead of it a month's first day came out as the day before.
+    function iso(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+    function presetRange(p) {
+        const t = new Date(), y = t.getFullYear(), m = t.getMonth();
+        if (p === 'today') return [t, t];
+        if (p === 'this_week') { const s = new Date(y, m, t.getDate() - ((t.getDay() + 6) % 7)); return [s, new Date(s.getFullYear(), s.getMonth(), s.getDate() + 6)]; }
+        if (p === 'last_week') { const s = new Date(y, m, t.getDate() - ((t.getDay() + 6) % 7) - 7); return [s, new Date(s.getFullYear(), s.getMonth(), s.getDate() + 6)]; }
+        if (p === 'this_month') return [new Date(y, m, 1), new Date(y, m + 1, 0)];
+        if (p === 'last_month') return [new Date(y, m - 1, 1), new Date(y, m, 0)];
+        if (p === 'this_year') return [new Date(y, 0, 1), new Date(y, 11, 31)];
+        return null;
+    }
+    // Last month by default: the latest month whose payslips are complete.
     function initPeriod() {
         const saved = sessionStorage.getItem(PERIOD_KEY);
         if (saved) { try { const p = JSON.parse(saved); fromInput.value = p.from; toInput.value = p.to; return; } catch {} }
-        fromInput.value = getFirstOfMonth(); toInput.value = getLastOfMonth();
+        const [f, t] = presetRange('last_month');
+        fromInput.value = iso(f); toInput.value = iso(t);
     }
     function savePeriod() { sessionStorage.setItem(PERIOD_KEY, JSON.stringify({ from: fromInput.value, to: toInput.value })); }
+    function markActivePreset() {
+        document.querySelectorAll('.pd-period-preset').forEach(b => {
+            const r = presetRange(b.dataset.preset);
+            b.classList.toggle('pd-period-preset--active', !!r && iso(r[0]) === fromInput.value && iso(r[1]) === toInput.value);
+        });
+    }
     function periodParams() { const f = fromInput.value, t = toInput.value; return (f && t) ? ("from_date=" + encodeURIComponent(f) + "&to_date=" + encodeURIComponent(t)) : ""; }
     function urlWithPeriod(u) { return u + (u.includes('?') ? '&' : '?') + periodParams(); }
     function fetchP(url) { return fetch(urlWithPeriod(url)); }
     function setPreset(p) {
-        const t = new Date(); let f, to;
-        if (p === 'this_month') { f = new Date(t.getFullYear(), t.getMonth(), 1); to = new Date(t.getFullYear(), t.getMonth()+1, 0); }
-        else if (p === 'last_month') { f = new Date(t.getFullYear(), t.getMonth()-1, 1); to = new Date(t.getFullYear(), t.getMonth(), 0); }
-        else if (p === 'this_quarter') { f = new Date(t.getFullYear(), Math.floor(t.getMonth()/3)*3, 1); to = new Date(t.getFullYear(), Math.floor(t.getMonth()/3)*3+3, 0); }
-        fromInput.value = f.toISOString().split('T')[0]; toInput.value = to.toISOString().split('T')[0];
-        savePeriod(); document.querySelectorAll('.pd-period-preset').forEach(b => b.classList.toggle('pd-period-preset--active', b.dataset.preset === p));
-        location.reload();
+        const [f, to] = presetRange(p);
+        fromInput.value = iso(f); toInput.value = iso(to);
+        applyPeriod();
+    }
+    // Apply the period in place: remember it, re-mark the preset, then re-run every load.
+    function applyPeriod() {
+        savePeriod();
+        markActivePreset();
+        lastRefresh = Date.now();
+        updateRefreshText();
+        refreshAllData();
     }
     document.querySelectorAll('.pd-period-preset').forEach(b => b.addEventListener('click', () => setPreset(b.dataset.preset)));
-    [fromInput, toInput].forEach(i => i.addEventListener('change', () => { savePeriod(); location.reload(); }));
+    // The custom dates apply when the field loses focus, not on every change:
+    // picking a year or typing a date fires "change" several times on the way.
+    [fromInput, toInput].forEach(i => {
+        i.addEventListener('focus', () => { i.dataset.prev = i.value; });
+        i.addEventListener('blur', () => {
+            if (i.value && i.value !== i.dataset.prev && fromInput.value && toInput.value) applyPeriod();
+        });
+    });
+    function periodLabel() {
+        const active = document.querySelector('.pd-period-preset--active');
+        const d = v => new Date(v + 'T00:00:00').toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+        return (active ? active.textContent.trim() : '{% trans "Custom range"|escapejs %}') + ' (' + d(fromInput.value) + ' – ' + d(toInput.value) + ')';
+    }
     initPeriod();
+    markActivePreset();
 
     // ── Chart Customize ──
     const CUST_KEY = 'pd_chart_prefs';
@@ -372,6 +477,113 @@
     document.getElementById('pd-save-customize').addEventListener('click', () => { const p = getCustState(); saveCustPrefs(p); applyCustPrefs(p); closeCust(); });
     document.getElementById('pd-reset-customize').addEventListener('click', () => { localStorage.removeItem(CUST_KEY); location.reload(); });
 
+    // ── Standard tooltip and chip legend (same as the main dashboard) ──
+    const subTextColor = isDark ? '#64748b' : '#94a3b8';
+    const escHtml = v => String(v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const fmtMoneyHtml = v => escHtml(fmtMoney(v));
+    const TOOLTIP_STYLE = { theme: isDark ? 'dark' : 'light', style: { fontSize: '12px' } };
+    const LEGEND_STYLE = { position: 'bottom', labels: { colors: textColor }, fontSize: '11px', fontWeight: 500, markers: { width: 8, height: 8, radius: 3 }, itemMargin: { horizontal: 8 } };
+    const tipCard = (title, rows) => `<div class="pd-tip"><div class="pd-tip__title">${escHtml(title)}</div>`
+        + rows.map(r => `<div class="pd-tip__row"><span class="pd-tip__label">${r.color ? `<i class="pd-tip__dot" style="background:${r.color}"></i>` : ''}${escHtml(r.label)}</span><span${r.total ? ' style="font-weight:700"' : ''}>${escHtml(String(r.value))}${r.sub ? ` <span class="pd-tip__sub">${escHtml(r.sub)}</span>` : ''}</span></div>`).join('')
+        + '</div>';
+    // `intersect: false` + a custom card is what keeps the tooltip reliable:
+    // the default one only shows while the pointer is exactly on a thin bar.
+    const stdTooltip = ({ rowLabel = '', rows = null, title: titleFor = null, shared = true } = {}) => ({
+        ...TOOLTIP_STYLE, shared, intersect: !shared, fillSeriesColor: false,
+        custom: ({ series, seriesIndex, dataPointIndex, w }) => {
+            const g = w.globals;
+            const type = w.config.chart.type;
+            if (type === 'pie' || type === 'donut') {
+                const total = g.seriesTotals.reduce((a, b) => a + b, 0);
+                const v = series[seriesIndex];
+                return tipCard(g.labels[seriesIndex], [{ color: g.colors[seriesIndex], label: rowLabel, value: fmt(v), sub: total ? Math.round(v / total * 100) + '%' : '' }]);
+            }
+            const raw = (g.categoryLabels && g.categoryLabels[dataPointIndex]) || g.labels[dataPointIndex] || '';
+            const title = titleFor ? titleFor(dataPointIndex) : (Array.isArray(raw) ? raw.join(' ') : raw);
+            if (rows) return tipCard(title, rows(dataPointIndex, g));
+            const distributed = w.config.plotOptions.bar && w.config.plotOptions.bar.distributed;
+            return tipCard(title, series.map((s, i) => ({
+                color: distributed ? g.colors[dataPointIndex] : g.colors[i],
+                label: g.seriesNames[i] || rowLabel,
+                value: fmt(s[dataPointIndex]),
+            })));
+        },
+    });
+
+    // One row only: as many chips as fit, then a "+N" chip whose hover popover
+    // lists the rest with checkboxes. Unselected items are zeroed out of the series.
+    function createPieLegend({ el, chartKey, noun, topN = 5, toSeries = null }) {
+        const prefId = el.id || chartKey;
+        let items = [];
+        let selected = null;
+        const dot = c => c ? `<span class="pd-pie-chip__dot" style="background:${c}"></span>` : '';
+        const series = () => items.map(it => selected.has(it.name) ? it.value : 0);
+        function syncChart() {
+            const chart = chartInstances[chartKey];
+            if (chart) chart.updateSeries(toSeries ? toSeries(series()) : series());
+        }
+        let visible = 0;
+        const chipsHtml = k => items.slice(0, k).map(it => {
+            const on = selected.has(it.name);
+            return `<button type="button" class="pd-pie-chip${on ? '' : ' is-off'}" data-name="${escHtml(it.name)}" data-tip="${escHtml(it.name)}: ${it.detail != null ? escHtml(it.detail) : it.value}">${dot(it.color)}<span class="pd-pie-chip__name">${escHtml(it.name)}</span></button>`;
+        }).join('');
+        function refreshState() {
+            const chips = el.querySelector('.pd-pie-chips');
+            if (chips) chips.innerHTML = chipsHtml(visible);
+            el.querySelectorAll('input[data-name]').forEach(cb => { cb.checked = selected.has(cb.dataset.name); });
+        }
+        function toggle(name) {
+            if (selected.has(name)) { if (selected.size > 1) selected.delete(name); } else { selected.add(name); }
+            LegendPrefs.save(prefId, items.map(i => i.name), selected);
+            refreshState(); syncChart();
+        }
+        function build(k) {
+            visible = k;
+            const rest = items.slice(k);
+            let html = `<span class="pd-pie-chips">${chipsHtml(k)}</span>`;
+            if (rest.length) {
+                html += `<span class="pd-pie-more"><button type="button" class="pd-pie-chip pd-pie-chip--more">+${rest.length} ${escHtml(noun)}</button>`
+                    + `<div class="pd-pie-pop"><div class="pd-pie-pop__box"><div class="pd-pie-pop__list">`
+                    + rest.map(it => `<label class="pd-pie-pop__row"><input type="checkbox" data-name="${escHtml(it.name)}"${selected.has(it.name) ? ' checked' : ''}>${dot(it.color)}<span class="pd-pie-pop__text"><span>${escHtml(it.name)}</span>${it.detail != null ? `<small>${escHtml(it.detail)}</small>` : ''}</span><span class="pd-pie-pop__count">${it.value}</span></label>`).join('')
+                    + `</div></div></div></span>`;
+            }
+            el.innerHTML = html;
+        }
+        function render() {
+            let k = Math.min(topN, items.length);
+            build(k);
+            while (k > 1 && el.scrollWidth > el.clientWidth + 1) { k--; build(k); }
+        }
+        el.addEventListener('click', e => { const chip = e.target.closest('.pd-pie-chip[data-name]'); if (chip) toggle(chip.dataset.name); });
+        el.addEventListener('change', e => { if (e.target.matches('input[data-name]')) toggle(e.target.dataset.name); });
+        let resizeTimer = null;
+        window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (items.length) render(); }, 150); });
+        return {
+            set(newItems) {
+                items = newItems;
+                const names = items.map(i => i.name);
+                selected = LegendPrefs.initial(prefId, names, items.filter(i => i.off).map(i => i.name));  // items flagged off start unticked
+                render();
+            },
+            series,
+            clear() { items = []; el.innerHTML = ''; },
+        };
+    }
+
+    // Scrolling moves charts under a stationary pointer, and the browser fires
+    // synthetic mousemoves that make ApexCharts re-pick the hovered point (the
+    // tooltip values flicker/change). Ignore the pointer on charts while the
+    // page is scrolling and for a moment after.
+    let scrollIdle = null;
+    const scrollStyle = document.createElement('style');
+    scrollStyle.textContent = '.pd-scrolling .apexcharts-canvas { pointer-events: none !important; } .pd-scrolling .apexcharts-tooltip { display: none !important; }';
+    document.head.appendChild(scrollStyle);
+    window.addEventListener('scroll', () => {
+        document.body.classList.add('pd-scrolling');
+        clearTimeout(scrollIdle);
+        scrollIdle = setTimeout(() => document.body.classList.remove('pd-scrolling'), 150);
+    }, { passive: true, capture: true });
+
     // ── Chart instance registry ──
     // ApexCharts.render() always appends a new SVG into the target
     // element rather than replacing it, so calling the same chart
@@ -385,9 +597,21 @@
             chartInstances[key].destroy();
             chartInstances[key] = null;
         }
-        const chart = new ApexCharts(el, options);
+        // A draw can still be mounting when the next one replaces it (two loads close
+        // together, a tab coming back from the background). destroy() on a chart that has
+        // not mounted yet leaves its drawing behind and it lands in the page anyway: the same
+        // chart, twice. So each draw gets its own holder, and putting that holder in place
+        // throws away whatever the previous draw left, finished or not.
+        const holder = document.createElement('div');
+        el.replaceChildren(holder);
+        const chart = new ApexCharts(holder, options);
         chartInstances[key] = chart;
-        chart.render();
+        const drawn = chart.render();
+        // A chart replaced while it was still drawing would otherwise land in the page
+        // anyway, as a second copy; the stale one removes itself once it has mounted.
+        if (drawn && drawn.then) {
+            drawn.then(() => { if (chartInstances[key] !== chart) { try { chart.destroy(); } catch (e) { /* already gone */ } } });
+        }
         return chart;
     }
 
@@ -438,38 +662,42 @@
     fetchP("{% url 'payroll-dashboard-kpi' %}")
         .then(r => r.json())
         .then(data => {
-            const changeIcon = data.change_pct > 0 ? '↑' : data.change_pct < 0 ? '↓' : '→';
-            const changeClass = data.change_pct > 0 ? 'pd-badge--amber' : data.change_pct < 0 ? 'pd-badge--green' : '';
+            const hasPrev = data.change_pct !== null && data.change_pct !== undefined;
+            const changeIcon = !hasPrev || data.change_pct === 0 ? '→' : data.change_pct > 0 ? '↑' : '↓';
+            const changeClass = !hasPrev ? 'pd-badge--muted' : data.change_pct > 0 ? 'pd-badge--amber' : data.change_pct < 0 ? 'pd-badge--green' : 'pd-badge--blue';
+            const netCompare = hasPrev
+                ? `<span class="pd-badge ${changeClass}">${changeIcon} ${Math.abs(data.change_pct)}%</span><span class="pd-kpi-card__vs">{% trans "vs"|escapejs %} ${data.prev_month} · ${fmtMoneyHtml(data.prev_net)}</span>`
+                : `<span class="pd-kpi-card__vs">{% trans "No paid payslips in"|escapejs %} ${data.prev_month}</span>`;
             document.getElementById('pd-kpi-grid').innerHTML = `
-                <a href="{% url 'view-payslip' %}" class="pd-kpi-card">
-                    <div class="pd-kpi-card__icon pd-kpi-card__icon--green"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div>
+                <a href="{% url 'view-payslip' %}?start_date_from=${fromInput.value}&start_date_till=${toInput.value}&filter_applied=1" class="pd-kpi-card">
+                    <div class="pd-kpi-card__icon pd-kpi-card__icon--green" style="font-weight:700;">${escHtml(CURRENCY_SYMBOL)}</div>
                     <div class="pd-kpi-card__label">{% trans "Net Payroll"|escapejs %}</div>
-                    <div class="pd-kpi-card__value">${fmt(data.total_net)}</div>
-                    <div class="pd-kpi-card__sub"><span class="pd-badge ${changeClass}">${changeIcon} ${Math.abs(data.change_pct)}% {% trans "vs last month"|escapejs %}</span></div>
+                    <div class="pd-kpi-card__value">${fmtMoneyHtml(data.total_net)}</div>
+                    <div class="pd-kpi-card__sub pd-kpi-card__sub--compare">${netCompare}</div>
                 </a>
-                <a href="{% url 'view-payslip' %}" class="pd-kpi-card">
+                <a href="{% url 'view-payslip' %}?start_date_from=${fromInput.value}&start_date_till=${toInput.value}&filter_applied=1" class="pd-kpi-card">
                     <div class="pd-kpi-card__icon pd-kpi-card__icon--blue"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg></div>
                     <div class="pd-kpi-card__label">{% trans "Gross Pay"|escapejs %}</div>
-                    <div class="pd-kpi-card__value">${fmt(data.total_gross)}</div>
-                    <div class="pd-kpi-card__sub">${data.total_payslips} {% trans "payslips"|escapejs %}</div>
+                    <div class="pd-kpi-card__value">${fmtMoneyHtml(data.total_gross)}</div>
+                    <div class="pd-kpi-card__sub"><span class="pd-badge pd-badge--blue">${data.total_payslips} {% trans "Payslips"|escapejs %}</span></div>
                 </a>
-                <a href="{% url 'view-payslip' %}" class="pd-kpi-card">
+                <a href="{% url 'view-payslip' %}?start_date_from=${fromInput.value}&start_date_till=${toInput.value}&filter_applied=1" class="pd-kpi-card">
                     <div class="pd-kpi-card__icon pd-kpi-card__icon--red"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 18 13.5 8.5 8.5 13.5 1 6"/><polyline points="17 18 23 18 23 12"/></svg></div>
                     <div class="pd-kpi-card__label">{% trans "Deductions"|escapejs %}</div>
-                    <div class="pd-kpi-card__value">${fmt(data.total_deductions)}</div>
-                    <div class="pd-kpi-card__sub">${data.month}</div>
+                    <div class="pd-kpi-card__value">${fmtMoneyHtml(data.total_deductions)}</div>
+                    <div class="pd-kpi-card__sub"><span class="pd-badge pd-badge--blue">${data.month}</span></div>
                 </a>
-                <a href="{% url 'view-loan' %}" class="pd-kpi-card">
+                <a href="{% url 'view-loan' %}?open_tab=1&settled=False&filter_applied=1" class="pd-kpi-card">
                     <div class="pd-kpi-card__icon pd-kpi-card__icon--amber"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="22" x2="21" y2="22"/><line x1="6" y1="18" x2="6" y2="11"/><line x1="10" y1="18" x2="10" y2="11"/><line x1="14" y1="18" x2="14" y2="11"/><line x1="18" y1="18" x2="18" y2="11"/><polygon points="12 2 20 7 4 7"/></svg></div>
                     <div class="pd-kpi-card__label">{% trans "Active Loans"|escapejs %}</div>
                     <div class="pd-kpi-card__value">${data.active_loans}</div>
-                    <div class="pd-kpi-card__sub">${data.loan_amount > 0 ? fmt(data.loan_amount) + ' {% trans "total"|escapejs %}' : '{% trans "No active loans"|escapejs %}'}</div>
+                    <div class="pd-kpi-card__sub">${data.loan_amount > 0 ? '<span class="pd-badge pd-badge--amber">' + fmtMoneyHtml(data.loan_amount) + ' {% trans "Total"|escapejs %}</span>' : '<span class="pd-badge pd-badge--green">{% trans "No Active Loans"|escapejs %}</span>'}</div>
                 </a>
                 <a href="{% url 'view-reimbursement' %}?open_tab=1&status=requested&type=reimbursement&filter_applied=1" class="pd-kpi-card">
                     <div class="pd-kpi-card__icon pd-kpi-card__icon--purple"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></div>
                     <div class="pd-kpi-card__label">{% trans "Reimbursements"|escapejs %}</div>
                     <div class="pd-kpi-card__value">${data.pending_reimbursements}</div>
-                    <div class="pd-kpi-card__sub">{% trans "Pending requests"|escapejs %}</div>
+                    <div class="pd-kpi-card__sub"><span class="pd-badge pd-badge--amber">{% trans "Pending Requests"|escapejs %}</span></div>
                 </a>`;
         });
     }
@@ -485,10 +713,10 @@
             const colors = { draft: 'rgba(148,163,184,0.15)', review_ongoing: 'rgba(59,130,246,0.15)', confirmed: 'rgba(245,158,11,0.15)', paid: 'rgba(34,197,94,0.15)' };
             const textColors = { draft: '#64748b', review_ongoing: '#2563eb', confirmed: '#d97706', paid: '#16a34a' };
             el.innerHTML = '<div class="pd-pipeline">' + data.statuses.map(s =>
-                `<div class="pd-pipeline-step" style="background:${colors[s.status]};">
+                `<a href="{% url 'view-payslip' %}?status=${s.status}&start_date_from=${fromInput.value}&start_date_till=${toInput.value}&filter_applied=1" class="pd-pipeline-step" style="background:${colors[s.status]};">
                     <div class="pd-pipeline-step__count" style="color:${textColors[s.status]};">${s.count}</div>
                     <div class="pd-pipeline-step__label">${s.label}</div>
-                </div>`
+                </a>`
             ).join('<div style="display:flex;align-items:center;opacity:0.3;font-size:18px;">→</div>') + '</div>';
         });
     }
@@ -506,172 +734,240 @@
                     { name: '{% trans "Deductions"|escapejs %}', data: data.months.map(m => m.deductions) },
                     { name: '{% trans "Net"|escapejs %}', data: data.months.map(m => m.net) },
                 ],
-                chart: { type: 'area', height: 300, toolbar: { show: false }, background: 'transparent', fontFamily: 'inherit' },
+                chart: { type: 'area', height: 300, toolbar: { show: false }, zoom: { enabled: false, allowMouseWheelZoom: false }, background: 'transparent', fontFamily: 'inherit' },
                 colors: ['#3b82f6', '#ef4444', '#22c55e'],
                 fill: { type: 'gradient', gradient: { shadeIntensity: 1, opacityFrom: 0.3, opacityTo: 0.05, stops: [0, 95, 100] } },
                 stroke: { curve: 'smooth', width: 2.5 },
                 dataLabels: { enabled: false },
                 xaxis: { categories: data.months.map(m => m.month), labels: { style: { colors: textColor, fontSize: '11px' } }, axisBorder: { show: false }, axisTicks: { show: false } },
-                yaxis: { labels: { style: { colors: textColor }, formatter: v => fmt(v) } },
+                yaxis: { labels: { style: { colors: textColor }, formatter: v => fmtMoney(v) } },
                 grid: { borderColor: gridColor, strokeDashArray: 4 },
-                legend: { position: 'top', horizontalAlign: 'right', labels: { colors: textColor }, fontSize: '11px', markers: { width: 8, height: 8, radius: 2 } },
-                tooltip: { theme: isDark ? 'dark' : 'light', y: { formatter: v => fmt(v) } },
+                legend: { ...LEGEND_STYLE, position: 'top', horizontalAlign: 'right' },
+                tooltip: stdTooltip({ rows: (i, g) => [
+                    { color: g.colors[0], label: '{% trans "Gross"|escapejs %}', value: fmtMoney(g.series[0][i]) },
+                    { color: g.colors[1], label: '{% trans "Deductions"|escapejs %}', value: fmtMoney(g.series[1][i]) },
+                    { color: g.colors[2], label: '{% trans "Net"|escapejs %}', value: fmtMoney(g.series[2][i]) },
+                ] }),
             });
         });
     }
     loadPayrollTrend();
 
     // ─── DEPARTMENT COST ───
+    const DEPT_COLOR = i => COLORS[i % COLORS.length];
+    const deptLegend = createPieLegend({
+        el: document.getElementById('pd-legend-dept'),
+        chartKey: 'dept-cost',
+        noun: '{% trans "departments"|escapejs %}',
+        toSeries: vals => [{ name: '{% trans "Net"|escapejs %}', data: vals }],
+    });
     function loadDeptCost() {
     fetchP("{% url 'payroll-dashboard-dept' %}")
         .then(r => r.json())
         .then(data => {
             document.getElementById('dept-month').textContent = data.month;
-            if (!data.departments.length) { document.querySelector("#chart-dept-cost").innerHTML = emptyHtml('{% trans "No data"|escapejs %}'); return; }
+            if (!data.departments.length) { document.querySelector("#chart-dept-cost").innerHTML = emptyHtml('{% trans "No data"|escapejs %}'); deptLegend.clear(); return; }
+            const depts = data.departments;
+            deptLegend.set(depts.map((d, i) => ({ name: d.department, value: d.net, color: DEPT_COLOR(i), detail: fmtMoney(d.net) })));
             renderChart('dept-cost', document.querySelector("#chart-dept-cost"), {
-                series: [{ name: '{% trans "Net"|escapejs %}', data: data.departments.map(d => d.net) }],
-                chart: { type: 'bar', height: 300, toolbar: { show: false }, background: 'transparent', fontFamily: 'inherit',
+                series: [{ name: '{% trans "Net"|escapejs %}', data: deptLegend.series() }],
+                chart: { type: 'bar', height: 300, toolbar: { show: false }, zoom: { enabled: false, allowMouseWheelZoom: false }, background: 'transparent', fontFamily: 'inherit',
                     events: { dataPointSelection: (e, ctx, config) => {
-                        const d = data.departments[config.dataPointIndex];
+                        const d = depts[config.dataPointIndex];
                         const base = "{% url 'view-payslip' %}";
-                        if (d && d.dept_id) {
-                            window.location.href = base + "?department_id=" + d.dept_id;
-                        } else {
-                            window.location.href = base;
-                        }
+                        window.location.href = (d && d.dept_id) ? base + "?department_id=" + d.dept_id : base;
                     }}
                 },
-                colors: COLORS,
-                plotOptions: { bar: { borderRadius: 6, horizontal: true, barHeight: '55%', distributed: true } },
-                xaxis: { categories: data.departments.map(d => d.department), labels: { style: { colors: textColor }, formatter: v => fmt(v) } },
-                yaxis: { labels: { style: { colors: textColor, fontSize: '11px' } } },
+                colors: depts.map((d, i) => DEPT_COLOR(i)),
+                plotOptions: { bar: { borderRadius: 6, horizontal: false, columnWidth: '55%', distributed: true } },
+                xaxis: { categories: depts.map(d => d.department), labels: { show: false }, axisBorder: { show: false }, axisTicks: { show: false } },
+                yaxis: { labels: { style: { colors: textColor, fontSize: '11px' }, formatter: v => fmtMoney(v) } },
                 grid: { borderColor: gridColor, strokeDashArray: 4 },
-                dataLabels: { enabled: true, formatter: v => fmt(v), style: { fontSize: '11px' } },
+                dataLabels: { enabled: false },
                 legend: { show: false },
-                tooltip: { theme: isDark ? 'dark' : 'light', y: { formatter: (v, { dataPointIndex: i }) => `${fmt(v)} (${data.departments[i].count} payslips)` } },
+                tooltip: stdTooltip({ rows: (i, g) => [
+                    { color: DEPT_COLOR(i), label: '{% trans "Net pay"|escapejs %}', value: fmtMoney(g.series[0][i]) },
+                    { label: '{% trans "Payslips"|escapejs %}', value: depts[i].count },
+                ] }),
             });
         });
     }
     loadDeptCost();
 
     // ─── REIMBURSEMENT SUMMARY ───
+    const STATUS_COLOR = { requested: '#f59e0b', approved: '#22c55e', rejected: '#ef4444' };
+    const reimbLegend = createPieLegend({
+        el: document.getElementById('pd-legend-reimbursement'),
+        chartKey: 'reimbursement',
+        noun: '{% trans "more"|escapejs %}',
+    });
     function loadReimbursementSummary() {
     fetchP("{% url 'payroll-dashboard-reimbursement' %}")
         .then(r => r.json())
         .then(data => {
-            const s = data.summary;
             const el = document.querySelector("#chart-reimbursement");
-            if (s.requested === 0 && s.approved === 0 && s.rejected === 0) { el.innerHTML = emptyHtml('{% trans "No reimbursements"|escapejs %}'); return; }
-
-            if (data.by_type.length) {
-                renderChart('reimbursement', el, {
-                    series: data.by_type.map(t => t.count),
-                    chart: { type: 'donut', height: 280, background: 'transparent', fontFamily: 'inherit',
-                        events: { dataPointSelection: (event, ctx, opts) => {
-                            const t = data.by_type[opts.dataPointIndex];
-                            const base = "{% url 'view-reimbursement' %}";
-                            window.location.href = t && t.type_key
-                                ? base + "?type=" + encodeURIComponent(t.type_key)
-                                : base;
-                        }}
-                    },
-                    labels: data.by_type.map(t => t.type),
-                    colors: ['#E54F38', '#f59e0b', '#22c55e'],
-                    plotOptions: { pie: { donut: { size: '65%', labels: { show: true, total: { show: true, label: '{% trans "Total"|escapejs %}', color: textColor, fontSize: '12px', fontWeight: 600, formatter: w => w.globals.seriesTotals.reduce((a,b)=>a+b,0) } } } } },
-                    stroke: { width: 2, colors: [cardBg] },
-                    dataLabels: { enabled: false },
-                    legend: { position: 'bottom', labels: { colors: textColor }, fontSize: '11px' },
-                    tooltip: { theme: isDark ? 'dark' : 'light', y: { formatter: (v, { seriesIndex: i }) => `${v} (${fmt(data.by_type[i].amount)})` } },
-                });
-            } else {
-                el.innerHTML = `<div style="text-align:center;padding:20px;"><div style="font-size:24px;font-weight:800;">${s.requested + s.approved}</div><div style="font-size:12px;opacity:0.5;">{% trans "Total requests"|escapejs %}</div></div>`;
-            }
+            const statuses = data.by_status || [];
+            if (!statuses.length) { el.innerHTML = emptyHtml('{% trans "No reimbursements"|escapejs %}'); reimbLegend.clear(); return; }
+            reimbLegend.set(statuses.map(t => ({ name: t.label, value: t.count, color: STATUS_COLOR[t.status] || '#94a3b8', detail: fmtMoney(t.amount), off: t.status === 'approved' })));
+            renderChart('reimbursement', el, {
+                series: reimbLegend.series(),
+                chart: { type: 'donut', height: 280, background: 'transparent', fontFamily: 'inherit',
+                    events: { dataPointSelection: (event, ctx, opts) => {
+                        const t = statuses[opts.dataPointIndex];
+                        const base = "{% url 'view-reimbursement' %}";
+                        window.location.href = t ? base + "?open_tab=1&type=reimbursement&status=" + encodeURIComponent(t.status) + "&filter_applied=1" : base;
+                    }}
+                },
+                labels: statuses.map(t => t.label),
+                colors: statuses.map(t => STATUS_COLOR[t.status] || '#94a3b8'),
+                plotOptions: { pie: { donut: { size: '68%', labels: { show: true,
+                    name: { fontSize: '13px', fontWeight: 700, color: textColor },
+                    value: { fontSize: '22px', fontWeight: 800, color: textColor },
+                    total: { show: true, label: '{% trans "Total"|escapejs %}', color: subTextColor, fontSize: '12px', fontWeight: 600, formatter: w => w.globals.seriesTotals.reduce((a, b) => a + b, 0) } } } } },
+                stroke: { width: 3, colors: [cardBg] },
+                dataLabels: { enabled: false },
+                legend: { show: false },
+                tooltip: stdTooltip({ rowLabel: '{% trans "Requests"|escapejs %}' }),
+            });
         });
     }
     loadReimbursementSummary();
 
-    // ─── SALARY DISTRIBUTION ───
-    function loadSalaryDistribution() {
-    fetchP("{% url 'payroll-dashboard-salary-dist' %}")
+    // ─── PENDING REQUESTS BY TYPE ───
+    function loadPendingRequests() {
+    fetchP("{% url 'payroll-dashboard-pending-requests' %}")
         .then(r => r.json())
         .then(data => {
-            if (!data.bands.length) { document.querySelector("#chart-salary-dist").innerHTML = emptyHtml('{% trans "No salary data"|escapejs %}'); return; }
-            renderChart('salary-dist', document.querySelector("#chart-salary-dist"), {
-                series: [{ name: '{% trans "Employees"|escapejs %}', data: data.bands.map(b => b.count) }],
-                chart: { type: 'bar', height: 300, toolbar: { show: false }, background: 'transparent', fontFamily: 'inherit',
+            const el = document.querySelector("#chart-pending-requests");
+            const types = data.types || [];
+            if (!types.some(t => t.count)) {
+                if (chartInstances['pending-requests']) { chartInstances['pending-requests'].destroy(); chartInstances['pending-requests'] = null; }
+                el.innerHTML = emptyHtml('{% trans "No pending requests"|escapejs %}');
+                return;
+            }
+            renderChart('pending-requests', el, {
+                series: [{ name: '{% trans "Pending"|escapejs %}', data: types.map(t => t.count) }],
+                chart: { type: 'bar', height: 300, toolbar: { show: false }, zoom: { enabled: false, allowMouseWheelZoom: false }, background: 'transparent', fontFamily: 'inherit',
                     events: { dataPointSelection: (e, ctx, config) => {
-                        const b = data.bands[config.dataPointIndex];
-                        const base = "{% url 'employee-view' %}";
-                        if (b && b.min !== undefined) {
-                            window.location.href = base + "?employee_work_info__basic_salary__gte=" + b.min +
-                                "&employee_work_info__basic_salary__lt=" + b.max;
-                        } else {
-                            window.location.href = base;
-                        }
+                        const t = types[config.dataPointIndex];
+                        const base = "{% url 'view-reimbursement' %}";
+                        window.location.href = t ? base + "?open_tab=" + (config.dataPointIndex + 1) + "&status=requested&type=" + encodeURIComponent(t.type_key) + "&filter_applied=1" : base;
                     }}
                 },
-                colors: ['#E54F38'],
-                plotOptions: { bar: { borderRadius: 6, columnWidth: '55%' } },
-                xaxis: { categories: data.bands.map(b => b.label), labels: { style: { colors: textColor, fontSize: '10px' }, rotate: -45 }, axisBorder: { show: false }, axisTicks: { show: false } },
-                yaxis: { labels: { style: { colors: textColor } } },
+                colors: [STATUS_COLOR.requested],
+                plotOptions: { bar: { borderRadius: 6, columnWidth: '40%' } },
+                xaxis: { categories: types.map(t => t.type), labels: { style: { colors: textColor, fontSize: '11px' } }, axisBorder: { show: false }, axisTicks: { show: false } },
+                yaxis: { min: 0, forceNiceScale: true, labels: { style: { colors: textColor, fontSize: '11px' }, formatter: v => Math.round(v) } },
                 grid: { borderColor: gridColor, strokeDashArray: 4 },
-                dataLabels: { enabled: true, style: { fontSize: '11px', colors: ['#fff'] } },
-                tooltip: { theme: isDark ? 'dark' : 'light' },
+                dataLabels: { enabled: true, formatter: v => Math.round(v), style: { fontSize: '12px', fontWeight: 700, colors: ['#ffffff'] } },
+                legend: { show: false },
+                tooltip: stdTooltip({ shared: false, rows: (i, g) => [
+                    { color: STATUS_COLOR.requested, label: '{% trans "Pending"|escapejs %}', value: types[i].amount_display + ' (' + types[i].count + ')' },
+                ] }),
             });
         });
     }
-    loadSalaryDistribution();
+    loadPendingRequests();
 
-    // ─── DEDUCTION COMPONENTS ───
-    function loadDeductionComponents() {
-    fetchP("{% url 'payroll-dashboard-components' %}")
+    // ─── CONTRIBUTION COST ───
+    let contribComps = [];
+    const contribLegend = createPieLegend({
+        el: document.getElementById('pd-legend-contribution'),
+        chartKey: 'contribution-cost',
+        noun: '{% trans "more"|escapejs %}',
+        toSeries: vals => [
+            { name: '{% trans "Employee share"|escapejs %}', data: contribComps.map((c, i) => vals[i] ? c.employee : 0) },
+            { name: '{% trans "Employer share"|escapejs %}', data: contribComps.map((c, i) => vals[i] ? c.employer : 0) },
+        ],
+    });
+    function loadContributionCost() {
+    document.getElementById('contribution-basis').textContent = '{% trans "Paid payslips · based on the applied filter:"|escapejs %} ' + periodLabel();
+    fetchP("{% url 'payroll-dashboard-contribution-cost' %}")
         .then(r => r.json())
         .then(data => {
-            if (!data.components.length) { document.querySelector("#chart-components").innerHTML = emptyHtml('{% trans "No data"|escapejs %}'); return; }
-            renderChart('components', document.querySelector("#chart-components"), {
-                series: [{ name: '{% trans "Amount"|escapejs %}', data: data.components.map(c => c.amount) }],
-                chart: { type: 'bar', height: 300, toolbar: { show: false }, background: 'transparent', fontFamily: 'inherit',
-                    events: { dataPointSelection: (event, ctx, opts) => {
-                        const title = data.components[opts.dataPointIndex] && data.components[opts.dataPointIndex].title;
-                        const base = "{% url 'view-deduction' %}";
-                        window.location.href = title ? base + "?title=" + encodeURIComponent(title) : base;
+            const el = document.querySelector("#chart-contribution-cost");
+            if (!data.components.length) { el.innerHTML = emptyHtml('{% trans "No contributions in this period"|escapejs %}'); contribLegend.clear(); return; }
+            const comps = data.components;
+            // The code is the short name; where two components share one (the
+            // same contribution configured per company) the company is added.
+            const codeCount = {};
+            comps.forEach(c => { codeCount[c.code || c.title] = (codeCount[c.code || c.title] || 0) + 1; });
+            const axisLabel = c => {
+                const base = c.code || c.title;
+                return codeCount[base] > 1 && c.company ? base + ' · ' + c.company : base;
+            };
+            contribComps = comps;
+            contribLegend.set(comps.map(c => ({ name: axisLabel(c), value: c.total, color: null, detail: fmtMoney(c.total) })));
+            const shown = contribLegend.series();
+            renderChart('contribution-cost', el, {
+                series: [
+                    { name: '{% trans "Employee share"|escapejs %}', data: comps.map((c, i) => shown[i] ? c.employee : 0) },
+                    { name: '{% trans "Employer share"|escapejs %}', data: comps.map((c, i) => shown[i] ? c.employer : 0) },
+                ],
+                chart: { type: 'bar', stacked: true, height: 300, toolbar: { show: false }, zoom: { enabled: false, allowMouseWheelZoom: false }, background: 'transparent', fontFamily: 'inherit',
+                    events: { dataPointSelection: () => { window.location.href = "{% url 'payroll-contribution-list' %}?from_date=" + fromInput.value + "&to_date=" + toInput.value; } }
+                },
+                colors: ['#3b82f6', '#E54F38'],
+                plotOptions: { bar: { borderRadius: 4, columnWidth: '45%' } },
+                xaxis: { categories: comps.map(axisLabel), labels: { show: false }, axisBorder: { show: false }, axisTicks: { show: false } },
+                yaxis: { labels: { style: { colors: textColor, fontSize: '11px' }, formatter: v => fmtMoney(v) } },
+                grid: { borderColor: gridColor, strokeDashArray: 4 },
+                dataLabels: { enabled: false },
+                legend: { ...LEGEND_STYLE, position: 'top', horizontalAlign: 'right' },
+                // One category has no neighbours for a shared tooltip to span, so
+                // it shows nothing there: hovering the bar itself is what works.
+                tooltip: stdTooltip({ shared: comps.length > 1, title: i => comps[i].title + (comps[i].code ? ' (' + comps[i].code + ')' : '') + (comps[i].company ? ' · ' + comps[i].company : ''), rows: (i, g) => [
+                    { color: '#3b82f6', label: '{% trans "Employee share"|escapejs %}', value: fmtMoney(comps[i].employee) },
+                    { color: '#E54F38', label: '{% trans "Employer share"|escapejs %}', value: fmtMoney(comps[i].employer) },
+                    { label: '{% trans "Total"|escapejs %}', value: fmtMoney(comps[i].total), total: true },
+                    { label: '{% trans "Employees"|escapejs %}', value: comps[i].employees },
+                ] }),
+            });
+        });
+    }
+    loadContributionCost();
+
+    // ─── PAYROLL RUN PROGRESS ───
+    const COVERAGE_COLOR = { remaining: '#94a3b8', draft: '#a855f7', review_ongoing: '#3b82f6', confirmed: '#f59e0b', paid: '#22c55e' };
+    const coverageLegend = createPieLegend({
+        el: document.getElementById('pd-legend-coverage'),
+        chartKey: 'run-coverage',
+        noun: '{% trans "more"|escapejs %}',
+        topN: 5,
+    });
+    function loadRunCoverage() {
+    fetchP("{% url 'payroll-dashboard-run-coverage' %}")
+        .then(r => r.json())
+        .then(data => {
+            const el = document.querySelector("#chart-run-coverage");
+            document.getElementById('coverage-basis').textContent = data.remaining
+                ? data.remaining + ' {% trans "of"|escapejs %} ' + data.total + ' {% trans "employees still to run · based on the applied filter:"|escapejs %} ' + periodLabel()
+                : '{% trans "Every employee has a payslip · based on the applied filter:"|escapejs %} ' + periodLabel();
+            if (!data.total) { el.innerHTML = emptyHtml('{% trans "No employees with an active contract"|escapejs %}'); coverageLegend.clear(); return; }
+            const rows = data.statuses;
+            coverageLegend.set(rows.map(r => ({ name: r.label, value: r.count, color: COVERAGE_COLOR[r.status] })));
+            renderChart('run-coverage', el, {
+                series: coverageLegend.series(),
+                chart: { type: 'donut', height: 280, background: 'transparent', fontFamily: 'inherit',
+                    events: { dataPointSelection: (e, ctx, opts) => {
+                        const r = rows[opts.dataPointIndex];
+                        if (r && r.status !== 'remaining') window.location.href = "{% url 'view-payslip' %}?status=" + r.status + "&start_date_from=" + fromInput.value + "&start_date_till=" + toInput.value + "&filter_applied=1";
                     }}
                 },
-                colors: ['#ef4444'],
-                plotOptions: { bar: { borderRadius: 6, horizontal: true, barHeight: '55%' } },
-                xaxis: { categories: data.components.map(c => c.title), labels: { style: { colors: textColor }, formatter: v => fmt(v) } },
-                yaxis: { labels: { style: { colors: textColor, fontSize: '11px' } } },
-                grid: { borderColor: gridColor },
-                dataLabels: { enabled: true, formatter: v => fmt(v), style: { fontSize: '11px' } },
-                tooltip: { theme: isDark ? 'dark' : 'light', y: { formatter: v => fmt(v) } },
+                labels: rows.map(r => r.label),
+                colors: rows.map(r => COVERAGE_COLOR[r.status]),
+                plotOptions: { pie: { donut: { size: '68%', labels: { show: true,
+                    name: { fontSize: '13px', fontWeight: 700, color: textColor },
+                    value: { fontSize: '22px', fontWeight: 800, color: textColor },
+                    total: { show: true, label: '{% trans "Employees"|escapejs %}', color: subTextColor, fontSize: '12px', fontWeight: 600, formatter: w => w.globals.seriesTotals.reduce((a, b) => a + b, 0) } } } } },
+                stroke: { width: 3, colors: [cardBg] },
+                dataLabels: { enabled: false },
+                legend: { show: false },
+                tooltip: stdTooltip({ rowLabel: '{% trans "Employees"|escapejs %}' }),
             });
         });
     }
-    loadDeductionComponents();
-
-    // ─── TOP EARNERS ───
-    function loadTopEarners() {
-    fetchP("{% url 'payroll-dashboard-earners' %}")
-        .then(r => r.json())
-        .then(data => {
-            const el = document.getElementById('pd-top-earners');
-            document.getElementById('earners-month').textContent = data.month;
-            if (!data.earners.length) { el.innerHTML = '<div class="pd-info-panel__empty">{% trans "No payslips this month"|escapejs %}</div>'; return; }
-            el.innerHTML = data.earners.map(e => {
-                const initials = e.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
-                const avatarInner = e.avatar ? `<img src="${e.avatar}" alt="">` : initials;
-                return `<a href="${empUrlFor(e.id)}" class="pd-list-item">
-                    <div class="pd-list-item__avatar">${avatarInner}</div>
-                    <div class="pd-list-item__info">
-                        <div class="pd-list-item__name">${e.name}</div>
-                        <div class="pd-list-item__detail">{% trans "Gross"|escapejs %}: ${fmt(e.gross)}</div>
-                    </div>
-                    <div class="pd-list-item__value" style="color:var(--pd-green);">${fmt(e.net)}</div>
-                </a>`;
-            }).join('');
-        }).catch(() => { document.getElementById('pd-top-earners').innerHTML = '<div class="pd-info-panel__empty">{% trans "No data"|escapejs %}</div>'; });
-    }
-    loadTopEarners();
+    loadRunCoverage();
 
     // ─── CONTRACTS ENDING ───
     function loadContractsEnding() {
@@ -680,12 +976,13 @@
         .then(data => {
             const el = document.getElementById('pd-contracts');
             const items = [...data.ending_soon.map(c => ({...c, type: 'ending'})), ...data.expired.map(c => ({...c, type: 'expired'}))];
+            setCountBadge('pd-contracts-count', items.length);
             if (!items.length) { el.innerHTML = '<div class="pd-info-panel__empty">{% trans "No contracts ending soon"|escapejs %}</div>'; return; }
             el.innerHTML = items.map(c => {
                 const badge = c.type === 'ending'
                     ? `<span class="pd-badge pd-badge--amber">${c.days_left}d</span>`
                     : `<span class="pd-badge pd-badge--red">{% trans "Expired"|escapejs %}</span>`;
-                return `<a href="/employee/employee-view/${c.id}/" class="pd-list-item">
+                return `<a href="${contractUrlFor(c.id)}" class="pd-list-item">
                     <div class="pd-list-item__info">
                         <div class="pd-list-item__name">${c.name}</div>
                         <div class="pd-list-item__detail">${c.contract} · ${c.end_date}</div>
@@ -697,22 +994,31 @@
     }
     loadContractsEnding();
 
+    // Count beside a side panel's title; hidden when there is nothing in it.
+    function setCountBadge(id, n) {
+        const badge = document.getElementById(id);
+        if (!badge) return;
+        badge.textContent = n;
+        badge.hidden = !n;
+    }
+
     // ─── ACTIVE LOANS ───
     function loadActiveLoans() {
     fetchP("{% url 'payroll-dashboard-loans' %}")
         .then(r => r.json())
         .then(data => {
             const el = document.getElementById('pd-loans');
+            setCountBadge('pd-loans-count', data.loans.length);
             if (!data.loans.length) { el.innerHTML = '<div class="pd-info-panel__empty">{% trans "No active loans"|escapejs %}</div>'; return; }
             el.innerHTML = data.loans.map(l => {
-                return `<a href="${empUrlFor(l.employee_id)}" class="pd-list-item">
+                return `<a href="${loanUrlFor(l.employee_id)}" class="pd-list-item" title="{% trans "Remaining"|escapejs %}: ${fmtMoneyHtml(l.remaining)} / ${fmtMoneyHtml(l.amount)}">
                     <div class="pd-list-item__info">
                         <div class="pd-list-item__name">${l.employee}</div>
                         <div class="pd-list-item__detail">${l.title} · ${l.type}</div>
                     </div>
-                    <div style="display:flex;align-items:center;gap:6px;">
+                    <div style="display:flex;align-items:center;gap:8px;">
                         <div class="pd-loan-progress"><div class="pd-loan-progress__fill" style="width:${l.progress}%;"></div></div>
-                        <div class="pd-list-item__value">${fmt(l.remaining)}</div>
+                        <div class="pd-loan-count">${l.installments_paid}/${l.installments_total}</div>
                     </div>
                 </a>`;
             }).join('');
@@ -722,19 +1028,61 @@
 
     // ── Re-run every load/chart function above in place (used by the
     // auto-refresh timer instead of location.reload()).
+    function applyPeriodLabels() {
+        if (!fromInput.value || !toInput.value) return;
+        document.querySelectorAll('[data-period-label]').forEach(el => { el.textContent = periodLabel(); });
+    }
     function refreshAllData() {
+        applyPeriodLabels();
         loadKpiCards();
         loadPayslipPipeline();
         loadPayrollTrend();
         loadDeptCost();
         loadReimbursementSummary();
-        loadSalaryDistribution();
-        loadDeductionComponents();
-        loadTopEarners();
+        loadPendingRequests();
+        loadContributionCost();
+        loadRunCoverage();
         loadContractsEnding();
         loadActiveLoans();
     }
 
+}
+// When this page is swapped in by HTMX/boosted navigation the ApexCharts <script>
+// above is injected asynchronously, so it can still be loading when this inline
+// script runs. Wait for it instead of failing on the first chart.
+(function boot() {
+    if (window.ApexCharts) { pdInit(); return; }
+    const tag = document.getElementById('pd-apexcharts');
+    if (tag) tag.addEventListener('load', pdInit, { once: true });
+    else { const t = setInterval(() => { if (window.ApexCharts) { clearInterval(t); pdInit(); } }, 50); }
+})();
+
+/* Keep every chart tooltip inside its card. Apex flips a wide tooltip to the left of the
+   bar and, near the card's left edge, that puts it past the edge where the page clips it.
+   After Apex positions it, nudge it back in. */
+(function () {
+    if (window.__tooltipClamp) return;
+    window.__tooltipClamp = true;
+    var queued = false;
+    function clamp() {
+        queued = false;
+        document.querySelectorAll('.apexcharts-tooltip.apexcharts-active').forEach(function (t) {
+            var holder = t.closest('[id^="chart-"]') || t.parentElement;
+            var card = (holder && holder.parentElement) || holder;
+            if (!card) return;
+            var box = card.getBoundingClientRect(), r = t.getBoundingClientRect();
+            if (r.width > box.width) return;
+            var margin = 8, shift = 0;
+            if (r.left < box.left + margin) shift = box.left + margin - r.left;
+            else if (r.right > box.right - margin) shift = box.right - margin - r.right;
+            if (shift) t.style.left = (parseFloat(t.style.left) || 0) + shift + 'px';
+        });
+    }
+    // After Apex has placed the tooltip for this move (a moment later), pull it inside its card.
+    // No mutation observer: nothing here listens for its own change.
+    document.addEventListener('mousemove', function () {
+        if (!queued) { queued = true; setTimeout(clamp, 40); }
+    }, { passive: true });
 })();
 </script>
 {% endblock %}

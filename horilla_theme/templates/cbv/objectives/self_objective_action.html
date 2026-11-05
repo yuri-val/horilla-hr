@@ -1,18 +1,6 @@
 {% load i18n %}
 {% if perms.pms.change_objective or perms.pms.delete_objective %}
     <div class="flex items-center justify-center gap-1" onclick="event.stopPropagation()">
-            {% if perms.pms.change_objective %}
-                <a
-                    onclick="event.preventDefault();event.stopPropagation()"
-                    hx-get="{% url 'update-employee-objective' instance.get_employee_objective.id %}"
-                    hx-target="#genericModalBody"
-                    hx-swap="innerHTML"
-                    data-toggle="oh-modal-toggle"
-                    data-target="#genericModal"
-                    class="oh-btn oh-btn--light-bkg oh-btn--sq-sm"
-                    title="{% trans 'Edit' %}"
-                ><ion-icon name="create-outline"></ion-icon></a>
-            {% endif %}
             {% if perms.pms.delete_objective %}
                 {% if instance.get_employee_objective.archive %}
                     <form
@@ -47,6 +35,18 @@
                         </button>
                     </form>
                 {% endif %}
+            {% endif %}
+            {% if perms.pms.change_objective %}
+                <a
+                    onclick="event.preventDefault();event.stopPropagation()"
+                    hx-get="{% url 'update-employee-objective' instance.get_employee_objective.id %}"
+                    hx-target="#genericModalBody"
+                    hx-swap="innerHTML"
+                    data-toggle="oh-modal-toggle"
+                    data-target="#genericModal"
+                    class="oh-btn oh-btn--light-bkg oh-btn--sq-sm"
+                    title="{% trans 'Edit' %}"
+                ><ion-icon name="create-outline"></ion-icon></a>
             {% endif %}
             {% if perms.pms.delete_objective %}
                 <form

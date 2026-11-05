@@ -10,6 +10,7 @@ from django.shortcuts import render
 from django.urls import reverse, reverse_lazy
 from django.utils.decorators import method_decorator
 from django.utils.translation import gettext_lazy as _
+from django.utils.translation import gettext_noop
 
 from base.cbv.settings_rotatingwork import DynamicRotatingWorkTypeCreate
 from base.decorators import manager_can_enter
@@ -197,7 +198,6 @@ class RotatingWorkNavView(HorillaNavView):
                     data-target = "#genericModal"
                     hx-target="#genericModalBody"
                     hx-get ="{reverse('rotating-action-export')}"
-                    hx-vals='js:{{"has_selection": (JSON.parse(document.getElementById("selectedInstances")?.getAttribute("data-ids")||"[]").length>0)}}'
                     style="cursor: pointer;"
                 """,
                 },
@@ -304,7 +304,6 @@ class RotatingWorkExport(TemplateView):
         context = super().get_context_data(**kwargs)
         context["export_columns"] = export_columns
         context["export_filter"] = export_filter
-        context["hide_export_filters"] = self.request.GET.get("has_selection") == "true"
         return context
 
 
@@ -320,6 +319,17 @@ class RotatingWorkTypeFormView(HorillaFormView):
 
     new_display_title = _("Rotating Work Type Assign")
     dynamic_create_fields = [("rotating_work_type_id", DynamicRotatingWorkTypeCreate)]
+
+    def dispatch(self, request, *args, **kwargs):
+        # This endpoint returns only the modal form fragment, loaded from an
+        # employee's individual profile "Work Type" tab via ?emp_id=. There's
+        # no generic standalone page for it to send a genuine top-level
+        # navigation to, so show nothing instead of the raw, unstyled
+        # fragment (whose "search and pick" modal isn't hidden without
+        # site CSS).
+        if request.headers.get("Sec-Fetch-Mode") == "navigate":
+            return HttpResponse()
+        return super().dispatch(request, *args, **kwargs)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -364,11 +374,7 @@ class RotatingWorkTypeFormView(HorillaFormView):
                 notify.send(
                     self.request.user.employee_get,
                     recipient=users,
-                    verb="You are added to rotating work type",
-                    verb_ar="تمت إضافتك إلى نوع العمل المتناوب",
-                    verb_de="Sie werden zum rotierenden Arbeitstyp hinzugefügt",
-                    verb_es="Se le agrega al tipo de trabajo rotativo",
-                    verb_fr="Vous êtes ajouté au type de travail rotatif",
+                    verb=gettext_noop("You are added to rotating work type"),
                     icon="infinite",
                     redirect=reverse("employee-profile"),
                 )

@@ -18,19 +18,11 @@ from .models import Employee, Project, ProjectStage, Task, TimeSheet
 class ProjectFilter(HorillaFilterSet):
     search = django_filters.CharFilter(method="filter_by_project")
     search_field = django_filters.CharFilter(method="search_in")
-    # Dedicated comma-separated "Name or Badge ID" search, alongside the
-    # AJAX managers picker below rather than instead of it -- same field/
-    # behavior as every other modernized panel this session; see
-    # horilla.filters.filter_name_or_badge_terms for the shared matching
-    # logic. `managers` is the only employee-role field on this filter,
-    # so it has a clear single owner to search against.
     name_or_badge = django_filters.CharFilter(
         method="filter_name_or_badge", label=_("Name or Badge ID")
     )
 
     # HorillaFilterSet.ajax_fields (generic AJAX-loaded combobox mechanism)
-    # -- managers is a ManyToManyField to Employee, so it opts in here
-    # instead of pre-rendering the whole employee queryset as <option> tags.
     ajax_fields = {
         "managers": {
             "key": "project-managers",
@@ -56,6 +48,12 @@ class ProjectFilter(HorillaFilterSet):
         widget=forms.DateInput(attrs={"type": "date"}),
         label=_("Start From"),
     )
+    end_from = django_filters.DateFilter(
+        field_name="end_date",
+        lookup_expr="gte",
+        widget=forms.DateInput(attrs={"type": "date"}),
+        label=_("End From"),
+    )
     end_till = django_filters.DateFilter(
         field_name="end_date",
         lookup_expr="lte",
@@ -79,10 +77,7 @@ class ProjectFilter(HorillaFilterSet):
 
     def filter_name_or_badge(self, queryset, name, value):
         """
-        Filter panel's dedicated "Name or Badge ID" field (see
-        name_or_badge above) -- see horilla.filters.
-        filter_name_or_badge_terms for the shared comma-separated
-        matching logic.
+        Filter with a comma-separated list of names or badge IDs
         """
         return filter_name_or_badge_terms(
             queryset,
@@ -128,19 +123,39 @@ class TaskFilter(FilterSet):
 
 class TaskAllFilter(HorillaFilterSet):
     search = django_filters.CharFilter(method="filter_by_task")
+    end_date = django_filters.DateFilter(
+        field_name="end_date",
+        widget=forms.HiddenInput(),
+    )
+    # Open (still to do / in progress) tasks only, used by the ESS dashboard's
+    # Assigned Tasks tile so the list matches the tile's count.
+    is_open = django_filters.BooleanFilter(
+        method="filter_is_open", label=_("Open tasks only")
+    )
+    end_from = django_filters.DateFilter(
+        field_name="end_date",
+        lookup_expr="gte",
+        widget=forms.DateInput(attrs={"type": "date"}),
+        label=_("End Date From"),
+    )
     end_till = django_filters.DateFilter(
         field_name="end_date",
         lookup_expr="lte",
         widget=forms.DateInput(attrs={"type": "date"}),
         label=_("End Date Till"),
     )
+    period_from = django_filters.DateFilter(
+        method="filter_period_from",
+        widget=forms.DateInput(attrs={"type": "date"}),
+        label=_("Active From"),
+    )
+    period_to = django_filters.DateFilter(
+        method="filter_period_to",
+        widget=forms.DateInput(attrs={"type": "date"}),
+        label=_("Active Till"),
+    )
 
     # HorillaFilterSet.ajax_fields (generic AJAX-loaded combobox mechanism)
-    # -- every model/queryset-backed field in the modern filter panel opts
-    # in here instead of pre-rendering its whole queryset as <option> tags.
-    # No dedicated "Name or Badge ID" field is added: task_managers and
-    # task_members are two separate employee-role fields with no single
-    # clear owner, same reasoning as the Recruitment Pipeline panel.
     ajax_fields = {
         "project": {
             "key": "task-project",
@@ -187,6 +202,19 @@ class TaskAllFilter(HorillaFilterSet):
             "is_active",
         ]
 
+    def filter_is_open(self, queryset, _name, value):
+        if value:
+            return queryset.filter(status__in=["to_do", "in_progress"])
+        return queryset
+
+    def filter_period_from(self, queryset, _name, value):
+        """Tasks that end on or after the date; no end date counts as open."""
+        return queryset.filter(Q(end_date__gte=value) | Q(end_date__isnull=True))
+
+    def filter_period_to(self, queryset, _name, value):
+        """Tasks that start on or before the date; no start date counts as started."""
+        return queryset.filter(Q(start_date__lte=value) | Q(start_date__isnull=True))
+
     def filter_by_task(self, queryset, _, value):
         queryset = queryset.filter(title__icontains=value)
         return queryset
@@ -213,14 +241,12 @@ class TimeSheetFilter(HorillaFilterSet):
         label=_("End Date Till"),
     )
 
-    task = django_filters.ModelChoiceFilter(
+    task = django_filters.ModelMultipleChoiceFilter(
         field_name="task_id", queryset=Task.objects.all()
     )
     search = django_filters.CharFilter(method="filter_by_employee")
 
     # HorillaFilterSet.ajax_fields (generic AJAX-loaded combobox mechanism)
-    # -- every model/queryset-backed field in the modern filter panel opts
-    # in here instead of pre-rendering its whole queryset as <option> tags.
     ajax_fields = {
         "project_id": {
             "key": "timesheet-project",

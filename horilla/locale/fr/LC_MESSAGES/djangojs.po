@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-08 09:16+0530\n"
+"POT-Creation-Date: 2026-09-10 13:50+0530\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -52,8 +52,35 @@ msgstr ""
 msgid "View Request"
 msgstr "Afficher la demande"
 
+msgid "Employees Imported Successfully"
+msgstr "Employés importés avec succès"
+
+msgid "You have"
+msgstr "Vous avez"
+
+msgid "errors. Do you want to download the error list?"
+msgstr "erreurs. Voulez-vous télécharger la liste des erreurs ?"
+
+msgid "Download error list & Skip Import"
+msgstr "Télécharger la liste des erreurs et ignorer l'importation"
+
+msgid "Download error list & Continue Import"
+msgstr "Télécharger la liste des erreurs et poursuivre l'importation"
+
+msgid "Invalid File"
+msgstr "Fichier invalide"
+
+msgid "Please upload a valid XLSX file."
+msgstr "Veuillez télécharger un fichier XLSX valide."
+
 msgid "Stage updated"
 msgstr "Étape mise à jour"
+
+msgid "Failed to update sequence: "
+msgstr "Échec de la mise à jour de la séquence : "
+
+msgid "Sequence updated"
+msgstr "Séquence mise à jour"
 
 msgid "Confirm Stage Change"
 msgstr "Confirmer le changement d'étape"
@@ -74,11 +101,41 @@ msgstr "Impossible de changer d'étape"
 msgid "This move is not allowed."
 msgstr "Ce déplacement n'est pas autorisé."
 
+msgid "Employees"
+msgstr "Employés"
+
+msgid "Number of days"
+msgstr "Nombre de jours"
+
+msgid "Draft"
+msgstr "Brouillon"
+
+msgid "Review Ongoing"
+msgstr "Revue en cours"
+
+msgid "Confirmed"
+msgstr "Confirmé"
+
+msgid "Paid"
+msgstr "Payé"
+
+msgid "Leave count"
+msgstr "Nombre de congés"
+
 msgid "Do you wish to create a Leave Report?"
 msgstr "Souhaitez-vous créer un rapport de congé ?"
 
 msgid "Do you want to reject the selected leave requests?"
 msgstr "Voulez-vous rejeter les demandes de congés sélectionnées ?"
+
+msgid "Onboarding Candidates"
+msgstr "Candidats d'intégration"
+
+msgid "Candidates per Stage"
+msgstr "Candidats par étape"
+
+msgid "Number of Candidates"
+msgstr "Nombre de candidats"
 
 msgid "Do you want to send the payslip by mail?"
 msgstr "Voulez-vous envoyer la fiche de paie par courrier ?"
@@ -89,6 +146,15 @@ msgstr "Nom des employés"
 msgid "Amount"
 msgstr "Montant"
 
+msgid "Objective"
+msgstr "Objectif"
+
+msgid "Key Result"
+msgstr "Résultat de la clé"
+
+msgid "Feedback"
+msgstr "Vos commentaires"
+
 msgid "Upload Completed!"
 msgstr "Téléversement terminé !"
 
@@ -97,6 +163,12 @@ msgstr "Importé avec succès !"
 
 msgid "Please upload a file with the .xlsx extension only."
 msgstr "Veuillez télécharger un fichier avec l'extension .xlsx uniquement."
+
+msgid "Hired Candidates"
+msgstr "Candidats embauchés"
+
+msgid "Stage sequence updated"
+msgstr "Séquence de l'étape mise à jour"
 
 msgid "Dashboard"
 msgstr "Tableau de bord"
@@ -291,7 +363,7 @@ msgid "minor"
 msgstr ""
 
 msgid "label"
-msgstr ""
+msgstr "Étiquette"
 
 msgid "arrowlen"
 msgstr ""
@@ -363,7 +435,7 @@ msgid "punc"
 msgstr ""
 
 msgid "name"
-msgstr ""
+msgstr "nom"
 
 msgid "keyword"
 msgstr ""
@@ -435,7 +507,7 @@ msgid "BlockStatement"
 msgstr ""
 
 msgid "close"
-msgstr ""
+msgstr "fermer"
 
 msgid "Confirm"
 msgstr "Confirmer"
@@ -490,16 +562,16 @@ msgstr ""
 "(to)s"
 
 msgid "Retry"
-msgstr ""
+msgstr "Réessayer"
 
 msgid "Something went wrong while loading this data."
-msgstr ""
+msgstr "Une erreur s'est produite lors du chargement de ces données."
 
 msgid "Request failed (status %(status)s)."
-msgstr ""
+msgstr "Échec de la requête (statut %(status)s)."
 
 msgid "The request took too long to respond."
-msgstr ""
+msgstr "La requête a mis trop de temps à répondre."
 
 #~ msgid "Some selected requests have already been approved."
 #~ msgstr "Certaines demandes sélectionnées ont déjà été approuvées."

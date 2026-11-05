@@ -55,8 +55,7 @@
     {% if leave_request.attachment %}
         <a href="{{leave_request.attachment.url}}" target="_blank" class="oh-timeoff-modal__download-link">
             <ion-icon class="me-1" name="download-outline"></ion-icon>
-            <span class="oh-timeoff-modal__download-link-text"></span>
-            {% trans "View attachment" %}
+            <span class="oh-timeoff-modal__download-link-text">{% trans "View attachment" %}</span>
         </a>
     {% endif %}
 </div>

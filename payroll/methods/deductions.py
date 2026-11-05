@@ -4,6 +4,7 @@ deductions.py
 This module is used to compute the deductions of employees
 """
 
+from payroll.methods.component_engine import own_structure_only
 from payroll.models.models import Deduction
 
 
@@ -17,12 +18,19 @@ def update_compensation_deduction(
         compensation_amount (_type_): Gross pay or Basic pay or employee
     """
     deduction_heads = (
-        Deduction.objects.filter(
-            update_compensation=compensation_type, specific_employees=employee
+        own_structure_only(
+            Deduction.objects.filter(
+                update_compensation=compensation_type, specific_employees=employee
+            ),
+            Deduction,
+            employee,
         )
         .exclude(one_time_date__lt=start_date)
         .exclude(one_time_date__gt=end_date)
         # .exclude(exclude_employees=employee)
+        # Each rate is taken from what the earlier ones left, so the order
+        # changes the amounts: (sequence, pk), as the payslip gatherers do.
+        .order_by("sequence", "pk")
     )
     deductions = []
     temp = compensation_amount
@@ -53,7 +61,21 @@ def update_compensation_deduction(
     }
 
 
+# Which standard component governs each kind of LoanAccount. The three share
+# one model and one generator, so without this the payout and the repayments
+# of a loan, an advance and a fine are all treated identically -- which is how
+# they came to be, not a decision anyone made.
+LOAN_PAYOUT_KEYS = {"loan": "loan_payout", "advanced_salary": "advance_payout"}
+LOAN_REPAYMENT_KEYS = {
+    "loan": "loan_repayment",
+    "advanced_salary": "advance_repayment",
+    "fine": "fine",
+}
+
+
 def create_deductions(instance, amount, date):
+    from payroll.system_components import policy_fields
+
     installment = Deduction()
     installment.title = f"{instance.title} - {date}"
     installment.include_active_employees = False
@@ -62,6 +84,17 @@ def create_deductions(instance, amount, date):
     installment.one_time_date = date
     installment.only_show_under_employee = True
     installment.is_installment = True
+
+    # How a repayment is treated -- before or after tax, and whether it
+    # prorates -- comes from its standard component rather than from whatever
+    # the model defaults happen to be. Those defaults made every repayment
+    # pre-tax and calendar-day prorated, which nobody chose and nothing said.
+    for field, value in policy_fields(
+        LOAN_REPAYMENT_KEYS.get(instance.type, "loan_repayment"),
+        employee=instance.employee_id,
+    ).items():
+        setattr(installment, field, value)
+
     installment.save()
     installment.include_active_employees = False
     installment.specific_employees.add(instance.employee_id)

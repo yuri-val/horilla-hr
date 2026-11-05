@@ -8,7 +8,7 @@
         margin-top: 0;
     }
 </style>
-<div id="{{ view_id|safe }}" class="hlv-container" data-list-path="{{request.path}}" data-selected-instances-key="{{selected_instances_key_id}}" data-total-count="{{queryset.paginator.count}}">
+<div id="{{ view_id|safe }}" class="hlv-container" data-list-path="{{request.path}}" data-selected-instances-key="{{selected_instances_key_id}}" data-model="{{model_label}}" data-total-count="{{queryset.paginator.count}}">
         <div
             class="oh-modal"
             id="bulkUpdateModal{{view_id|safe}}"
@@ -46,10 +46,36 @@
                     class="max-h-[calc(100vh_-_260px)] overflow-hidden overflow-y-auto overflow-x-auto heightContainer"
                 >
                     <table class="fixed-table w-full border-separate" data-bulk-select-option = "{{bulk_select_option|yesno:'true,false'}}">
+                        {% if not show_header %}
+                            {% comment %}
+                            A view with show_header=False has no <thead> at
+                            all -- normally the thing establishing column
+                            widths for a page that also opts into
+                            table-layout:fixed (a view rendering alongside
+                            others that share one external header, e.g.
+                            EmployeeObjectiveKeyResultDetailListView on the
+                            objective detail page). Without this, fixed
+                            layout has nothing to size columns from and falls
+                            back to squeezing them from the first body row's
+                            actual content instead -- title and start-value
+                            columns collapsing into each other, that kind of
+                            thing. header_attrs is the same per-column width
+                            already used for the (now absent) <th>s.
+                            {% endcomment %}
+                            <colgroup>
+                                {% if bulk_select_option %}<col style="width:30px">{% endif %}
+                                {% for cell in columns %}
+                                    <col {{ header_attrs|get_item:cell.1|safe }}>
+                                {% endfor %}
+                                {% if options or option_method %}<col {{ header_attrs.option|safe }}>{% endif %}
+                                {% if actions or action_method %}<col {{ header_attrs.action|safe }}>{% endif %}
+                            </colgroup>
+                        {% endif %}
+                        {% if show_header %}
                         <thead class="sticky top-0 bg-[white] z-[1]">
                             <tr class="border-b border-[#ececec]">
                                 {% if bulk_select_option %}
-                                    <th class="text-sm font-medium text-left p-1.5 w-[30px]">
+                                    <th class="text-sm font-medium text-left p-1.5 w-[30px]" onclick="if (event.target.tagName !== 'INPUT') $(this).find('input.bulk-list-table-row').first().click();">
                                         <div class="flex items-center justify-center">
                                             <input
                                                 type="checkbox"
@@ -76,7 +102,7 @@
                                         {{cell_attr|safe}}
                                         {% if cell.2 and not cell_attr %}style="min-width:180px;"{% endif %}
                                     >
-                                        <div class="flex gap-1.5 px-1.5 py-1.5 items-center{% for sort_map in sortby_mapping %}{% if sort_map.0 == cell.0 %}cursor-pointer{% endif %}{% endfor %}"
+                                        <div class="flex w-full gap-1.5 px-1.5 py-1.5 items-center{% if forloop.last and show_toggle_form and not options and not option_method and not actions and not action_method %} justify-between{% endif %}{% for sort_map in sortby_mapping %}{% if sort_map.0 == cell.0 %}cursor-pointer{% endif %}{% endfor %}"
                                             {% for sort_map in sortby_mapping %}
                                                 {% if sort_map.0 == cell.0 %}
                                                     hx-get="{{search_url}}?{{saved_filters.urlencode}}&{{sortby_key}}={{sort_map.1}}&filter_applied=on"
@@ -105,25 +131,82 @@
                                                 {% endfor %}
                                                 <span class="flex w-max"> {{cell.0|safe}} </span>
                                             </div>
+                                            {% if forloop.last and show_toggle_form and not options and not option_method and not actions and not action_method %}
+                                                <button
+                                                    type="button"
+                                                    class="oh-sticky-dropdown_btn is-column-config-trigger ml-auto shrink-0"
+                                                    onclick="event.stopPropagation()"
+                                                    @click="open = !open"
+                                                    :aria-expanded="open.toString()"
+                                                    aria-haspopup="true"
+                                                    title="{% trans 'Customize columns' %}"
+                                                    aria-label="{% trans 'Customize columns' %}"
+                                                >
+                                                    <ion-icon
+                                                        name="options-outline"
+                                                        role="img"
+                                                        class="md hydrated"
+                                                        aria-hidden="true"
+                                                    ></ion-icon>
+                                                </button>
+                                            {% endif %}
                                         </div>
                                     </th>
                                     {% endwith %}
                                 {% endfor %}
                                 {% if options or option_method %}
                                     <th class="option-col-header text-sm font-medium min-w-[85px]" {{header_attrs.option|safe}}>
-                                        <div class="p-1.5 flex items-center justify-center" {{header_attrs.option|safe}}>
+                                        <div class="p-1.5 flex items-center justify-center gap-1" {{header_attrs.option|safe}}>
                                             <span class="flex-1 text-center">{% trans "Options" %}</span>
+                                            {% if show_toggle_form and not actions and not action_method %}
+                                                <button
+                                                    type="button"
+                                                    class="oh-sticky-dropdown_btn is-column-config-trigger"
+                                                    onclick="event.stopPropagation()"
+                                                    @click="open = !open"
+                                                    :aria-expanded="open.toString()"
+                                                    aria-haspopup="true"
+                                                    title="{% trans 'Customize columns' %}"
+                                                    aria-label="{% trans 'Customize columns' %}"
+                                                >
+                                                    <ion-icon
+                                                        name="options-outline"
+                                                        role="img"
+                                                        class="md hydrated"
+                                                        aria-hidden="true"
+                                                    ></ion-icon>
+                                                </button>
+                                            {% endif %}
                                         </div>
                                     </th>
                                 {% endif %}
                                 {% if actions or action_method %}
                                     <th class="stickyright action-col-header text-sm font-medium min-w-[85px]" {{header_attrs.action|safe}} >
-                                        <div class="p-1.5 flex items-center justify-center" {{header_attrs.action|safe}}>
+                                        <div class="p-1.5 flex items-center justify-center gap-1" {{header_attrs.action|safe}}>
                                             <span class="flex-1 text-center">{% trans "Actions" %}</span>
+                                            {% if show_toggle_form %}
+                                                <button
+                                                    type="button"
+                                                    class="oh-sticky-dropdown_btn is-column-config-trigger"
+                                                    onclick="event.stopPropagation()"
+                                                    @click="open = !open"
+                                                    :aria-expanded="open.toString()"
+                                                    aria-haspopup="true"
+                                                    title="{% trans 'Customize columns' %}"
+                                                    aria-label="{% trans 'Customize columns' %}"
+                                                >
+                                                    <ion-icon
+                                                        name="options-outline"
+                                                        role="img"
+                                                        class="md hydrated"
+                                                        aria-hidden="true"
+                                                    ></ion-icon>
+                                                </button>
+                                            {% endif %}
                                         </div>
                                     </th>
                                 {% endif %}
-                                {% if show_toggle_form %}
+                                {% if show_toggle_form and not actions and not action_method and not options and not option_method and not columns %}
                                     <th class="text-sm font-medium w-[36px]">
                                         <div class="p-1.5 flex items-center justify-center">
                                             <button
@@ -148,6 +231,7 @@
                                 {% endif %}
                             </tr>
                         </thead>
+                        {% endif %}
                         <tbody>
                             {% for instance in queryset %}
                                 <tr
@@ -156,7 +240,7 @@
                                     {{row_attrs|format:instance|safe}}
                                 >
                                     {% if bulk_select_option %}
-                                    <td class="text-sm text-left px-1 py-1 text-[#666] rounded-lg h-[30px] {{row_status_class|format:instance|safe}}">
+                                    <td class="text-sm text-left px-1 py-1 text-[#666] rounded-lg h-[30px] {{row_status_class|format:instance|safe}}" prevent-dblclick="true" onclick="event.stopPropagation(); if (event.target.tagName !== 'INPUT') $(this).find('input.list-table-row').first().click();">
                                         <div class="flex items-center justify-center">
                                             <input
                                                 type="checkbox"
@@ -184,7 +268,7 @@
                                     {% endif %}
                                     {% for cell in columns %}
                                         {% with attribute=cell.1 index=forloop.counter %}
-                                            <td class="text-sm text-left px-1 py-1 text-[#666] h-[30px] max-w-0">
+                                            <td class="text-sm text-left px-1 py-1 text-[#666] h-[30px] max-w-0 {% if cell_class_method %}{{ instance|getattribute:cell_class_method|get_item:cell.1 }}{% endif %}">
                                                 {% if not cell.2 %}
                                                     {% with cell_value=instance|getattribute:attribute|selected_format:request.user.employee_get.employee_work_info.company_id %}
                                                         <div class="truncate" title="{{ cell_value|cell_tooltip }}">
@@ -275,7 +359,7 @@
 
                                         </td>
                                     {% endif %}
-                                    {% if show_toggle_form %}
+                                    {% if show_toggle_form and not actions and not action_method and not options and not option_method and not columns %}
                                         <td class="text-sm text-center px-1 py-1 text-[#666] h-[30px]"></td>
                                     {% endif %}
                                 </tr>

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-08 09:16+0530\n"
+"POT-Creation-Date: 2026-09-10 13:50+0530\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -49,8 +49,35 @@ msgstr "يوجد طلب حضور لتحديث هذا الحضور قبل الت�
 msgid "View Request"
 msgstr "عرض الطلب"
 
+msgid "Employees Imported Successfully"
+msgstr "تم استيراد الموظفين بنجاح"
+
+msgid "You have"
+msgstr "لديك"
+
+msgid "errors. Do you want to download the error list?"
+msgstr "أخطاء. هل تريد تنزيل قائمة الأخطاء؟"
+
+msgid "Download error list & Skip Import"
+msgstr "تنزيل قائمة الأخطاء وتخطي الاستيراد"
+
+msgid "Download error list & Continue Import"
+msgstr "تنزيل قائمة الأخطاء ومتابعة الاستيراد"
+
+msgid "Invalid File"
+msgstr "ملف غير صالح"
+
+msgid "Please upload a valid XLSX file."
+msgstr "يرجى رفع ملف XLSX صالح."
+
 msgid "Stage updated"
 msgstr "تم تحديث المرحلة"
+
+msgid "Failed to update sequence: "
+msgstr "فشل تحديث التسلسل: "
+
+msgid "Sequence updated"
+msgstr "تم تحديث التسلسل"
 
 msgid "Confirm Stage Change"
 msgstr "تأكيد تغيير المرحلة"
@@ -69,11 +96,41 @@ msgstr "لا يمكن تغيير المرحلة"
 msgid "This move is not allowed."
 msgstr "هذه الخطوة غير مسموح بها."
 
+msgid "Employees"
+msgstr "الموظفون"
+
+msgid "Number of days"
+msgstr "عدد الأيام"
+
+msgid "Draft"
+msgstr "مسودة"
+
+msgid "Review Ongoing"
+msgstr "مراجعة قيد التنفيذ"
+
+msgid "Confirmed"
+msgstr "مؤكد"
+
+msgid "Paid"
+msgstr "مدفوع"
+
+msgid "Leave count"
+msgstr "عدد الإجازات"
+
 msgid "Do you wish to create a Leave Report?"
 msgstr "هل ترغب في إنشاء تقرير إجازة؟"
 
 msgid "Do you want to reject the selected leave requests?"
 msgstr "هل تريد رفض طلبات الإجازة المحددة؟"
+
+msgid "Onboarding Candidates"
+msgstr "مرشحو الانضمام للعمل"
+
+msgid "Candidates per Stage"
+msgstr "المرشحون حسب المرحلة"
+
+msgid "Number of Candidates"
+msgstr "عدد المرشحين"
 
 msgid "Do you want to send the payslip by mail?"
 msgstr "هل تريد إرسال كشف الراتب عبر البريد الإلكتروني؟"
@@ -84,6 +141,15 @@ msgstr "أسماء الموظفين"
 msgid "Amount"
 msgstr "المبلغ"
 
+msgid "Objective"
+msgstr "الهدف"
+
+msgid "Key Result"
+msgstr "النتيجة الرئيسية"
+
+msgid "Feedback"
+msgstr "التعليقات"
+
 msgid "Upload Completed!"
 msgstr "تم التحميل!"
 
@@ -92,6 +158,12 @@ msgstr "تم الاستيراد بنجاح!"
 
 msgid "Please upload a file with the .xlsx extension only."
 msgstr "يرجى تحميل الملف بامتداد .xlsx فقط."
+
+msgid "Hired Candidates"
+msgstr "المرشحون المعينون"
+
+msgid "Stage sequence updated"
+msgstr "تم تحديث تسلسل المراحل"
 
 msgid "Dashboard"
 msgstr "لوحة التحكم"
@@ -286,7 +358,7 @@ msgid "minor"
 msgstr ""
 
 msgid "label"
-msgstr ""
+msgstr "تسمية"
 
 msgid "arrowlen"
 msgstr ""
@@ -358,7 +430,7 @@ msgid "punc"
 msgstr ""
 
 msgid "name"
-msgstr ""
+msgstr "الاسم"
 
 msgid "keyword"
 msgstr ""
@@ -430,7 +502,7 @@ msgid "BlockStatement"
 msgstr ""
 
 msgid "close"
-msgstr ""
+msgstr "إغلاق"
 
 msgid "Confirm"
 msgstr "تأكيد"

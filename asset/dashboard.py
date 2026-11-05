@@ -4,42 +4,28 @@ Modern asset dashboard views — KPI summary + ApexCharts.
 Accessible at /asset/dashboard/modern/ alongside the existing dashboard.
 """
 
-from datetime import date, timedelta
+import calendar
+from datetime import timedelta
 
 from django.db.models import Count, DecimalField, Q, Sum
 from django.db.models.functions import Coalesce
 from django.http import JsonResponse
 from django.shortcuts import render
+from django.utils import timezone
 from django.utils.translation import gettext as _
 
 from horilla.decorators import login_required, permission_required
 
 
 def _parse_period(request):
-    """Parse from_date and to_date from GET params. Defaults to current month."""
-    today = date.today()
-    from_str = request.GET.get("from_date")
-    to_str = request.GET.get("to_date")
-    try:
-        from_date = date.fromisoformat(from_str) if from_str else today.replace(day=1)
-    except (ValueError, TypeError):
-        from_date = today.replace(day=1)
-    try:
-        to_date = date.fromisoformat(to_str) if to_str else today
-    except (ValueError, TypeError):
-        to_date = today
+    """Return the current calendar month's bounds (first day to last day).
+
+    The dashboard always shows the current month; GET params are ignored.
+    """
+    today = timezone.now().date()
+    from_date = today.replace(day=1)
+    to_date = today.replace(day=calendar.monthrange(today.year, today.month)[1])
     return from_date, to_date
-
-
-def _assets_in_period(request):
-    """Return Asset queryset filtered to assets purchased in the picker range."""
-    from asset.models import Asset
-
-    from_date, to_date = _parse_period(request)
-    return Asset.objects.filter(
-        asset_purchase_date__gte=from_date,
-        asset_purchase_date__lte=to_date,
-    )
 
 
 @login_required
@@ -53,42 +39,43 @@ def asset_dashboard_view(request):
 def asset_kpi_data(request):
     """Return asset KPI summary data as JSON.
 
-    Assets purchased / total value reflect the picker range. Current-state KPIs
-    (in-use / available counts, return requests, expiring soon) ignore the picker.
+    Pending requests reflect the current month. Pure inventory-state KPIs
+    (total / in-use / available counts, service requests, expiring soon) are
+    live snapshots, independent of month.
     """
-    from asset.models import Asset, AssetAssignment, AssetRequest
+    from asset.models import Asset, AssetRequest, AssetServiceRequest
 
     from_date, to_date = _parse_period(request)
-    period_assets = _assets_in_period(request)
 
-    # Total assets reflects the full inventory, not the picker range
+    # Total assets reflects the full inventory, not the current-month filter
     total_assets = Asset.objects.count()
     in_use = Asset.objects.filter(asset_status="In use").count()
     available = Asset.objects.filter(asset_status="Available").count()
     not_available = Asset.objects.filter(asset_status="Not-Available").count()
 
-    # Pending requests is a current-state KPI — count all unresolved requests
-    # regardless of when they were raised, not just those in the picker range
+    # Pending requests raised this month, via asset_request_date (the actual
+    # request date), not created_at
     pending_requests = AssetRequest.objects.filter(
         asset_request_status="Requested",
         requested_employee_id__is_active=True,
+        asset_request_date__gte=from_date,
+        asset_request_date__lte=to_date,
     ).count()
 
-    total_value = period_assets.aggregate(
-        total=Coalesce(Sum("asset_purchase_cost"), 0, output_field=DecimalField())
-    )["total"]
-
-    # Expiring soon (next 30 days) — forward-looking, independent of picker
-    today = date.today()
+    # Expiring soon (next 30 days) — forward-looking, independent of month
+    today = timezone.now().date()
+    expiring_soon_from_date = today
+    expiring_soon_to_date = today + timedelta(days=30)
     expiring_soon = Asset.objects.filter(
-        expiry_date__gte=today,
-        expiry_date__lte=today + timedelta(days=30),
+        expiry_date__gte=expiring_soon_from_date,
+        expiry_date__lte=expiring_soon_to_date,
     ).count()
 
-    # Return requests pending — current state
-    return_requests = AssetAssignment.objects.filter(
-        return_request=True,
-        return_status__isnull=True,
+    # Requests raised by active employees only: the Service Request list the
+    # tile links to leaves out inactive employees' requests, so the count must
+    # too or the tile and the list disagree.
+    service_requests = AssetServiceRequest.objects.filter(
+        status="Requested", requested_employee_id__is_active=True
     ).count()
 
     return JsonResponse(
@@ -98,14 +85,16 @@ def asset_kpi_data(request):
             "available": available,
             "not_available": not_available,
             "pending_requests": pending_requests,
-            "total_value": float(total_value),
             "expiring_soon": expiring_soon,
-            "return_requests": return_requests,
-            # Echoed back so the "Total Value" card's click-through can
-            # filter to the exact same purchase-date range the sum above
-            # was computed from, instead of showing every asset.
+            "service_requests": service_requests,
             "period_from_date": from_date.isoformat(),
             "period_to_date": to_date.isoformat(),
+            # Echoed back so the "Expiring Soon" card's click-through uses
+            # the exact same forward-looking window expiring_soon was
+            # counted from -- this is independent of the current-month bounds
+            # above, so period_from_date/period_to_date would be the wrong bounds.
+            "expiring_soon_from_date": expiring_soon_from_date.isoformat(),
+            "expiring_soon_to_date": expiring_soon_to_date.isoformat(),
         }
     )
 
@@ -138,17 +127,21 @@ def asset_status_distribution(request):
 
 @login_required
 def asset_by_category(request):
-    """Asset count by category with in-use breakdown, for assets purchased in the picker range."""
+    """Asset count by category with in-use breakdown, across all assets."""
+    from asset.models import Asset
+
     categories = []
 
     try:
         data = (
-            _assets_in_period(request)
-            .values("asset_category_id", "asset_category_id__asset_category_name")
+            Asset.objects.values(
+                "asset_category_id", "asset_category_id__asset_category_name"
+            )
             .annotate(
                 total=Count("id"),
                 in_use=Count("id", filter=Q(asset_status="In use")),
                 available_count=Count("id", filter=Q(asset_status="Available")),
+                not_available_count=Count("id", filter=Q(asset_status="Not-Available")),
             )
             .order_by("-total")
         )
@@ -163,6 +156,10 @@ def asset_by_category(request):
                         "total": item["total"],
                         "in_use": item["in_use"],
                         "available": item["available_count"],
+                        # The third status. Left out, the stacked columns summed to less
+                        # than "total", and the list the column opens showed more assets
+                        # than the column did.
+                        "not_available": item["not_available_count"],
                     }
                 )
     except Exception:
@@ -173,14 +170,10 @@ def asset_by_category(request):
 
 @login_required
 def asset_request_status(request):
-    """Asset request status breakdown, filtered to requests raised in the picker range."""
+    """Asset request status breakdown across all requests."""
     from asset.models import AssetRequest
 
-    from_date, to_date = _parse_period(request)
-    requests_qs = AssetRequest.objects.filter(
-        created_at__date__gte=from_date,
-        created_at__date__lte=to_date,
-    )
+    requests_qs = AssetRequest.objects.all()
     statuses = [
         {
             "status": "Requested",
@@ -204,13 +197,16 @@ def asset_request_status(request):
 
 @login_required
 def asset_value_by_category(request):
-    """Total asset value by category, for assets purchased in the picker range."""
+    """Total asset value by category, across all assets."""
+    from asset.models import Asset
+
     categories = []
 
     try:
         data = (
-            _assets_in_period(request)
-            .values("asset_category_id", "asset_category_id__asset_category_name")
+            Asset.objects.values(
+                "asset_category_id", "asset_category_id__asset_category_name"
+            )
             .annotate(
                 total_value=Coalesce(
                     Sum("asset_purchase_cost"), 0, output_field=DecimalField()
@@ -239,22 +235,28 @@ def asset_value_by_category(request):
 
 @login_required
 def asset_expiring_soon(request):
-    """Assets with expiry date within the selected period."""
+    """Assets expiring in the next 30 days -- forward-looking, independent of month.
+
+    Same reasoning as the KPI tile's expiring_soon count above: expiry dates
+    are inherently ahead of today, so the current month's [1st, last day]
+    bounds (built for backward-looking "purchased this month" widgets) could
+    show already-expired assets as "expiring soon" or hide genuinely upcoming
+    expiries depending on where in the month today falls.
+    """
     from asset.models import Asset
 
-    from_date, to_date = _parse_period(request)
-    today = date.today()
+    today = timezone.now().date()
+    from_date, to_date = today, today + timedelta(days=30)
     assets = []
+    total = 0
 
     try:
-        qs = (
-            Asset.objects.filter(
-                expiry_date__gte=from_date,
-                expiry_date__lte=to_date,
-            )
-            .select_related("asset_category_id")
-            .order_by("expiry_date")[:15]
+        expiring = Asset.objects.filter(
+            expiry_date__gte=from_date,
+            expiry_date__lte=to_date,
         )
+        total = expiring.count()
+        qs = expiring.select_related("asset_category_id").order_by("expiry_date")[:15]
 
         for a in qs:
             days_left = (a.expiry_date - today).days
@@ -276,29 +278,29 @@ def asset_expiring_soon(request):
     except Exception:
         pass
 
-    return JsonResponse({"assets": assets})
+    return JsonResponse({"assets": assets, "total": total})
 
 
 @login_required
 def asset_recent_allocations(request):
-    """Recently allocated assets within the picker range."""
+    """Recently allocated assets within the current month."""
     from asset.models import AssetAssignment
 
     from_date, to_date = _parse_period(request)
     allocations = []
+    total = 0
 
     try:
-        qs = (
-            AssetAssignment.objects.filter(
-                return_status__isnull=True,
-                assigned_date__gte=from_date,
-                assigned_date__lte=to_date,
-            )
-            .select_related(
-                "asset_id", "assigned_to_employee_id", "asset_id__asset_category_id"
-            )
-            .order_by("-assigned_date")[:15]
+        recent = AssetAssignment.objects.filter(
+            return_status__isnull=True,
+            assigned_to_employee_id__is_active=True,
+            assigned_date__gte=from_date,
+            assigned_date__lte=to_date,
         )
+        total = recent.count()
+        qs = recent.select_related(
+            "asset_id", "assigned_to_employee_id", "asset_id__asset_category_id"
+        ).order_by("-assigned_date")[:15]
 
         for aa in qs:
             emp = aa.assigned_to_employee_id
@@ -321,23 +323,29 @@ def asset_recent_allocations(request):
     except Exception:
         pass
 
-    return JsonResponse({"allocations": allocations})
+    return JsonResponse({"allocations": allocations, "total": total})
 
 
 @login_required
 def asset_department_distribution(request):
-    """Assets distributed by department (via assigned employees), assigned in the picker range."""
+    """Assets currently held, distributed by department (via assigned employees).
+
+    This is a snapshot of who holds what right now, not "assigned this
+    period" activity -- unlike the Total Value/By Category charts (which
+    intentionally track purchases in the picker range), filtering this by
+    assigned_date hid every currently-held asset whose assignment just
+    happened to be recorded outside the current month, understating each
+    department's real current holdings.
+    """
     from asset.models import AssetAssignment
 
-    from_date, to_date = _parse_period(request)
     departments = []
 
     try:
         data = (
             AssetAssignment.objects.filter(
                 return_status__isnull=True,
-                assigned_date__gte=from_date,
-                assigned_date__lte=to_date,
+                assigned_to_employee_id__is_active=True,
             )
             .values(
                 "assigned_to_employee_id__employee_work_info__department_id",
@@ -368,8 +376,10 @@ def asset_department_distribution(request):
 
 @login_required
 def asset_age_distribution(request):
-    """Asset age distribution by purchase year (assets purchased within the selected period)."""
-    today = date.today()
+    """Age distribution of the entire current asset fleet."""
+    from asset.models import Asset
+
+    today = timezone.now().date()
     brackets = []
     try:
         bracket_map = {
@@ -379,7 +389,7 @@ def asset_age_distribution(request):
             "3–5 years": 0,
             "5+ years": 0,
         }
-        for a in _assets_in_period(request).filter(asset_purchase_date__isnull=False):
+        for a in Asset.objects.filter(asset_purchase_date__isnull=False):
             age_years = (today - a.asset_purchase_date).days / 365.25
             if age_years < 1:
                 bracket_map["< 1 year"] += 1

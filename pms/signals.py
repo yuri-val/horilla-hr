@@ -113,9 +113,9 @@ def start_automation():
                                                 employee, field_1, field_2, instance
                                             )
                                     else:
-                                        logger("No type and field")
+                                        logger.debug("No type and field")
                             else:
-                                logger("Not post add.")
+                                logger.debug("Not post add.")
 
                     else:
                         field_1 = date.today()
@@ -136,7 +136,7 @@ def start_automation():
                                         employee, field_1, field_2, instance
                                     )
                             else:
-                                logger("No type and field")
+                                logger.debug("No type and field")
 
                 signal_handler.__name__ = name
                 signal_handler.model_class = model_class

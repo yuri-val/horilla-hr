@@ -1,21 +1,48 @@
 {% load i18n %}
-<div>
-    {% for jb in instance.open_positions.all %}
-    <span class="oh-user-panel oh-collapse-panel" data-type="user">
-      <div class="oh-profile oh-profile--md">
-        <div class="oh-profile__avatar mr-1">
-          <img
-          src="https://ui-avatars.com/api/?name={{jb.job_position}}&background=random"
-          class="oh-profile__image"
-          alt="{% trans 'Employee' %}"
-          />
+{% comment %}
+A stray input tag here is a deliberate no-op: horilla_theme's list table wraps
+every cell in a native title tooltip built from its flattened text, except
+when the cell contains an interactive-widget tag -- this opts our own hover
+popover below out of that, avoiding a garbled duplicate tooltip (see the same
+pattern in pms/templates/cbv/objectives/manager.html).
+{% endcomment %}
+<input type="hidden" class="d-none">
+<div class="oh-avatar-stack">
+    <div class="oh-avatar-stack__images">
+        {% for jb in instance.open_positions.all|slice:":3" %}
+            <div class="oh-avatar-stack__img">
+                <img
+                    src="https://ui-avatars.com/api/?name={{ jb.job_position }}&background=random"
+                    alt="{{ jb.job_position }}"
+                >
+            </div>
+        {% endfor %}
+        {% with extra=instance.open_positions.all|length|add:"-3" %}
+            {% if extra > 0 %}
+                <div class="oh-avatar-stack__img oh-avatar-stack__more">+{{ extra }}</div>
+            {% endif %}
+        {% endwith %}
+        {% if not instance.open_positions.all %}
+            <span class="oh-avatar-stack__empty">{% trans "No jobs" %}</span>
+        {% endif %}
+    </div>
+    {% if instance.open_positions.all %}
+        {% comment %}
+        Hidden template read by the shared floating popover's JS
+        (cbv/recruitment/recruitment.html) -- it can't be shown in place
+        because the table cell's ancestor clips overflow.
+        {% endcomment %}
+        <div class="oh-avatar-stack__popover-content">
+            <div class="oh-avatar-stack__popover-title">{% trans "Open Positions" %}</div>
+            {% for jb in instance.open_positions.all %}
+                <div class="oh-avatar-stack__popover-row">
+                    <img
+                        src="https://ui-avatars.com/api/?name={{ jb.job_position }}&background=random"
+                        alt=""
+                    >
+                    <span>{{ jb.job_position }}</span>
+                </div>
+            {% endfor %}
         </div>
-        <span class="oh-profile__name oh-text--dark" title="{{jb}}"
-        >{{jb.job_position|truncatechars:5}}.</span
-        >
-      </div>
-    </span>
-    {% endfor %}
-    <span class="count-span">{{instance.open_positions.all|length}} {% trans "Jobs" %}</span>
-
-  </div>
+    {% endif %}
+</div>

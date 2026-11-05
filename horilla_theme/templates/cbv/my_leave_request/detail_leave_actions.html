@@ -1,6 +1,29 @@
 {% load basefilters i18n %}
 
 <div class="flex items-center gap-2 flex-wrap">
+    {% if instance.status == 'approved' and instance.end_date >= current_date and not instance.cancellation_requested %}
+        <a
+            class="oh-btn oh-btn--danger w-24 px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300"
+            data-toggle="oh-modal-toggle"
+            data-target="#cancelModal"
+            hx-get="{% url 'user-request-cancel' instance.id %}"
+            hx-target="#cancelForm"
+            title="{% trans 'Cancel' %}"
+        >
+            <ion-icon name="close-circle-outline" style="flex-shrink:0"></ion-icon>
+            {% trans "Cancel" %}
+        </a>
+    {% else %}
+        <button
+            class="oh-btn oh-btn--light-bkg w-24 px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300"
+            title="{% if instance.cancellation_requested %}{% trans 'Cancellation already requested' %}{% else %}{% trans 'Cancel' %}{% endif %}"
+            disabled
+        >
+            <ion-icon name="close-circle-outline"></ion-icon>
+            {% if instance.cancellation_requested %}{% trans "Cancellation Requested" %}{% else %}{% trans "Cancel" %}{% endif %}
+        </button>
+    {% endif %}
+
     {% if instance.status == 'requested' %}
         <button
             class="oh-btn oh-btn--light-bkg w-24 px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300"
@@ -43,29 +66,6 @@
         >
             <ion-icon name="trash-outline"></ion-icon>
             {% trans "Delete" %}
-        </button>
-    {% endif %}
-
-    {% if instance.status == 'approved' and instance.end_date >= current_date %}
-        <a
-            class="oh-btn oh-btn--light-bkg oh-btn--danger w-24 px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300"
-            data-toggle="oh-modal-toggle"
-            data-target="#cancelModal"
-            hx-get="{% url 'user-request-cancel' instance.id %}"
-            hx-target="#cancelForm"
-            title="{% trans 'Cancel' %}"
-        >
-            <ion-icon name="close-circle-outline"></ion-icon>
-            {% trans "Cancel" %}
-        </a>
-    {% else %}
-        <button
-            class="oh-btn oh-btn--light-bkg w-24 px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300"
-            title="{% trans 'Cancel' %}"
-            disabled
-        >
-            <ion-icon name="close-circle-outline"></ion-icon>
-            {% trans "Cancel" %}
         </button>
     {% endif %}
 </div>

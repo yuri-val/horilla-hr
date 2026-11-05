@@ -3,13 +3,14 @@ views.py
 """
 
 from django.contrib import messages
-from django.contrib.auth.decorators import login_required, permission_required
+from django.contrib.auth.decorators import permission_required
 from django.http import HttpResponse, HttpResponseBadRequest
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils.translation import gettext as _
 from django.views.decorators.http import require_http_methods
 
+from horilla.decorators import login_required
 from horilla.http.response import HorillaRedirect
 from horilla_audit.forms import (
     AuditModelConfigForm,
@@ -106,7 +107,8 @@ def edit_audit_model_fields(request, pk):
     try:
         config = AuditModelConfig.objects.get(pk=pk)
     except AuditModelConfig.DoesNotExist:
-        return HttpResponseBadRequest("Audit configuration not found.")
+        messages.error(request, _("Audit configuration not found."))
+        return redirect("audit-history-view")
 
     if request.method == "POST":
         form = AuditModelFieldsForm(

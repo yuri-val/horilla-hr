@@ -237,7 +237,7 @@
         })
     </script>
     <!-- this is the master js  -->
-    <script src="{% static '/index/index.js' %}"></script>
+    <script src="{% static '/index/index.js' %}?v=38"></script>
     <script src="{% static '/index/saveFilters.js' %}"></script>
     <script src="{% static 'build/js/htmxSelect2.js' %}"></script>
     <script src="{% static 'build/js/summernote-lite.min.js' %}"></script>
@@ -256,9 +256,9 @@
     <script src="{% static 'build/js/pivottable_plot.min.js' %}"></script>
     <script src="{% static 'build/js/pivottable_ploty.min.js' %}"></script>
     <script src="{% static 'build/js/pivottable_excel.min.js' %}"></script>
-    {# Pivot explorer safety: warns when a payload was capped server-side so
+    {% comment %} Pivot explorer safety: warns when a payload was capped server-side so
        a partial total is never shown as complete, and guards cells on the
-       browser-side xlsx export against formula injection. #}
+       browser-side xlsx export against formula injection. {% endcomment %}
     <script src="{% static 'report/js/pivot_safety.js' %}"></script>
 
     {% if "attendance"|app_installed %}

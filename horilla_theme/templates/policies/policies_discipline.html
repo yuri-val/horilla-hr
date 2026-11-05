@@ -48,21 +48,27 @@
             <button
                 type="button"
                 class="oh-tabs__tab policies-discipline-tab-btn"
+                data-tab-id="faq"
+                data-url="{% url 'policies-discipline-faq-tab' %}"
+            >
+                {% trans "FAQ" %}
+            </button>
+            <button
+                type="button"
+                class="oh-tabs__tab policies-discipline-tab-btn"
                 data-tab-id="disciplinary"
                 data-url="{% url 'policies-discipline-disciplinary-tab' %}"
             >
                 {% trans "Disciplinary Actions" %}
             </button>
-            {% if perms.employee.view_actiontype %}
-                <button
-                    type="button"
-                    class="oh-tabs__tab policies-discipline-tab-btn"
-                    data-tab-id="action-type"
-                    data-url="{% url 'policies-discipline-action-type-tab' %}"
-                >
-                    {% trans "Disciplinary Action Type" %}
-                </button>
-            {% endif %}
+            <button
+                type="button"
+                class="oh-tabs__tab policies-discipline-tab-btn"
+                data-tab-id="penalty"
+                data-url="{% url 'policies-discipline-penalty-tab' %}"
+            >
+                {% trans "Penalty" %}
+            </button>
         </div>
 
         <div id="policiesDisciplineContent" class="oh-wrapper"></div>
@@ -72,10 +78,11 @@
         (function () {
             var STORAGE_KEY = "activePoliciesDisciplineTab";
 
-            function loadPoliciesDisciplineTab(buttonEl, persist) {
+            function loadPoliciesDisciplineTab(buttonEl, persist, query) {
                 if (!buttonEl || typeof htmx === "undefined") return;
                 var url = buttonEl.getAttribute("data-url");
                 if (!url) return;
+                if (query) url += "?" + query;
                 var tabId = buttonEl.getAttribute("data-tab-id");
                 document.querySelectorAll(".policies-discipline-tab-btn").forEach(function (btn) {
                     btn.classList.remove("oh-tabs__tab--active");
@@ -95,10 +102,16 @@
             function restorePoliciesDisciplineTab() {
                 if (!document.getElementById("policiesDisciplineContent")) return;
 
-                var savedTabId = null;
-                try {
-                    savedTabId = localStorage.getItem(STORAGE_KEY);
-                } catch (_) {}
+                var params = new URLSearchParams(window.location.search);
+                var urlTabId = params.get("tab");
+                params.delete("tab");
+
+                var savedTabId = urlTabId;
+                if (!savedTabId) {
+                    try {
+                        savedTabId = localStorage.getItem(STORAGE_KEY);
+                    } catch (_) {}
+                }
 
                 var initialTab = null;
                 if (savedTabId) {
@@ -109,7 +122,11 @@
                 if (!initialTab) {
                     initialTab = document.querySelector(".policies-discipline-tab-btn");
                 }
-                loadPoliciesDisciplineTab(initialTab, false);
+                var forwardQuery =
+                    urlTabId && initialTab.getAttribute("data-tab-id") === urlTabId
+                        ? params.toString()
+                        : "";
+                loadPoliciesDisciplineTab(initialTab, false, forwardQuery);
             }
 
             function runWhenHtmxReady(fn) {

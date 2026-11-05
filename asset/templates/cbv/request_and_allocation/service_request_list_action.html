@@ -1,0 +1,45 @@
+{% load i18n %}
+<style>
+    tr span.txt {
+        display: none;
+    }
+</style>
+<div class="flex items-center justify-center gap-1" onclick="event.stopPropagation()">
+    {% if perms.asset.view_assetservicerequest or perms.asset.change_assetassignment %}
+        <a
+            class="oh-btn oh-btn--light-bkg flex items-center gap-1"
+            title="{% trans 'History' %}"
+            hx-get="{{ instance.history_view_url }}"
+            hx-target="#genericModalBody"
+            data-toggle="oh-modal-toggle"
+            data-target="#genericModal"
+        >
+            <ion-icon name="time-outline"></ion-icon>
+            <span class="txt">{% trans "History" %}</span>
+        </a>
+    {% endif %}
+    {% if perms.asset.change_assetassignment %}
+        <a
+            class="oh-btn oh-btn--light-bkg flex items-center gap-1"
+            title="{% trans 'Add Note' %}"
+            hx-get="{{ instance.add_note_url }}"
+            hx-target="#objectCreateModalTarget"
+            data-toggle="oh-modal-toggle"
+            data-target="#objectCreateModal"
+        >
+            <ion-icon name="newspaper-outline"></ion-icon>
+            <span class="txt">{% trans "Add Note" %}</span>
+        </a>
+        <a
+            class="oh-btn oh-btn--light-bkg flex items-center gap-1"
+            title="{% trans 'Return' %}"
+            hx-get="{{ instance.return_url }}"
+            hx-target="#objectCreateModalTarget"
+            data-toggle="oh-modal-toggle"
+            data-target="#objectCreateModal"
+        >
+            <ion-icon name="return-down-back-sharp"></ion-icon>
+            <span class="txt">{% trans "Return" %}</span>
+        </a>
+    {% endif %}
+</div>

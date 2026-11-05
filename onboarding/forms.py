@@ -158,6 +158,19 @@ class OnboardingViewTaskForm(ModelForm):
     Form for OnboardingTask model
     """
 
+    # Full-width for every field - unset, the generic form grid split this
+    # form two-up (Task Title/Task Managers on the left, Candidates on the
+    # right), leaving a tall empty gap under the short Task Title/Is
+    # Required fields and letting the Task Managers widget's own controls
+    # (its Filter button) overflow the narrow half-column. Mirrors
+    # offboarding.forms.TaskForm's cols for the same reason.
+    cols = {
+        "task_title": 12,
+        "candidates": 12,
+        "managers": 12,
+        "is_required": 12,
+    }
+
     candidates = forms.ModelMultipleChoiceField(
         queryset=Candidate.objects.all(),
         # widget=forms.SelectMultiple(attrs={"class": "select2-hidden-accessible "}),
@@ -169,7 +182,7 @@ class OnboardingViewTaskForm(ModelForm):
         queryset=Employee.objects.all(),
         # widget=forms.SelectMultiple(attrs={"class": "select2-hidden-accessible "})
     )
-    is_required = forms.BooleanField(required=False, label=_("Is Required"))
+    is_required = forms.BooleanField(required=False, label=_("Required"))
 
     class Meta:
         """
@@ -215,6 +228,21 @@ class OnboardingTaskForm(ModelForm):
     """
     Form for OnboardingTaskModel
     """
+
+    # Full-width for every field - unset, the generic form grid split this
+    # form two-up the same way OnboardingViewTaskForm (the create-task form)
+    # did, leaving a tall empty gap under the short fields and letting the
+    # employee_id (Task Managers) widget's own Filter button overflow its
+    # narrow half-width column. Mirrors OnboardingViewTaskForm.cols and
+    # offboarding.forms.TaskForm.cols for the same reason - this is the
+    # form the Update-Task modal actually uses.
+    cols = {
+        "task_title": 12,
+        "candidates": 12,
+        "employee_id": 12,
+        "is_required": 12,
+        "stage_id": 12,
+    }
 
     class Meta:
         """
@@ -278,7 +306,7 @@ class OnboardingViewStageForm(ModelForm):
         fields = ["stage_title", "employee_id", "is_final_stage", "recruitment_id"]
         labels = {
             "stage_title": _("Stage Title"),
-            "is_final_stage": _("Is Final Stage"),
+            "is_final_stage": _("Final Stage"),
         }
 
     def __init__(self, *args, **kwargs):

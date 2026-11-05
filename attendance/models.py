@@ -134,7 +134,7 @@ class AttendanceActivity(HorillaModel):
 
     def diff_cell(self):
         if self.clock_out == None:
-            return 'style="background-color: #FFE4B3"'
+            return 'style="background-color: rgba(255, 166, 0, 0.158);"'
 
     def detail_view_delete_attendance(self):
         """
@@ -289,11 +289,11 @@ class Attendance(HorillaModel):
     )
     approved_overtime_second = models.IntegerField(default=0)
     is_validate_request = models.BooleanField(
-        default=False, verbose_name=_("Is validate request")
+        default=False, verbose_name=_("Validate request")
     )
     is_bulk_request = models.BooleanField(default=False, editable=False)
     is_validate_request_approved = models.BooleanField(
-        default=False, verbose_name=_("Is validate request approved")
+        default=False, verbose_name=_("Validate request approved")
     )
     request_description = models.TextField(
         null=True, verbose_name=_("Request Description")
@@ -326,7 +326,60 @@ class Attendance(HorillaModel):
 
     def diff_cell(self):
         if self.request_type == "created_request":
-            return 'style="background-color: #FFE4B3"'
+            return 'style="background-color: rgba(255, 166, 0, 0.158);"'
+
+    # Per-column CSS classes for the "Requested Attendances" list. Consumed by
+    # HorillaListView.cell_class_method, which looks the rendered column's
+    # attribute name up in this dict. Kept here (rather than as per-column
+    # {% if %} branches in a forked list template) so the tab renders through
+    # the shared generic table and cannot drift from it again.
+    REQUEST_CELL_FORMAT_CLASSES = {
+        "attendance_date": "dateformat_changer",
+        "attendance_clock_in": "timeformat_changer",
+        "attendance_clock_in_date": "dateformat_changer",
+        "attendance_clock_out": "timeformat_changer",
+        "attendance_clock_out_date": "dateformat_changer",
+    }
+    REQUEST_DIFF_FIELDS = [
+        "attendance_date",
+        "attendance_day",
+        "attendance_clock_in",
+        "attendance_clock_in_date",
+        "attendance_clock_out",
+        "attendance_clock_out_date",
+        "shift_id",
+        "work_type_id",
+        "minimum_hour",
+        "attendance_worked_hour",
+        "attendance_overtime",
+    ]
+
+    def request_cell_classes(self):
+        """
+        Map column attribute -> CSS classes for the attendance request list.
+
+        `diff-cell` shades the fields this request actually wants changed, so a
+        reviewer can see at a glance what differs. `requested_fields` re-parses
+        the requested JSON on every call, and the template resolves this once
+        per rendered column, so memoise the whole map per instance.
+        """
+        cached = getattr(self, "_request_cell_classes", None)
+        if cached is not None:
+            return cached
+        highlight_all = self.request_type == "create_request"
+        changed = set() if highlight_all else set(self.requested_fields())
+        classes = {}
+        for field in self.REQUEST_DIFF_FIELDS:
+            names = []
+            if highlight_all or field in changed:
+                names.append("diff-cell")
+            format_class = self.REQUEST_CELL_FORMAT_CLASSES.get(field)
+            if format_class:
+                names.append(format_class)
+            if names:
+                classes[field] = " ".join(names)
+        self._request_cell_classes = classes
+        return classes
 
     def status_col(self):
         """
@@ -337,6 +390,24 @@ class Attendance(HorillaModel):
             path="cbv/attendance_request/status.html",
             context={"instance": self},
         )
+
+    def penalty_col(self):
+        """
+        Penalty badges of the late come / early out records of this attendance.
+        """
+
+        penalised = [
+            late_early
+            for late_early in self.late_come_early_out.all()
+            if late_early.get_penalties_count()
+        ]
+        if not penalised:
+            return render_template(
+                path="generic/penalty_badge.html",
+                context={"count": 0},
+            )
+
+        return " ".join(late_early.penalties_column() for late_early in penalised)
 
     def my_attendance_subtitle(self):
         """
@@ -528,7 +599,7 @@ class Attendance(HorillaModel):
         method for rendering approve OT
         """
         minot = strtime_seconds("00:30")
-        condition = AttendanceValidationCondition.objects.first()
+        condition = AttendanceValidationCondition.for_shift(self.shift_id)
         if condition is not None:
             minot = strtime_seconds(condition.minimum_overtime_to_approve)
 
@@ -547,12 +618,33 @@ class Attendance(HorillaModel):
             context={"instance": self},
         )
 
+    def overtime_cell(self):
+        """
+        Overtime column of the OT tab: the overtime plus a "Min OT" warning when
+        it is below the minimum OT required for approval.
+        """
+        min_ot = strtime_seconds("00:30")
+        min_ot_display = "00:30"
+        condition = AttendanceValidationCondition.for_shift(self.shift_id)
+        if condition is not None:
+            min_ot = strtime_seconds(condition.minimum_overtime_to_approve)
+            min_ot_display = condition.minimum_overtime_to_approve
+
+        return render_template(
+            path="cbv/attendances/ot_cell.html",
+            context={
+                "instance": self,
+                "below_min": 0 < (self.overtime_second or 0) < min_ot,
+                "min_ot_display": min_ot_display,
+            },
+        )
+
     def ot_actions(self):
         """
         combined actions column for OT tab: approve OT + edit + delete
         """
         minot = strtime_seconds("00:30")
-        condition = AttendanceValidationCondition.objects.first()
+        condition = AttendanceValidationCondition.for_shift(self.shift_id)
         if condition is not None:
             minot = strtime_seconds(condition.minimum_overtime_to_approve)
 
@@ -577,7 +669,7 @@ class Attendance(HorillaModel):
         """
 
         minot = strtime_seconds("00:30")
-        condition = AttendanceValidationCondition.objects.first()
+        condition = AttendanceValidationCondition.for_shift(self.shift_id)
         if condition is not None:
             minot = strtime_seconds(condition.minimum_overtime_to_approve)
 
@@ -707,7 +799,7 @@ class Attendance(HorillaModel):
         self.overtime_second = strtime_seconds(self.attendance_overtime)
 
     def handle_overtime_conditions(self):
-        condition = AttendanceValidationCondition.objects.first()
+        condition = AttendanceValidationCondition.for_shift(self.shift_id)
         if self.is_validate_request:
             self.is_validate_request_approved = self.attendance_validated = False
 
@@ -840,19 +932,136 @@ class Attendance(HorillaModel):
                 },
             )
 
-            AttendanceOverTime.objects.filter(pk=ot.pk).update(
-                hour_account_second=F("hour_account_second") + diff_work,
-                overtime_second=F("overtime_second") + diff_approved_ot,
-                hour_pending_second=F("hour_pending_second") + diff_pending,
+            # Approved overtime still moves by this row's delta. Worked and
+            # pending are rebuilt from the month below; a delta against a
+            # counter that demo loads never filled is how a full month showed
+            # up as a few negative hours.
+            if diff_approved_ot:
+                AttendanceOverTime.objects.filter(pk=ot.pk).update(
+                    overtime_second=F("overtime_second") + diff_approved_ot
+                )
+                ot.refresh_from_db(fields=["overtime_second"])
+            self.update_ot(ot)
+
+    @classmethod
+    def approve_overtime_bulk(cls, attendances, user=None):
+        """
+        Approve the overtime of many attendances at once.
+
+        Calling save() per record costs ~0.1s each (re-deriving the row, the
+        audit logs, and rebuilding the whole month's hour account every time),
+        which made approving a few hundred rows take minutes. Approving only
+        flips the approval flag and credits the approved seconds, so do just
+        that: one bulk update (with the same history rows save() leaves), one
+        audit-log insert, and one monthly overtime update per employee/month.
+        Worked and pending hours don't change on approval, so the month
+        rebuild save() does is not needed.
+
+        Returns the attendances that were approved (already-approved ones are
+        skipped).
+        """
+        from collections import defaultdict
+
+        from simple_history.utils import bulk_update_with_history
+
+        pending = [att for att in attendances if not att.attendance_overtime_approve]
+        if not pending:
+            return []
+
+        previous_seconds = {
+            att.pk: att.approved_overtime_second or 0 for att in pending
+        }
+        for att in pending:
+            att.attendance_overtime_approve = True
+            att.approved_overtime_second = att.overtime_second or 0
+
+        with transaction.atomic():
+            bulk_update_with_history(
+                pending,
+                cls,
+                ["attendance_overtime_approve", "approved_overtime_second"],
+                default_user=user if getattr(user, "is_authenticated", False) else None,
             )
 
-            ot.refresh_from_db(
-                fields=["hour_account_second", "hour_pending_second", "overtime_second"]
+            totals = defaultdict(int)
+            employees = {}
+            for att in pending:
+                employees[att.employee_id_id] = att.employee_id
+                key = (
+                    att.employee_id_id,
+                    att.attendance_date.strftime("%B").lower(),
+                    # AttendanceOverTime.year is a text field.
+                    str(att.attendance_date.year),
+                )
+                totals[key] += att.approved_overtime_second
+            existing = {
+                (ot.employee_id_id, ot.month, ot.year): ot
+                for ot in AttendanceOverTime.objects.filter(
+                    employee_id__in=list(employees.values()),
+                    year__in={key[2] for key in totals},
+                    month__in={key[1] for key in totals},
+                )
+            }
+            to_update = []
+            for key, seconds in totals.items():
+                employee_ot = existing.get(key)
+                if employee_ot is None:
+                    # First overtime for this month: a full save() fills in the
+                    # remaining text fields and the month sequence.
+                    employee_ot = AttendanceOverTime(
+                        employee_id=employees[key[0]],
+                        month=key[1],
+                        year=key[2],
+                        hour_account_second=0,
+                        hour_pending_second=0,
+                        overtime_second=seconds,
+                    )
+                    employee_ot.save()
+                    continue
+                employee_ot.overtime_second = (
+                    employee_ot.overtime_second or 0
+                ) + seconds
+                employee_ot.overtime = format_time(employee_ot.overtime_second)
+                to_update.append(employee_ot)
+            if to_update:
+                AttendanceOverTime.objects.bulk_update(
+                    to_update, ["overtime_second", "overtime"]
+                )
+
+        # Audit log entries, as save() would have left. Not worth failing the
+        # approval over.
+        with contextlib.suppress(Exception), transaction.atomic():
+            from auditlog.cid import get_cid
+            from auditlog.models import LogEntry
+            from django.contrib.contenttypes.models import ContentType
+
+            content_type = ContentType.objects.get_for_model(cls)
+            now = timezone.now()
+            cid = get_cid()
+            actor = user if getattr(user, "is_authenticated", False) else None
+            LogEntry.objects.bulk_create(
+                [
+                    LogEntry(
+                        content_type=content_type,
+                        object_pk=str(att.pk),
+                        object_id=att.pk,
+                        object_repr=str(att)[:200],
+                        action=LogEntry.Action.UPDATE,
+                        changes={
+                            "attendance_overtime_approve": ["False", "True"],
+                            "approved_overtime_second": [
+                                str(previous_seconds[att.pk]),
+                                str(att.approved_overtime_second),
+                            ],
+                        },
+                        actor=actor,
+                        timestamp=now,
+                        cid=cid,
+                    )
+                    for att in pending
+                ]
             )
-            ot.worked_hours = format_time(ot.hour_account_second or 0)
-            ot.pending_hours = format_time(ot.hour_pending_second or 0)
-            ot.overtime = format_time(ot.overtime_second or 0)
-            ot.save(update_fields=["worked_hours", "pending_hours", "overtime"])
+        return pending
 
     def serialize(self):
         """
@@ -886,16 +1095,18 @@ class Attendance(HorillaModel):
             AttendanceActivity.objects.filter(
                 attendance_date=self.attendance_date, employee_id=self.employee_id
             ).delete()
+        # Call the superclass delete() method to delete the object
+        super().delete(*args, **kwargs)
+
+        # Rebuild after the row is gone. Doing it before left the deleted
+        # day's hours in the month total.
+        with contextlib.suppress(Exception):
             employee_ot = self.employee_id.employee_overtime.filter(
                 month=self.attendance_date.strftime("%B").lower(),
                 year=self.attendance_date.strftime("%Y"),
             )
             if employee_ot.exists():
                 self.update_ot(employee_ot.first())
-        # Call the superclass delete() method to delete the object
-        super().delete(*args, **kwargs)
-
-        # Perform additional operations after deleting the object
 
     def create_ot(self):
         """
@@ -931,7 +1142,7 @@ class Attendance(HorillaModel):
             approved_leave_requests = self.employee_id.leaverequest_set.filter(
                 start_date__lte=self.attendance_date,
                 end_date__gte=self.attendance_date,
-                status="approved",
+                status__in=["approved", "cancel_requested"],
             )
         else:
             approved_leave_requests = []
@@ -958,7 +1169,7 @@ class Attendance(HorillaModel):
                 attendance_validated=True,
             )
             .exclude(exclude_condition)
-            .values("minimum_hour", "at_work_second")
+            .values("minimum_hour", "at_work_second", "attendance_worked_hour")
         )
 
         # Calculate hour balance and hours pending in a single loop
@@ -966,13 +1177,21 @@ class Attendance(HorillaModel):
         minimum_hour_second = 0
         for attendance in month_attendances:
             required_work_second = strtime_seconds(attendance["minimum_hour"])
-            at_work_second = min(required_work_second, attendance["at_work_second"])
+            at_work_second = attendance["at_work_second"]
+            # bulk_create leaves the integer empty and the worked-hour string set.
+            if at_work_second is None:
+                at_work_second = strtime_seconds(
+                    attendance["attendance_worked_hour"] or "00:00"
+                )
+            at_work_second = min(required_work_second, at_work_second)
             hour_balance += at_work_second
             minimum_hour_second += required_work_second
 
         hours_pending = minimum_hour_second - hour_balance
-        employee_ot.worked_hours = format_time(hour_balance)
-        employee_ot.pending_hours = format_time(hours_pending)
+        # save() rewrites the text fields from these integers. Setting only
+        # the text fields is discarded.
+        employee_ot.hour_account_second = hour_balance
+        employee_ot.hour_pending_second = hours_pending
         employee_ot.save()
 
         return employee_ot
@@ -1356,14 +1575,14 @@ class AttendanceLateComeEarlyOut(HorillaModel):
         ]
         return dict(choices).get(self.type)
 
-    def penalities_column(self):
+    def penalties_column(self):
         """
-        To get penalities
+        To get penalties
 
         """
 
         return render_template(
-            path="cbv/late_come_and_early_out/penality.html",
+            path="cbv/late_come_and_early_out/penalty.html",
             context={"instance": self},
         )
 
@@ -1421,6 +1640,12 @@ class AttendanceValidationCondition(HorillaModel):
     AttendanceValidationCondition model
     """
 
+    minimum_at_work_to_validate = models.CharField(
+        default="00:00",
+        max_length=10,
+        validators=[validate_time_format],
+        verbose_name=_("Minimum Hours to Auto Validate"),
+    )
     validation_at_work = models.CharField(
         max_length=10,
         validators=[validate_time_format],
@@ -1435,16 +1660,67 @@ class AttendanceValidationCondition(HorillaModel):
     auto_approve_ot = models.BooleanField(
         default=False, verbose_name=_("Auto Approve OT")
     )
+    shift_ids = models.ManyToManyField(
+        EmployeeShift,
+        blank=True,
+        verbose_name=_("Shifts"),
+        help_text=_(
+            "Leave empty to apply to every shift that has no condition of its own."
+        ),
+    )
     company_id = models.ManyToManyField(Company, blank=True, verbose_name=_("Company"))
     objects = HorillaCompanyManager()
 
-    def clean(self):
+    @classmethod
+    def for_shift(cls, shift=None):
         """
-        This method is used to perform some custom validations
+        Return the condition of the shift, else the shift-less default, else None.
         """
-        super().clean()
-        if not self.id and AttendanceValidationCondition.objects.exists():
-            raise ValidationError(_("You cannot add more conditions."))
+        conditions = cls.objects.all().order_by("pk")
+        if shift is not None:
+            specific = conditions.filter(shift_ids=shift).first()
+            if specific is not None:
+                return specific
+        return conditions.filter(shift_ids__isnull=True).first()
+
+    @classmethod
+    def min_overtime_q(cls, default_seconds=0):
+        """
+        Return a Q matching attendances whose overtime reaches their shift's minimum.
+        """
+        covered_shift_ids = set()
+        shift_q = Q()
+        fallback_seconds = default_seconds
+        has_default = False
+        conditions = cls.objects.all().prefetch_related("shift_ids").order_by("pk")
+        for condition in conditions:
+            minimum = (
+                strtime_seconds(condition.minimum_overtime_to_approve)
+                if condition.minimum_overtime_to_approve
+                else default_seconds
+            )
+            shift_ids = {shift.id for shift in condition.shift_ids.all()}
+            if shift_ids:
+                new_shift_ids = shift_ids - covered_shift_ids
+                if new_shift_ids:
+                    covered_shift_ids |= new_shift_ids
+                    shift_q |= Q(
+                        shift_id__in=new_shift_ids, overtime_second__gte=minimum
+                    )
+            elif not has_default:
+                has_default = True
+                fallback_seconds = minimum
+        fallback_q = Q(overtime_second__gte=fallback_seconds)
+        if covered_shift_ids:
+            fallback_q &= ~Q(shift_id__in=covered_shift_ids)
+        return shift_q | fallback_q
+
+    def shifts_col(self):
+        """
+        Return the shift names of the condition, or "All Shifts" for the default one.
+        """
+        shifts = ", ".join(shift.employee_shift for shift in self.shift_ids.all())
+        return shifts or _("All Shifts")
 
     def break_point_actions(self):
         """
@@ -1673,7 +1949,7 @@ class WorkRecords(models.Model):
     at_work_second = models.IntegerField(null=True, blank=True, default=0)
     min_hour_second = models.IntegerField(null=True, blank=True, default=0)
     note = models.TextField(max_length=255)
-    message = models.CharField(max_length=30, null=True, blank=True)
+    message = models.CharField(max_length=100, null=True, blank=True)
     is_attendance_record = models.BooleanField(default=False)
     attendance_id = models.ForeignKey(
         Attendance, on_delete=models.SET_NULL, blank=True, null=True
@@ -1747,6 +2023,7 @@ class AttendanceConflictResolution(HorillaModel):
         choices=[
             ("full_present", _("Full Present")),
             ("half_present", _("Half Day")),
+            ("half_absent", _("Half Absent")),
             ("partial_hours", _("Partial Hours")),
             ("absent", _("Absent")),
             ("paid_leave", _("Paid Leave")),
@@ -1810,6 +2087,115 @@ class AttendanceSummaryHours(HorillaModel):
     def __str__(self):
         h, m = self.hours_second // 3600, (self.hours_second % 3600) // 60
         return f"{self.employee_id} {self.from_date}–{self.to_date}: {h}h{m:02d}m"
+
+
+class AttendanceSummaryOverride(HorillaModel):
+    """
+    A month's attendance totals, stated by HR instead of counted.
+
+    Regularising day by day is the right tool for a handful of conflicts. It is
+    the wrong one at month end, where what HR actually knows is "this person
+    worked nineteen days, not three" -- a statement about the month, not about
+    any particular date. Reconstructing that into per-day decisions is work
+    nobody wants to do, and the per-day record it produces would be invented.
+
+    So this stores the month as given. Each count is nullable, and null means
+    "leave that one computed": correcting only ``absent`` is a normal thing to
+    want, and blanking the rest would silently zero them.
+
+    Separate from ``AttendanceSummaryHours`` rather than columns added to it.
+    That row is written on every summary load, for every employee, whether or
+    not anybody edited anything -- so its presence means nothing. Here the
+    presence of a row IS the override, and its absence is the absence of one.
+
+    An override also settles that employee's conflicts for the period: having
+    stated the totals, there is nothing left to decide about the individual
+    days, and payroll would otherwise stay blocked on conflicts the override
+    was written to answer.
+    """
+
+    employee_id = models.ForeignKey(
+        Employee,
+        on_delete=models.CASCADE,
+        related_name="summary_overrides",
+        verbose_name=_("Employee"),
+    )
+    from_date = models.DateField(verbose_name=_("From Date"))
+    to_date = models.DateField(verbose_name=_("To Date"))
+
+    present = models.FloatField(
+        null=True,
+        blank=True,
+        verbose_name=_("Present"),
+        help_text=_("Days present. Half days count as 0.5."),
+    )
+    paid_leave = models.FloatField(
+        null=True,
+        blank=True,
+        verbose_name=_("Paid Leave"),
+    )
+    unpaid_leave = models.FloatField(
+        null=True,
+        blank=True,
+        verbose_name=_("Unpaid Leave"),
+    )
+    absent = models.FloatField(
+        null=True,
+        blank=True,
+        verbose_name=_("Absent"),
+    )
+
+    note = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        verbose_name=_("Reason"),
+        help_text=_("Why the counted figures were replaced."),
+    )
+
+    objects = HorillaCompanyManager("employee_id__employee_work_info__company_id")
+
+    class Meta:
+        unique_together = [["employee_id", "from_date", "to_date"]]
+        verbose_name = _("Attendance Summary Override")
+        verbose_name_plural = _("Attendance Summary Overrides")
+
+    def __str__(self):
+        return f"{self.employee_id} {self.from_date}–{self.to_date} (stated)"
+
+    def applied_to(self, row):
+        """
+        Overlay this override on a computed summary row, in place.
+
+        Only the counts that were given are replaced; the rest stay as counted.
+        """
+        for field in ("present", "paid_leave", "unpaid_leave", "absent"):
+            value = getattr(self, field)
+            if value is not None:
+                row[field] = value
+
+        # Stating the month answers the individual days it was written about.
+        # Without this, payroll stays blocked on conflicts the override exists
+        # precisely to settle.
+        row["unresolved_conflicts"] = 0
+        row["unresolved_conflict_dates"] = []
+        row["summary_overridden"] = True
+
+        # paid_days/unpaid_days are derived, so they have to follow.
+        row["paid_days"] = (
+            row.get("present", 0)
+            + row.get("paid_leave", 0)
+            + row.get("holiday", 0)
+            + row.get("week_off", 0)
+        )
+        row["unpaid_days"] = row.get("absent", 0) + row.get("unpaid_leave", 0)
+        row["working_days"] = (
+            row.get("present", 0)
+            + row.get("paid_leave", 0)
+            + row.get("unpaid_leave", 0)
+            + row.get("absent", 0)
+        )
+        return row
 
 
 class AttendanceDailyHours(HorillaModel):

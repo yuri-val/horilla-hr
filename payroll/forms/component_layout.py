@@ -1,0 +1,786 @@
+"""
+The section layout for the Allowance and Deduction forms.
+
+Defined here rather than in the template because the previous form listed the
+field names it wanted to render by hand, in a chain of ``{% if field.name ==
+... %}`` blocks. Anything not in that chain was simply not drawn — which is how
+``percentage_of_code`` and ``formula`` came to exist on the model, be accepted
+on save, and have nowhere on the form to set them.
+
+A layout expressed as data can be checked. ``sections_for()`` ends by sweeping
+every field the layout did not place into a final group, so a new field appears
+somewhere on the form the day it is added, and ``test_component_form_ui``
+asserts that the sweep is empty for the fields that are meant to be placed.
+
+``show_if`` is the progressive-disclosure rule, read by
+``static/src/js/componentForm.js``: space-separated ``name=value|value``
+clauses, all of which must hold, where a checkbox reads ``on`` or ``off``.
+"""
+
+from django.utils.translation import gettext_lazy as _
+
+# Amount types that are a straight percentage of something, and so need a rate.
+PERCENTAGE_OF = "basic_pay|gross_pay|taxable_gross_pay|net_pay|component"
+
+CALCULATED = "is_fixed=off"
+
+# The first condition row. Further rows are cloned from it by the template.
+CONDITIONAL = "include_active_employees=off is_condition_based=on"
+
+# The form is long — around thirty fields on the Allowance side — and most of
+# them do not apply to any given component. Progressive disclosure already hides
+# the irrelevant ones, but what is left still reads as one tall column where the
+# amount rule, the eligibility rules and the period rules run into each other.
+#
+# Three steps, because there are three questions: what is it, how much is it,
+# and who and when. Every field stays in the DOM and the form still posts once —
+# stepping is presentation, not a multi-request wizard — so validation, "save
+# and add another" and the existing view are all untouched.
+STEPS = [
+    ("basics", _("Basics"), _("Name it and say what kind of component it is.")),
+    ("amount", _("Amount"), _("How much, and any ceiling on it.")),
+    ("applies", _("Applies to"), _("Which employees, and in which periods.")),
+]
+
+
+OVERTIME_TYPES = "overtime|week_off_overtime|holiday_overtime"
+DAY_BASED = f"attendance|shift_id|work_type_id|{OVERTIME_TYPES}"
+
+
+def _amount_fields():
+    """Shared by both forms; each keeps only the ones it actually has."""
+    return [
+        ("amount", 6, "is_fixed=on"),
+        ("based_on", 6, CALCULATED),
+        # Which component, then what share of it. The other way round asked for
+        # a percentage before saying what it was a percentage of.
+        ("percentage_of_code", 6, f"{CALCULATED} based_on=component"),
+        ("rate", 6, f"{CALCULATED} based_on={PERCENTAGE_OF}"),
+        # The employer's share applies whatever the employee's side is worked
+        # out from -- including a custom formula and a flat amount. It used to
+        # be shown only for percentage-of components, so a component using a
+        # formula could not state an employer contribution at all, and one
+        # with a fixed amount could not either.
+        ("employer_basis", 6, ""),
+        ("employer_rate", 6, "employer_basis=rate"),
+        ("per_attendance_fixed_amount", 6, f"{CALCULATED} based_on=attendance"),
+        ("per_children_fixed_amount", 6, f"{CALCULATED} based_on=children"),
+        ("shift_id", 6, f"{CALCULATED} based_on=shift_id"),
+        ("shift_per_attendance_amount", 6, f"{CALCULATED} based_on=shift_id"),
+        ("work_type_id", 6, f"{CALCULATED} based_on=work_type_id"),
+        ("work_type_per_attendance_amount", 6, f"{CALCULATED} based_on=work_type_id"),
+        ("overtime_calc", 6, f"{CALCULATED} based_on={OVERTIME_TYPES}"),
+        (
+            "amount_per_one_hr",
+            6,
+            f"{CALCULATED} based_on={OVERTIME_TYPES} overtime_calc=flat",
+        ),
+        (
+            "overtime_slabs",
+            12,
+            f"{CALCULATED} based_on={OVERTIME_TYPES} overtime_calc=slab",
+        ),
+        (
+            "prorate_partial_days",
+            6,
+            f"{CALCULATED} based_on=attendance|shift_id|work_type_id",
+        ),
+        # Not under "upper limit": it governs the fixed amount as well as the
+        # ceiling, and a setting that only appeared once a ceiling was switched
+        # on could not be found by anyone configuring a flat component.
+        # Not for what is paid per day or per hour: those already follow the
+        # period through the days and hours counted.
+        ("maximum_unit", 6, f"is_fixed=on,based_on!={DAY_BASED}"),
+    ]
+
+
+LAYOUT = [
+    (
+        "basics",
+        _("What this component is"),
+        None,
+        [
+            ("title", 6, ""),
+            ("sequence", 6, ""),
+            # Shown: other components and formulas refer to this one by it. Left
+            # blank it is derived from the title on save.
+            ("code", 6, ""),
+            # The date field ahead of the switches, so the inputs sit together.
+            ("one_time_date", 6, ""),
+            ("is_taxable", 6, ""),
+            # Beside the other "what kind of thing is this" switches, because
+            # that is what it is — not an amount setting.
+            ("is_basic_pay", 6, ""),
+            ("is_pretax", 6, ""),
+            ("is_tax", 6, ""),
+            # Only on a standard component's form: who it is taxed differently for.
+            ("tax_exception_employees", 12, ""),
+        ],
+    ),
+    (
+        "amount",
+        _("How much"),
+        _("Either a set amount, or worked out from something else."),
+        [("is_fixed", 12, "")] + _amount_fields(),
+    ),
+    (
+        "amount",
+        _("Upper limit"),
+        None,
+        [
+            ("has_max_limit", 12, CALCULATED),
+            ("maximum_amount", 6, f"{CALCULATED} has_max_limit=on"),
+        ],
+    ),
+    (
+        "applies",
+        _("Who gets it"),
+        None,
+        [
+            ("include_active_employees", 12, ""),
+            ("specific_employees", 6, "include_active_employees=off"),
+            ("exclude_employees", 6, ""),
+            ("is_condition_based", 12, "include_active_employees=off"),
+            ("field", 4, CONDITIONAL),
+            ("condition", 4, CONDITIONAL),
+            ("value", 4, CONDITIONAL),
+        ],
+    ),
+    (
+        "applies",
+        _("When it applies"),
+        _("Leave these alone to pay it every period."),
+        [
+            ("if_choice", 6, ""),
+            ("if_component_code", 6, "if_choice=component"),
+            ("if_condition", 6, ""),
+            ("if_amount", 6, "if_condition=equal|notequal|lt|gt|le|ge"),
+            ("start_range", 6, "if_condition=range"),
+            ("end_range", 6, "if_condition=range"),
+        ],
+    ),
+]
+
+# Drawn by the template itself rather than as an ordinary row: a formula is
+# edited in the builder popover, and only its summary belongs inline. The
+# employer's is the same field in a second popover, opened from the employer
+# basis row.
+HANDLED_ELSEWHERE = {
+    "formula",
+    "employer_formula",
+    "specific_employees",
+    "exclude_employees",
+    "include_active_employees",
+    "apply_by",
+    "apply_departments",
+    "apply_job_positions",
+    "apply_job_roles",
+}
+
+# On the Allowance form the table is the whole targeting story, so the
+# rule-based option went with its toggle. A deduction has no table to replace it.
+ALLOWANCE_ONLY_HIDDEN = {"is_condition_based", "field", "condition", "value"}
+
+
+# The "When it applies" rule, worded as a sentence: "Applies when [basic pay] is
+# [greater than] [amount]". The model's own names ("If Choice") read as column
+# names, not as something to fill in.
+FIELD_LABELS = {
+    "if_choice": _("Applies when"),
+    "if_component_code": _("Component"),
+    "if_condition": _("Is"),
+    "if_amount": _("Amount"),
+    "start_range": _("From"),
+    "end_range": _("To"),
+}
+
+
+def apply_labels(form):
+    for name, label in FIELD_LABELS.items():
+        if name in form.fields:
+            form.fields[name].label = label
+
+
+def _placed(form):
+    placed = set(HANDLED_ELSEWHERE) | set(HIDDEN_FIELDS)
+    if "specific_employees" in form.fields:
+        placed |= ALLOWANCE_ONLY_HIDDEN
+    return placed
+
+
+# Never drawn. update_compensation is hidden rather than dropped. It does something no other
+# setting does — it shrinks the pay head itself, so a later "percentage of
+# basic" is worked out on the reduced figure — but it bypasses eligibility,
+# the "when it applies" rules, the ceiling and the period basis, and it sat
+# between "Is Tax" and "One Time Date" with nothing to say any of that. Keeping
+# it in the DOM means an existing one survives an edit; nothing on this form
+# can create one.
+HIDDEN_FIELDS = {"update_compensation"}
+
+
+def sections_for(form):
+    """
+    The form's visible fields, grouped for rendering.
+
+    Returns ``[{"title", "hint", "rows": [{"field", "width", "show_if"}]}]``.
+    Empty groups are dropped, so the Allowance form does not show a "Deduction
+    only" heading with nothing under it.
+    """
+    placed = _placed(form)
+    sections = []
+
+    for index, (step, title, hint, spec) in enumerate(LAYOUT, start=1):
+        rows = []
+        for name, width, show_if in spec:
+            if name in placed or name not in form.fields:
+                continue
+            placed.add(name)
+            rows.append({"field": form[name], "width": width, "show_if": show_if})
+        # The targeting table is drawn inside this section, so it stays even
+        # when every field that used to be in it has been replaced by the table.
+        if rows or (title == WHO_TITLE and "specific_employees" in form.fields):
+            # The key ties the heading to its rows in the DOM. They are siblings
+            # rather than parent and child — everything has to be a direct child
+            # of the Bootstrap row — so a heading can only know whether anything
+            # under it is still visible by matching on this.
+            sections.append(
+                {
+                    "key": f"s{index}",
+                    "step": step,
+                    "title": title,
+                    "hint": hint,
+                    "rows": rows,
+                }
+            )
+
+    # Anything the layout above does not know about. A field added to the model
+    # later shows up here instead of silently not existing on the form.
+    leftovers = [
+        {"field": bound, "width": 6, "show_if": ""}
+        for bound in form.visible_fields()
+        if bound.name not in placed
+    ]
+    if leftovers:
+        sections.append(
+            {
+                "key": "other",
+                "step": STEPS[-1][0],
+                "title": _("Other settings"),
+                "hint": None,
+                "rows": leftovers,
+            }
+        )
+
+    return sections
+
+
+def steps_for(form):
+    """
+    The sections above, grouped into the steps the form is presented in.
+
+    Returns ``[{"key", "label", "hint", "index", "sections": [...]}]``. A step
+    whose sections are all empty for this form is dropped rather than shown as
+    an unreachable tab.
+    """
+    sections = sections_for(form)
+    steps = []
+    for index, (key, label, hint) in enumerate(STEPS, start=1):
+        members = [section for section in sections if section["step"] == key]
+        if members:
+            steps.append(
+                {
+                    "key": key,
+                    "label": label,
+                    "hint": hint,
+                    "index": len(steps) + 1,
+                    "sections": members,
+                }
+            )
+    return steps
+
+
+def unplaced_field_names(form):
+    """The leftover sweep, for tests to assert on."""
+    placed = _placed(form)
+    for _step, _title, _hint, spec in LAYOUT:
+        placed.update(name for name, _w, _s in spec)
+    return [f.name for f in form.visible_fields() if f.name not in placed]
+
+
+def form_context(form, model):
+    """
+    Everything the component form template needs beyond the form itself.
+
+    Shared by AllowanceFormView and DeductionFormView, which previously each
+    carried their own copy of the formula-chip lookup.
+    """
+    from payroll.views.component_formula_views import available_codes
+
+    instance = getattr(form, "instance", None)
+    pk = instance.pk if instance is not None and instance.pk else None
+
+    extra_conditions = []
+    if pk:
+        extra_conditions = [
+            {"field": row.field, "condition": row.condition, "value": row.value}
+            for row in instance.other_conditions.all()
+        ]
+
+    rows, has_next, selected, structure_count = applies_rows(form, model)
+    return {
+        "formula_codes": available_codes(exclude_pk=pk, exclude_model=model),
+        "component_steps": steps_for(form),
+        "extra_conditions": extra_conditions,
+        "applies_rows": rows,
+        "applies_has_next": has_next,
+        "applies_selected": selected,
+        "applies_excluded": applies_excluded(form),
+        "applies_structure_count": structure_count,
+        # The deduction form has no specific-employees field: its table is a read-out.
+        "applies_editable": "specific_employees" in form.fields,
+        "applies_model": model.__name__.lower(),
+        "applies_groups": applies_groups(form),
+        "applies_mode": (
+            applies_group(form)[0]
+            if applies_group(form)[0] != "employees"
+            else ("all" if applies_everyone(form) else "selected")
+        ),
+        "who_title": WHO_TITLE,
+        "limit_note": _limit_note_context(instance),
+    }
+
+
+def _limit_note_context(instance):
+    """
+    The "How this works out" note's server-rendered starting state.
+
+    componentForm.js recomputes this itself on load (and on every edit) via
+    an AJAX call to the same arithmetic -- necessary for *editing* the
+    amount, but a record that already has a ceiling configured otherwise
+    showed the form's generic "Enter an amount..." placeholder first and
+    then jumped to the real figures once that call returned. Mirrors the
+    same source-selection the JS does (fixed amount, else a configured
+    maximum) so the two start out identical and that jump never happens.
+    """
+    if not instance or not instance.pk:
+        return None
+    if getattr(instance, "is_fixed", False):
+        ceiling = instance.amount
+    elif getattr(instance, "has_max_limit", False):
+        ceiling = instance.maximum_amount
+    else:
+        return None
+    if ceiling in (None, ""):
+        return None
+
+    from payroll.views.component_formula_views import limit_note_rows
+
+    try:
+        ceiling = float(ceiling)
+    except (TypeError, ValueError):
+        return None
+    data = limit_note_rows(ceiling, instance.maximum_unit or "")
+    # Pre-formatted the same way componentForm.js's own
+    # toLocaleString(undefined, {...FractionDigits}) renders them (comma
+    # thousands separator, a fixed 2 decimals for the amount, up to 4 with
+    # trailing zeros trimmed for the factor) -- so the AJAX recompute that
+    # runs right after this renders replaces this markup with the exact
+    # same text, not a visibly different one.
+    for row in data["rows"]:
+        row["amount_display"] = _js_like_number(row["amount"], 2, 2)
+        show_share = not data["flat"] and row["factor"] != 1
+        row["factor_display"] = (
+            _js_like_number(row["factor"], 4, 0) if show_share else None
+        )
+    return data
+
+
+def _js_like_number(value, max_decimals, min_decimals):
+    """
+    Python equivalent of JS's Number.prototype.toLocaleString(undefined,
+    {minimumFractionDigits, maximumFractionDigits}) under this app's
+    effectively-en-US default locale: comma-grouped thousands, decimals
+    padded out to min_decimals and trimmed of trailing zeros beyond that,
+    up to max_decimals.
+    """
+    whole, _, frac = f"{value:,.{max_decimals}f}".partition(".")
+    if min_decimals < max_decimals:
+        frac = frac.rstrip("0").ljust(min_decimals, "0")
+    return whole if not frac else f"{whole}.{frac}"
+
+
+WHO_TITLE = _("Who gets it")
+
+
+APPLIES_PAGE_SIZE = 25
+
+
+def applies_excluded(form):
+    """Employees left out of an "everyone" component, as saved or as just posted."""
+    if form.is_bound and hasattr(form, "data"):
+        return [v for v in form.data.getlist("exclude_employees") if v.isdigit()]
+    instance = getattr(form, "instance", None)
+    if instance is not None and instance.pk and hasattr(instance, "exclude_employees"):
+        return [
+            str(pk) for pk in instance.exclude_employees.values_list("pk", flat=True)
+        ]
+    return []
+
+
+def applies_everyone(form):
+    """Whether this component is set to reach every active employee, as saved or just posted."""
+    if form.is_bound and hasattr(form, "data"):
+        return bool(form.data.get("include_active_employees"))
+    instance = getattr(form, "instance", None)
+    return bool(getattr(instance, "include_active_employees", False))
+
+
+# The group targeting modes: (apply_by value, form field, heading, model, name field)
+APPLY_GROUPS = [
+    ("department", "apply_departments", _("Departments"), "Department", "department"),
+    (
+        "job_position",
+        "apply_job_positions",
+        _("Job Positions"),
+        "JobPosition",
+        "job_position",
+    ),
+    ("job_role", "apply_job_roles", _("Job Roles"), "JobRole", "job_role"),
+]
+GROUP_FIELD = {key: field for key, field, *_rest in APPLY_GROUPS}
+
+
+def applies_group(form):
+    """
+    ``(apply_by, ids)`` for a department / job position / job role component, as
+    saved or as just posted. ``apply_by`` is "employees" for every other kind.
+    """
+    if "apply_by" not in getattr(form, "fields", {}):
+        return "employees", set()
+    if form.is_bound and hasattr(form, "data"):
+        by = form.data.get("apply_by") or "employees"
+        field = GROUP_FIELD.get(by)
+        ids = (
+            {int(v) for v in form.data.getlist(field) if v.isdigit()}
+            if field
+            else set()
+        )
+        return by, ids
+    instance = getattr(form, "instance", None)
+    by = getattr(instance, "apply_by", "employees") or "employees"
+    field = GROUP_FIELD.get(by)
+    if instance is not None and instance.pk and field:
+        return by, set(getattr(instance, field).values_list("pk", flat=True))
+    return by, set()
+
+
+def applies_groups(form):
+    """The choices for each group mode, with what is ticked, for the table's picker."""
+    from base import models as base_models
+
+    if "apply_by" not in getattr(form, "fields", {}):
+        return []
+    groups = []
+    for key, field, title, model_name, name_field in APPLY_GROUPS:
+        if form.is_bound and hasattr(form, "data"):
+            chosen = {int(v) for v in form.data.getlist(field) if v.isdigit()}
+        elif form.instance.pk:
+            chosen = set(getattr(form.instance, field).values_list("pk", flat=True))
+        else:
+            chosen = set()
+        items = [
+            {
+                "pk": obj.pk,
+                "name": getattr(obj, name_field),
+                "checked": obj.pk in chosen,
+            }
+            for obj in getattr(base_models, model_name).objects.order_by(name_field)
+        ]
+        groups.append({"key": key, "field": field, "title": title, "items": items})
+    return groups
+
+
+def applies_rows(form, model, page=1, query=""):
+    """
+    One page of the "who gets it" table, plus what a failed save had ticked.
+
+    ``via`` is "structure" when the employee's active contract is on a salary
+    structure that carries this component (it applies, and cannot be unticked
+    here), "outside" when they are ticked on the component itself, and "" when
+    they are not covered. ``warning`` names the structure for someone who is on
+    one that does not carry this component but has it applied around it.
+
+    Returns ``(rows, has_next, selected_pks, structure_count)``. ``selected_pks`` is every
+    employee ticked on the component, not just those on this page: the table
+    loads as you scroll, so the page cannot be what is submitted.
+    """
+    instance = getattr(form, "instance", None)
+    pk = instance.pk if instance is not None and instance.pk else None
+    targeted = set()
+    if pk and hasattr(instance, "specific_employees"):
+        targeted = set(instance.specific_employees.values_list("pk", flat=True))
+    # What a failed save was asked to keep ticked.
+    if form.is_bound and hasattr(form, "data"):
+        targeted = {
+            int(v) for v in form.data.getlist("specific_employees") if v.isdigit()
+        }
+    everyone = applies_everyone(form)
+    excluded = {int(v) for v in applies_excluded(form) if v.isdigit()}
+    by, group_ids = applies_group(form)
+    rows, has_next, covered = applies_page(
+        model,
+        pk,
+        targeted,
+        page,
+        query,
+        everyone=everyone,
+        excluded=excluded,
+        group=(by, group_ids) if by != "employees" else None,
+    )
+    # Those on a structure that carries it are counted separately, not as ticks.
+    return rows, has_next, sorted(targeted - covered), len(covered)
+
+
+def applies_page(
+    model, pk, targeted, page=1, query="", everyone=False, excluded=None, group=None
+):
+    from employee.models import Employee
+    from payroll.models.models import Contract
+
+    excluded = excluded or set()
+    in_structures = set()
+    if pk:
+        in_structures = set(
+            model.objects.get(pk=pk).salary_structures.values_list("pk", flat=True)
+        )
+
+    contracts = {}
+    for contract in (
+        Contract.objects.entire()
+        .filter(contract_status="active")
+        .select_related("salary_structure_id")
+        .order_by("contract_start_date", "pk")
+    ):
+        contracts[contract.employee_id_id] = contract.salary_structure_id
+
+    rows = []
+    employees = (
+        Employee.objects.filter(is_active=True, contract_set__contract_status="active")
+        .select_related(
+            "employee_work_info__department_id",
+            "employee_work_info__job_position_id",
+            "employee_work_info__job_role_id",
+        )
+        .distinct()
+        .order_by("employee_first_name", "employee_last_name")
+    )
+    needle = (query or "").strip().lower()
+    covered = set()
+    group_by, group_ids = group if group else ("employees", set())
+    group_attr = {
+        "department": ("department_id", "department"),
+        "job_position": ("job_position_id", "job_position"),
+        "job_role": ("job_role_id", "job_role"),
+    }.get(group_by)
+    for employee in employees:
+        structure = contracts.get(employee.pk)
+        via = ""
+        warning = ""
+        group_label = ""
+        if group_attr:
+            info = getattr(employee, "employee_work_info", None)
+            member = getattr(info, group_attr[0], None)
+            # Group mode lists only the people the chosen groups reach.
+            if member is None or member.pk not in group_ids:
+                continue
+            group_label = getattr(member, group_attr[1], "")
+        if structure is not None and structure.pk in in_structures:
+            via = "structure"
+        elif group_attr:
+            via = "group"
+        elif employee.pk in targeted:
+            via = "outside"
+        if structure is not None and via != "structure":
+            warning = structure.title
+        # Matches _applies_table.html's own paint(): a structure row is
+        # always ticked, an "everyone" component ticks all but the excluded,
+        # and otherwise only those specifically targeted are ticked. Getting
+        # this right here (not just in paint()) means the row renders in its
+        # final state immediately, instead of painting over a sea of
+        # wrongly-unticked boxes a moment after the form appears.
+        if via in ("structure", "group"):
+            checked = True
+        elif everyone:
+            checked = employee.pk not in excluded
+        else:
+            checked = via != ""
+        row = {
+            "pk": employee.pk,
+            "name": employee.get_full_name(),
+            "code": employee.badge_id or "",
+            "department": getattr(
+                getattr(
+                    getattr(employee, "employee_work_info", None), "department_id", None
+                ),
+                "department",
+                "",
+            ),
+            "structure": structure.title if structure is not None else "",
+            "via": via,
+            "group_label": group_label,
+            "warning": warning,
+            "checked": checked,
+        }
+        if via == "structure":
+            covered.add(employee.pk)
+        if (
+            needle
+            and needle
+            not in " ".join(
+                (row["name"], row["code"], row["department"] or "", row["structure"])
+            ).lower()
+        ):
+            continue
+        rows.append(row)
+    # Those it already reaches first, structure before outside.
+    rows.sort(
+        key=lambda r: (
+            {"structure": 0, "group": 1, "outside": 2, "": 3}[r["via"]],
+            r["name"].lower(),
+        )
+    )
+    if page is None:
+        return rows, False, covered
+    start = (max(int(page or 1), 1) - 1) * APPLIES_PAGE_SIZE
+    chunk = rows[start : start + APPLIES_PAGE_SIZE]
+    return chunk, start + APPLIES_PAGE_SIZE < len(rows), covered
+
+
+# How the Based On choices are grouped in the dropdown. It is one flat list of
+# eleven on the Allowance form, mixing "a percentage of something" with "a rate
+# per unit worked" and with the two advanced modes — so "Custom Formula" sat
+# between "Percentage of Another Component" and "Balance of CTC" with nothing
+# to say they are a different kind of answer, and was routinely missed.
+#
+# Values not listed here still appear, under a trailing group, for the same
+# reason sections_for sweeps up unplaced fields: a choice added to the model
+# later must not vanish from the form.
+BASED_ON_GROUPS = [
+    (
+        _("Percentage of"),
+        ["basic_pay", "gross_pay", "taxable_gross_pay", "net_pay", "component"],
+    ),
+    (_("Work out with a formula"), ["formula", "balance"]),
+    (
+        _("A rate per unit worked"),
+        [
+            "attendance",
+            "shift_id",
+            "work_type_id",
+            "overtime",
+            "week_off_overtime",
+            "holiday_overtime",
+        ],
+    ),
+    (_("A rate per"), ["children"]),
+]
+
+
+def group_based_on_choices(field):
+    """
+    Regroup a Based On field's choices in place, keeping every one of them.
+
+    The empty choice stays at the top and ungrouped: it is the "not chosen yet"
+    state, not a kind of amount.
+    """
+    labels = {str(value): label for value, label in field.choices}
+    blank = [(value, label) for value, label in field.choices if value == ""]
+
+    grouped = []
+    used = {""}
+    for title, values in BASED_ON_GROUPS:
+        members = [(value, labels[value]) for value in values if value in labels]
+        if members:
+            grouped.append((title, members))
+            used.update(value for value, _label in members)
+
+    leftovers = [
+        (value, label) for value, label in field.choices if str(value) not in used
+    ]
+    if leftovers:
+        grouped.append((_("Other"), leftovers))
+
+    field.choices = blank + grouped
+
+
+def component_picker_rows(selected_allowances=(), selected_deductions=()):
+    """
+    Every component that can go in a salary structure, as table rows.
+
+    A table rather than a tag box. In a multi-select two components with
+    similar names are indistinguishable — "House Rent Allowance" and "House
+    Rent Allowance (Metro)" are the same chip twice — and nothing tells you
+    what either one pays or when. The columns are the same ones the structure's
+    own listing shows, from the same summarisers, so a component reads the same
+    before and after it is added.
+
+    Ordered by (sequence, pk), the engine's own order, so the list doubles as a
+    preview of the order they will run in.
+    """
+    from payroll.methods.component_summary import (
+        applies_summary,
+        calculation_summary,
+        in_ctc_summary,
+        proration_summary,
+    )
+    from payroll.models.models import Allowance, Deduction
+
+    chosen_allowances = {int(pk) for pk in selected_allowances or []}
+    chosen_deductions = {int(pk) for pk in selected_deductions or []}
+
+    rows = []
+    for model, kind, chosen in (
+        (Allowance, "earning", chosen_allowances),
+        (Deduction, "deduction", chosen_deductions),
+    ):
+        queryset = model.objects.exclude(only_show_under_employee=True).exclude(
+            # A standard pay item says how loans or penalties behave; it is
+            # never paid, so it cannot be a line in a structure.
+            is_system=True
+        )
+        # Loan and fine instalments are one auto-generated Deduction per due
+        # date. They belong to one employee's repayment schedule, not to a
+        # reusable structure.
+        if hasattr(model, "is_installment"):
+            queryset = queryset.filter(is_installment=False)
+
+        for component in queryset.order_by("sequence", "pk"):
+            if kind == "earning":
+                type_label = _("Earning")
+            elif component.is_tax:
+                type_label = _("Tax")
+            elif component.is_pretax:
+                type_label = _("Pre-tax deduction")
+            else:
+                type_label = _("Deduction")
+
+            rows.append(
+                {
+                    "pk": component.pk,
+                    "field": "allowances" if kind == "earning" else "deductions",
+                    "kind": kind,
+                    "checked": component.pk in chosen,
+                    "sequence": component.sequence,
+                    "code": component.code,
+                    "title": component.title,
+                    "type_label": type_label,
+                    "calculation": calculation_summary(component),
+                    "prorates": proration_summary(component),
+                    "in_ctc": in_ctc_summary(component, kind),
+                    "applies": applies_summary(component),
+                    "is_basic_pay": getattr(component, "is_basic_pay", False),
+                }
+            )
+
+    rows.sort(key=lambda row: (row["sequence"] or 0, row["pk"]))
+    return rows

@@ -2,7 +2,7 @@
 
 {% if instance.approved or instance.canceled %}
     <button
-        class="oh-btn oh-btn--light-bkg oh-btn--secondary h-8 w-24 px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300 opacity-60 pointer-events-none"
+        class="oh-btn oh-btn--light-bkg h-8 w-24 px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300 opacity-60 pointer-events-none"
         disabled
     >
         <ion-icon name="create-outline"></ion-icon>
@@ -14,7 +14,7 @@
         hx-target="#genericModalBody"
         data-toggle="oh-modal-toggle"
         data-target="#genericModal"
-        class="oh-btn oh-btn--light-bkg oh-btn--secondary h-8 w-24 px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300"
+        class="oh-btn oh-btn--light-bkg h-8 w-24 px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300"
     >
         <ion-icon name="create-outline"></ion-icon>
         {% trans "Edit" %}

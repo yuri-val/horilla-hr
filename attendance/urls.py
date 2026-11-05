@@ -30,7 +30,7 @@ from base.forms import AttendanceAllowedIPForm
 from base.models import AttendanceAllowedIP
 from base.views import add_remove_dynamic_fields
 
-from .views import summary, views
+from .views import daywise_import, regularisation_import, summary, views
 
 urlpatterns = [
     path(
@@ -549,6 +549,11 @@ urlpatterns = [
         name="update-fields-based-shift",
     ),
     path(
+        "get-shift-based-fields/",
+        views.get_shift_based_fields,
+        name="get-shift-based-fields",
+    ),
+    path(
         "update-worked-hour-field/",
         views.update_worked_hour_field,
         name="update-worked-hour-field",
@@ -656,7 +661,7 @@ urlpatterns = [
         views.delete_comment_file,
         name="delete-comment-file",
     ),
-    path("work-records/", views.work_records, name="work-records"),
+    path("work-status/", views.work_records, name="work-records"),
     path("work-record-export/", views.work_record_export, name="work-record-export"),
     path(
         "work-records-change-month/",
@@ -1006,16 +1011,6 @@ urlpatterns = [
         name="attendance-dashboard-kpi",
     ),
     path(
-        "dashboard/api/weekly/",
-        att_dashboard.attendance_weekly_trend,
-        name="attendance-dashboard-weekly",
-    ),
-    path(
-        "dashboard/api/departments/",
-        att_dashboard.attendance_department_breakdown,
-        name="attendance-dashboard-dept",
-    ),
-    path(
         "dashboard/api/late-early/",
         att_dashboard.attendance_late_early_data,
         name="attendance-dashboard-late-early",
@@ -1031,19 +1026,14 @@ urlpatterns = [
         name="attendance-dashboard-hours",
     ),
     path(
-        "dashboard/api/shifts/",
-        att_dashboard.attendance_shift_distribution,
-        name="attendance-dashboard-shifts",
+        "dashboard/api/attendance-percentage/",
+        att_dashboard.attendance_percentage_by_dimension,
+        name="attendance-dashboard-percentage",
     ),
     path(
-        "dashboard/api/absenteeism/",
-        att_dashboard.attendance_absenteeism_trend,
-        name="attendance-dashboard-absenteeism",
-    ),
-    path(
-        "dashboard/api/work-types/",
-        att_dashboard.attendance_work_type_distribution,
-        name="attendance-dashboard-work-types",
+        "dashboard/api/absence-percentage/",
+        att_dashboard.absence_percentage_by_dimension,
+        name="attendance-dashboard-absence-percentage",
     ),
     path(
         "dashboard/api/avg-hours/",
@@ -1054,11 +1044,6 @@ urlpatterns = [
         "dashboard/api/top-absentees/",
         att_dashboard.attendance_top_absentees,
         name="attendance-dashboard-absentees",
-    ),
-    path(
-        "dashboard/api/clockin-dist/",
-        att_dashboard.attendance_clockin_distribution,
-        name="attendance-dashboard-clockin",
     ),
     path(
         "dashboard/api/calendar/",
@@ -1075,6 +1060,11 @@ urlpatterns = [
         "monthly-summary/",
         summary.attendance_monthly_summary,
         name="attendance-monthly-summary",
+    ),
+    path(
+        "monthly-summary/default-range/",
+        summary.monthly_summary_default_range,
+        name="attendance-monthly-summary-default-range",
     ),
     path(
         "monthly-summary/table/",
@@ -1100,6 +1090,43 @@ urlpatterns = [
         "monthly-summary/conflict-resolve/",
         summary.attendance_monthly_summary_conflict_resolve,
         name="attendance-monthly-summary-conflict-resolve",
+    ),
+    # Ctrl/Shift-click a range of calendar day cells, then apply one status
+    # to all of them at once — the in-context sibling of the spreadsheet-based
+    # bulk regularisation above, for when the days are all visible together
+    # on one employee's calendar rather than scattered across the summary.
+    path(
+        "monthly-summary/conflict-bulk-resolve/",
+        summary.attendance_monthly_summary_conflict_bulk_resolve,
+        name="attendance-monthly-summary-conflict-bulk-resolve",
+    ),
+    # Bulk regularisation by spreadsheet: download the days awaiting a
+    # decision, fill one column, upload. See regularisation_import for why the
+    # template is pre-filled rather than empty.
+    path(
+        "monthly-summary/day-wise-template/",
+        daywise_import.daywise_template,
+        name="attendance-daywise-template",
+    ),
+    path(
+        "monthly-summary/day-wise-import/",
+        daywise_import.daywise_import,
+        name="attendance-daywise-import",
+    ),
+    path(
+        "monthly-summary/regularisation-template/",
+        regularisation_import.regularisation_template,
+        name="attendance-regularisation-template",
+    ),
+    path(
+        "monthly-summary/regularisation-import/",
+        regularisation_import.regularisation_import,
+        name="attendance-regularisation-import",
+    ),
+    path(
+        "monthly-summary/regularisation-confirm/",
+        regularisation_import.regularisation_confirm,
+        name="attendance-regularisation-confirm",
     ),
     path(
         "monthly-summary/bulk-override/",

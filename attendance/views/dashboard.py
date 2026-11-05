@@ -31,6 +31,7 @@ from attendance.models import (
 from attendance.views.views import strtime_seconds
 from base.methods import filtersubordinates, paginator_qry
 from base.models import Department
+from base.templatetags.basefilters import is_reportingmanager
 from employee.models import Employee
 from horilla import settings
 from horilla.decorators import hx_request_required, login_required
@@ -51,11 +52,13 @@ def find_on_time(request, today, week_day, department=None):
     late_come = AttendanceLateComeEarlyOut.objects.filter(
         attendance_id__attendance_date=today, type="late_come"
     )
+    attendances = filtersubordinates(request, attendances, "attendance.view_attendance")
+    late_come = filtersubordinates(request, late_come, "attendance.view_attendance")
     on_time = len(attendances) - len(late_come)
     return on_time
 
 
-def find_expected_attendances(week_day):
+def find_expected_attendances(request, week_day):
     """
     This method is used to find count of expected attendances for the week day
     """
@@ -63,6 +66,7 @@ def find_expected_attendances(week_day):
     if apps.is_installed("leave"):
         LeaveRequest = get_horilla_model_class(app_label="leave", model="leaverequest")
         on_leave = LeaveRequest.objects.filter(status="Approved")
+        on_leave = filtersubordinates(request, on_leave, "attendance.view_attendance")
     else:
         on_leave = []
     expected_attendances = len(employees) - len(on_leave)
@@ -311,13 +315,45 @@ def generate_data_set(request, start_date, type, end_date, dept):
     early_out_obj = find_early_out(
         department=dept, start_date=start_date, end_date=end_date
     )
-    on_time = len(attendance) - len(late_come_obj)
+    # Reporting managers only see their team (teammate change), then count.
+    attendance = filtersubordinates(request, attendance, "attendance.view_attendance")
+    late_come_obj = filtersubordinates(
+        request, late_come_obj, "attendance.view_attendance"
+    )
+    early_out_obj = filtersubordinates(
+        request, early_out_obj, "attendance.view_attendance"
+    )
+
+    if request.GET.get("unit") == "employees":
+        # Distinct employees per status, so a bar equals the employee list it
+        # drills into. On time = at least one attendance not flagged late.
+        attendance = attendance.filter(employee_id__is_active=True)
+        late_come_obj = late_come_obj.filter(employee_id__is_active=True)
+        early_out_obj = early_out_obj.filter(employee_id__is_active=True)
+        late_attendance_ids = late_come_obj.values_list("attendance_id", flat=True)
+        on_time = (
+            attendance.exclude(id__in=late_attendance_ids)
+            .values("employee_id")
+            .distinct()
+            .count()
+        )
+        late_count = late_come_obj.values("employee_id").distinct().count()
+        early_count = early_out_obj.values("employee_id").distinct().count()
+    else:
+        on_time = len(attendance) - len(late_come_obj)
+        late_count = len(late_come_obj)
+        early_count = len(early_out_obj)
 
     data = {}
-    if on_time or late_come_obj or early_out_obj:
+    if on_time or late_count or early_count:
         data = {
+            # id alongside label so callers can link back to this exact
+            # department by pk instead of re-matching on its name -- the
+            # main dashboard's Attendance Overview chart drills into the
+            # employee list that way when a bar is clicked.
+            "id": dept.pk,
             "label": dept.department,
-            "data": [on_time, len(late_come_obj), len(early_out_obj)],
+            "data": [on_time, late_count, early_count],
         }
 
     return data if data else None
@@ -332,7 +368,9 @@ def dashboard_attendance(request):
         JsonResponse: returns data set as json
     """
     if not (
-        request.user.is_superuser or request.user.has_perm("attendance.view_attendance")
+        request.user.is_superuser
+        or request.user.has_perm("attendance.view_attendance")
+        or is_reportingmanager(request.user)
     ):
         return JsonResponse({"no_permission": True})
 
@@ -385,7 +423,9 @@ def pending_hours(request):
 @login_required
 def department_overtime_chart(request):
     if not (
-        request.user.is_superuser or request.user.has_perm("attendance.view_attendance")
+        request.user.is_superuser
+        or request.user.has_perm("attendance.view_attendance")
+        or is_reportingmanager(request.user)
     ):
         return JsonResponse({"no_permission": True})
 
@@ -420,6 +460,7 @@ def department_overtime_chart(request):
         employee_id__is_active=True,
         attendance_overtime_approve=True,
     )
+    attendances = filtersubordinates(request, attendances, "attendance.view_attendance")
     departments = []
     department_total = []
 

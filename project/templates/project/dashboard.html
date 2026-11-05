@@ -2,7 +2,7 @@
 {% load static i18n %}
 
 {% block content %}
-<script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+<script src="https://cdn.jsdelivr.net/npm/apexcharts@7.8.0/dist/apexcharts.min.js"></script>
 <style>
     :root {
         --pr-indigo: var(--primary-600, #E54F38);
@@ -33,13 +33,30 @@
         gap: 12px;
     }
     .pr-header h1 { font-size: 22px; font-weight: 700; margin: 0; }
-    .pr-header__meta { font-size: 13px; opacity: 0.5; margin-top: 2px; }
+    .pr-header__date { font-size: 13px; opacity: 0.6; margin-top: 2px; }
+    /* Auto-refresh */
+    .pr-refresh { display: flex; align-items: center; gap: 6px; font-size: 11px; opacity: 0.5; }
+    .pr-refresh__dot { width: 6px; height: 6px; border-radius: 50%; background: var(--pr-green); flex-shrink: 0; }
+    .pr-refresh__dot--pulse { animation: pr-pulse 2s infinite; }
+    @keyframes pr-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+    .pr-refresh__toggle { cursor: pointer; opacity: 0.6; font-size: 13px; border: none; background: none; color: inherit; padding: 2px; }
+    .pr-refresh__toggle:hover { opacity: 1; }
     .pr-header__controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    /* Period picker — same look as the Offboarding / PMS dashboards' picker */
     .pr-period-picker {
-        display: none !important; /* TEMP: hide period picker, mirrors payroll dashboard */
-        align-items: center; gap: 6px; background: rgba(128,128,128,0.07); border-radius: 8px; padding: 6px 10px; font-size: 12px;
+        display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px;
     }
-    .pr-period-picker input[type="date"] { border: none; font-size: 12px; background: transparent; color: inherit; outline: none; }
+    .pr-period-picker input[type="date"] {
+        padding: 5px 8px;
+        border: 1px solid rgba(128,128,128,0.2);
+        border-radius: 6px;
+        outline: none;
+        background: transparent;
+        color: inherit;
+        font-size: 12px;
+        transition: border-color 0.15s;
+    }
+    .pr-period-picker input[type="date"]:focus { border-color: var(--primary-600, #E54F38); }
     .pr-period-picker__sep { opacity: 0.4; font-size: 11px; }
     .pr-period-preset {
         padding: 4px 10px;
@@ -55,6 +72,39 @@
     .pr-period-preset--active,
     .pr-period-preset--active:hover { background: var(--primary-600, #E54F38) !important; color: #ffffff !important; border-color: var(--primary-600, #E54F38) !important; }
 
+    /* Customize button + slide-over panel (same as the other dashboards) */
+    .pr-customize-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.3); z-index: 1050; opacity: 0; pointer-events: none; transition: opacity 0.2s; }
+    .pr-customize-overlay--open { opacity: 1; pointer-events: auto; }
+    .pr-customize-panel { position: fixed; top: 0; right: -420px; width: 400px; height: 100vh; background: #ffffff; box-shadow: -4px 0 24px rgba(0,0,0,0.12); z-index: 1051; display: flex; flex-direction: column; transition: right 0.25s ease; }
+    .dark .pr-customize-panel { background: #242424; }
+    .pr-customize-panel--open { right: 0; }
+    .pr-customize-panel__header { padding: 18px 20px; border-bottom: 1px solid rgba(128,128,128,0.12); display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
+    .pr-customize-panel__header h3 { font-size: 16px; font-weight: 700; margin: 0; }
+    .pr-customize-panel__close { width: 32px; height: 32px; border-radius: 8px; border: none; background: rgba(128,128,128,0.08); cursor: pointer; font-size: 18px; display: flex; align-items: center; justify-content: center; color: inherit; }
+    .pr-customize-panel__close:hover { background: rgba(128,128,128,0.16); }
+    .pr-customize-panel__body { flex: 1; overflow-y: auto; padding: 12px 20px; }
+    .pr-customize-panel__footer { padding: 14px 20px; border-top: 1px solid rgba(128,128,128,0.12); display: flex; justify-content: space-between; flex-shrink: 0; }
+    .pr-cust-btn { padding: 7px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; border: none; transition: all 0.15s; }
+    .pr-cust-btn--primary { background: var(--primary-600, #E54F38); color: #fff; }
+    .pr-cust-btn--primary:hover { opacity: 0.9; }
+    .pr-cust-btn--ghost { background: none; color: inherit; opacity: 0.6; }
+    .pr-cust-btn--ghost:hover { opacity: 1; }
+    .pr-cust-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; margin-bottom: 6px; border-radius: 8px; border: 1px solid rgba(128,128,128,0.1); background: rgba(128,128,128,0.02); cursor: grab; user-select: none; }
+    .pr-cust-item:active { cursor: grabbing; }
+    .pr-cust-item.pr-dragging { opacity: 0.85; box-shadow: 0 4px 16px rgba(0,0,0,0.12); border-color: var(--primary-600, #E54F38); }
+    .pr-cust-item.pr-drag-over { border-top: 2px solid var(--primary-600, #E54F38); }
+    .pr-cust-item__handle { font-size: 16px; opacity: 0.3; cursor: grab; flex-shrink: 0; }
+    .pr-cust-item__label { flex: 1; font-size: 13px; font-weight: 500; }
+    .pr-cust-item__toggle { width: 36px; height: 20px; border-radius: 12px; background: #e2e8f0; position: relative; cursor: pointer; transition: background 0.2s; flex-shrink: 0; border: none; }
+    .dark .pr-cust-item__toggle { background: #334155; }
+    .pr-cust-item__toggle::after { content: ''; position: absolute; width: 16px; height: 16px; border-radius: 50%; top: 2px; left: 2px; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.2); transition: transform 0.2s; }
+    .pr-cust-item__toggle--on { background: var(--primary-600, #E54F38); }
+    .dark .pr-cust-item__toggle--on { background: var(--primary-600, #E54F38); }
+    .pr-cust-item__toggle--on::after { transform: translateX(16px); }
+    @media (max-width: 1024px) { .pr-customize-panel { width: 320px; right: -340px; } }
+    @media (max-width: 640px) { .pr-customize-panel { width: 100%; right: -100%; } }
+    .dark .pr-period-picker input[type="date"] { color-scheme: dark; }
+
     /* KPI grid — sizing/spacing ported from the Payroll dashboard's pd-kpi-* */
     .pr-kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 20px; }
     .pr-kpi-card { border-radius: 12px; padding: 16px; background: #ffffff; border: 1px solid rgba(128,128,128,0.12); transition: all 0.2s; text-decoration: none; color: inherit; display: block; }
@@ -64,6 +114,8 @@
     .pr-kpi-card__icon--blue { background: #dbeafe; color: var(--pr-blue); }
     .pr-kpi-card__icon--green { background: #dcfce7; color: var(--pr-green); }
     .pr-kpi-card__icon--purple { background: #f3e8ff; color: var(--pr-purple); }
+    .pr-kpi-card__icon--amber { background: #fef3c7; color: var(--pr-amber); }
+    .dark .pr-kpi-card__icon--amber { background: #78350f; }
     .pr-kpi-card__icon--red { background: #fee2e2; color: var(--pr-red); }
     .dark .pr-kpi-card__icon--blue { background: #1e3a5f; } .dark .pr-kpi-card__icon--green { background: #14532d; }
     .dark .pr-kpi-card__icon--purple { background: #3b0764; } .dark .pr-kpi-card__icon--red { background: #7f1d1d; }
@@ -75,15 +127,19 @@
     .pr-badge--blue { background: #dbeafe; color: #1d4ed8; }
     .pr-badge--amber { background: #fef3c7; color: #92400e; }
     .pr-badge--red { background: #fee2e2; color: #991b1b; }
+    .pr-badge--purple { background: #f3e8ff; color: #6b21a8; }
     .dark .pr-badge--green { background: #166534; color: #bbf7d0; }
     .dark .pr-badge--blue { background: #1e3a8a; color: #bfdbfe; }
     .dark .pr-badge--amber { background: #92400e; color: #fde68a; }
     .dark .pr-badge--red { background: #7f1d1d; color: #fca5a5; }
+    .dark .pr-badge--purple { background: #581c87; color: #e9d5ff; }
 
     /* Layout — main + sticky sidebar, ported from pd-layout */
     .pr-layout { display: grid; grid-template-columns: 1fr 300px; gap: 20px; align-items: start; }
     .pr-main { min-width: 0; }
-    .pr-sidebar { display: flex; flex-direction: column; gap: 16px; position: sticky; top: 90px; }
+    .pr-sidebar { display: flex; flex-direction: column; gap: 16px; position: sticky; top: 90px; max-height: calc(100vh - 90px - 24px); overflow-y: auto; }
+    .pr-sidebar::-webkit-scrollbar { width: 3px; }
+    .pr-sidebar::-webkit-scrollbar-thumb { border-radius: 3px; background: rgba(128,128,128,0.2); }
 
     /* Chart grid */
     .pr-chart-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-bottom: 20px; }
@@ -104,10 +160,16 @@
     @keyframes pr-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 
     /* Sidebar info panels — ported from pd-info-panel */
-    .pr-info-panel { border-radius: 12px; background: #ffffff; border: 1px solid rgba(128,128,128,0.12); overflow: hidden; display: flex; flex-direction: column; }
+    .pr-info-panel { border-radius: 12px; background: #ffffff; border: 1px solid rgba(128,128,128,0.12); overflow: hidden; display: flex; flex-direction: column; flex-shrink: 0; }
     .dark .pr-info-panel { background: #242424; border-color: rgba(255,255,255,0.08); }
     .pr-info-panel__header { padding: 14px 16px 10px; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; border-bottom: 1px solid rgba(128,128,128,0.08); }
-    .pr-info-panel__title { font-size: 13px; font-weight: 700; }
+    .pr-info-panel__title { font-size: 13px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+    /* How many records the card holds, beside its title. Hidden at zero. */
+    .pr-count-badge[hidden] { display: none; }
+    .pr-count-badge { min-width: 24px; height: 24px; padding: 0 6px; border-radius: 999px; background: var(--pr-indigo); color: #fff; font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; }
+    /* Title on top, the date period / basis the card lists on the line below. */
+    .pr-info-panel__heading { min-width: 0; }
+    .pr-info-panel__sub { font-size: 11px; opacity: 0.5; margin-top: 2px; }
     .pr-info-panel__body { padding: 8px 16px 12px; overflow-y: auto; flex: 1; max-height: 350px; }
     .pr-info-panel__empty { text-align: center; padding: 30px 0; opacity: 0.4; font-size: 12px; }
 
@@ -125,18 +187,37 @@
 
     /* Pipeline steps — ported from pd-pipeline */
     .pr-pipeline { display: flex; gap: 4px; padding: 10px 0; }
-    .pr-pipeline-step { flex: 1; text-align: center; padding: 12px 8px; border-radius: 8px; }
+    .pr-pipeline-step { flex: 1; text-align: center; padding: 12px 8px; border-radius: 8px; display: block; text-decoration: none; color: inherit; transition: filter 0.15s; }
+    .pr-pipeline-step:hover { filter: brightness(0.95); }
     .pr-pipeline-step__count { font-size: 22px; font-weight: 800; line-height: 1; margin-bottom: 4px; }
     .pr-pipeline-step__label { font-size: 10px; font-weight: 600; text-transform: uppercase; opacity: 0.7; }
 
     /* Task status legend — counts alongside percentages */
-    .pr-legend { display: flex; flex-wrap: wrap; gap: 10px 16px; padding: 4px 4px 2px; justify-content: center; }
-    .pr-legend__item { display: flex; align-items: center; gap: 6px; font-size: 11px; }
-    .pr-legend__dot { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
-    .pr-legend__count { opacity: 0.55; }
+    .pr-legend { display: flex; flex-wrap: nowrap; align-items: center; justify-content: center; gap: 6px; padding: 6px 12px 14px; }
+    .pr-pills { display: contents; }
+    .pr-pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border: 1px solid rgba(128,128,128,0.2); border-radius: 999px; background: none; color: inherit; font-size: 11px; font-weight: 500; white-space: nowrap; flex-shrink: 0; cursor: pointer; transition: opacity 0.15s, border-color 0.15s; }
+    .pr-pill:hover { border-color: var(--primary-600, #E54F38); }
+    .pr-pill.is-off { opacity: 0.45; }
+    .pr-pill.is-off .pr-pill__dot { filter: grayscale(1); }
+    .pr-pill__dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .pr-pill__name { max-width: 130px; overflow: hidden; text-overflow: ellipsis; }
+    .pr-pill__detail { opacity: 0.55; }
+    .pr-pill--more { text-transform: capitalize; color: var(--primary-600, #E54F38); font-weight: 600; border-style: dashed; }
+    .pr-pill-more { position: relative; display: inline-block; }
+    .pr-pop { display: none; position: absolute; right: 0; bottom: 100%; padding-bottom: 8px; z-index: 40; }
+    .pr-pill-more:hover .pr-pop, .pr-pill-more:focus-within .pr-pop { display: block; }
+    .pr-pop__box { width: max-content; min-width: 200px; max-width: 340px; border: 1px solid rgba(128,128,128,0.15); border-radius: 10px; background: #ffffff; box-shadow: 0 8px 28px rgba(0,0,0,0.15); padding: 8px 4px 6px; }
+    .dark .pr-pop__box { background: #242424; }
+    .pr-pop__list { max-height: 190px; overflow-y: auto; }
+    .pr-pop__row { display: flex; align-items: center; gap: 8px; padding: 5px 10px; border-radius: 6px; font-size: 12px; cursor: pointer; }
+    .pr-pop__row:hover { background: rgba(128,128,128,0.1); }
+    .pr-pop__row input { accent-color: var(--primary-600, #E54F38); margin: 0; }
+    .pr-pop__text { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .pr-pop__count { flex-shrink: 0; margin-left: auto; font-size: 11px; opacity: 0.55; }
+    .pr-chart-card:has(.pr-pill-more:hover), .pr-chart-card:has(.pr-pill-more:focus-within) { position: relative; z-index: 30; }
 
     /* Responsive */
-    @media (max-width: 1280px) { .pr-kpi-grid { grid-template-columns: repeat(2, 1fr); } .pr-layout { grid-template-columns: 1fr; } .pr-sidebar { position: static; display: grid; grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 1280px) { .pr-kpi-grid { grid-template-columns: repeat(2, 1fr); } .pr-layout { grid-template-columns: 1fr; } .pr-sidebar { position: static; display: grid; grid-template-columns: 1fr 1fr; max-height: none; overflow-y: visible; } }
     @media (max-width: 1024px) { .pr-chart-grid { grid-template-columns: 1fr; } .pr-chart-card--wide { grid-column: span 1; } .pr-sidebar { grid-template-columns: 1fr; } .pr-pipeline { flex-wrap: wrap; } .pr-pipeline-step { min-width: 70px; } }
     @media (max-width: 640px) { .pr-kpi-grid { grid-template-columns: 1fr; } }
 </style>
@@ -147,21 +228,29 @@
     <div class="pr-header">
         <div>
             <h1>{% trans "Project Dashboard" %}</h1>
-            <div class="pr-header__meta" id="pr-last-updated">{% trans "Loading..." %}</div>
+            <div class="pr-header__date" id="pr-date"></div>
+            <div class="pr-refresh"><span class="pr-refresh__dot" id="pr-refresh-dot"></span><span id="pr-refresh-text">{% trans "Just now" %}</span><button class="pr-refresh__toggle" id="pr-refresh-toggle" title="{% trans 'Toggle auto-refresh' %}">⟳</button></div>
         </div>
         <div class="pr-header__controls">
-            <button class="pr-period-preset pr-period-preset--active" onclick="prSetPreset('month',this)">{% trans "This Month" %}</button>
-            <button class="pr-period-preset" onclick="prSetPreset('quarter',this)">{% trans "Quarter" %}</button>
-            <div class="pr-period-picker" hidden>
+            <div class="pr-period-picker">
+                <button class="pr-period-preset" data-preset="today" onclick="prSetPreset('today',this)">{% trans "Today" %}</button>
+                <button class="pr-period-preset" data-preset="week" onclick="prSetPreset('week',this)">{% trans "This Week" %}</button>
+                <button class="pr-period-preset" data-preset="last_week" onclick="prSetPreset('last_week',this)">{% trans "Last Week" %}</button>
+                <button class="pr-period-preset" data-preset="month" onclick="prSetPreset('month',this)">{% trans "This Month" %}</button>
+                <button class="pr-period-preset" data-preset="last_month" onclick="prSetPreset('last_month',this)">{% trans "Last Month" %}</button>
+                <button class="pr-period-preset" data-preset="year" onclick="prSetPreset('year',this)">{% trans "This Year" %}</button>
                 <input type="date" id="pr-from-date" title="{% trans 'From' %}">
                 <span class="pr-period-picker__sep">&rarr;</span>
                 <input type="date" id="pr-to-date" title="{% trans 'To' %}">
             </div>
+            <button class="oh-btn oh-btn--secondary" id="pr-open-customize" style="display: flex; align-items: center; gap: 5px; font-size: 13px" title="{% trans 'Customize' %}">
+                ⚙ {% trans "Customize" %}
+            </button>
         </div>
     </div>
 
-    <!-- KPI Row -->
-    <div class="pr-kpi-grid" id="pr-kpi-grid">
+    <!-- Task/deadline KPI row -->
+    <div class="pr-kpi-grid" id="pr-task-kpi-grid">
         <div class="pr-kpi-card pr-skeleton" style="height:100px;"></div>
         <div class="pr-kpi-card pr-skeleton" style="height:100px;"></div>
         <div class="pr-kpi-card pr-skeleton" style="height:100px;"></div>
@@ -173,51 +262,45 @@
         <div class="pr-main">
             <div class="pr-chart-grid">
 
-                <!-- Project Pipeline -->
-                <div class="pr-chart-card pr-chart-card--wide">
-                    <div class="pr-chart-card__header">
-                        <div>
-                            <div class="pr-chart-card__title">{% trans "Project Pipeline" %}</div>
-                            <div class="pr-chart-card__sub">{% trans "Live status — every active project" %}</div>
-                        </div>
-                    </div>
-                    <div class="pr-chart-card__body"><div id="pr-pipeline"></div></div>
-                </div>
-
-                <!-- Project Activity Trend -->
-                <div class="pr-chart-card pr-chart-card--wide">
-                    <div class="pr-chart-card__header">
-                        <div>
-                            <div class="pr-chart-card__title">{% trans "Project Activity Trend" %}</div>
-                            <div class="pr-chart-card__sub">{% trans "Started, completed & overdue — last 6 months" %}</div>
-                        </div>
-                    </div>
-                    <div class="pr-chart-card__body"><div id="pr-trend-chart"></div></div>
-                </div>
-
                 <!-- Task Status -->
-                <div class="pr-chart-card">
+                <div class="pr-chart-card" data-chart-id="task_status" data-chart-label="{% trans 'Task Status' %}">
                     <div class="pr-chart-card__header">
                         <div>
                             <div class="pr-chart-card__title">{% trans "Task Status" %}</div>
-                            <div class="pr-chart-card__sub">{% trans "All active tasks breakdown" %}</div>
+                            <div class="pr-chart-card__sub">{% trans "Active tasks breakdown" %}<span data-period-label></span></div>
                         </div>
                     </div>
                     <div class="pr-chart-card__body">
                         <div id="pr-task-chart"></div>
-                        <div class="pr-legend" id="pr-task-legend"></div>
                     </div>
                 </div>
 
                 <!-- Top Active Projects -->
-                <div class="pr-chart-card">
+                <div class="pr-chart-card" data-chart-id="top_projects" data-chart-label="{% trans 'Top Active Projects' %}">
                     <div class="pr-chart-card__header">
                         <div>
                             <div class="pr-chart-card__title">{% trans "Top Active Projects" %}</div>
-                            <div class="pr-chart-card__sub">{% trans "In progress — by task count" %}</div>
+                            <div class="pr-chart-card__sub">{% trans "In progress — by task count" %}<span data-period-label></span></div>
                         </div>
                     </div>
-                    <div class="pr-chart-card__body"><div id="pr-top-chart"></div></div>
+                    <div class="pr-chart-card__body">
+                        <div id="pr-top-chart"></div>
+                        <div class="pr-legend" id="pr-top-legend"></div>
+                    </div>
+                </div>
+
+                <!-- Project Timesheet -->
+                <div class="pr-chart-card pr-chart-card--wide" data-chart-id="project_timesheet" data-chart-label="{% trans 'Project Timesheet' %}">
+                    <div class="pr-chart-card__header">
+                        <div>
+                            <div class="pr-chart-card__title">{% trans "Project Timesheet" %}</div>
+                            <div class="pr-chart-card__sub">{% trans "Hours logged per project" %}<span data-period-label></span></div>
+                        </div>
+                    </div>
+                    <div class="pr-chart-card__body">
+                        <div id="pr-timesheet-chart"></div>
+                        <div class="pr-legend" id="pr-timesheet-legend"></div>
+                    </div>
                 </div>
 
             </div>
@@ -227,8 +310,10 @@
         <div class="pr-sidebar">
             <div class="pr-info-panel">
                 <div class="pr-info-panel__header">
-                    <div class="pr-info-panel__title">{% trans "Top Contributors" %}</div>
-                    <span style="font-size:11px;opacity:0.5;" id="pr-contributors-month">{% trans "This month" %}</span>
+                    <div class="pr-info-panel__heading">
+                    <div class="pr-info-panel__title">{% trans "Top Contributors" %}<span id="pr-contributors-count" class="pr-count-badge" hidden title="{% trans 'Employees who completed tasks in this period' %}">0</span></div>
+                    <div class="pr-info-panel__sub" data-period-label="bare"></div>
+                </div>
                 </div>
                 <div class="pr-info-panel__body" id="pr-contributors">
                     <div class="pr-info-panel__empty">{% trans "Loading..." %}</div>
@@ -236,8 +321,10 @@
             </div>
             <div class="pr-info-panel">
                 <div class="pr-info-panel__header">
-                    <div class="pr-info-panel__title">{% trans "Task Deadlines" %}</div>
-                    <span style="font-size:11px;opacity:0.5;">{% trans "Next 14 days & overdue" %}</span>
+                    <div class="pr-info-panel__heading">
+                    <div class="pr-info-panel__title">{% trans "Task Deadlines" %}<span id="pr-deadlines-count" class="pr-count-badge" hidden title="{% trans 'Tasks due soon or overdue' %}">0</span></div>
+                    <div class="pr-info-panel__sub">{% trans "Next 14 days & overdue" %}</div>
+                </div>
                 </div>
                 <div class="pr-info-panel__body" id="pr-deadlines">
                     <div class="pr-info-panel__empty">{% trans "Loading..." %}</div>
@@ -248,6 +335,21 @@
     </div>
 </div>
 
+{% include "components/pie_legend.html" %}
+<!-- Customize Panel -->
+<div class="pr-customize-overlay" id="pr-customize-overlay"></div>
+<div class="pr-customize-panel" id="pr-customize-panel">
+    <div class="pr-customize-panel__header">
+        <h3>{% trans "Customize Dashboard" %}</h3>
+        <button class="pr-customize-panel__close" id="pr-close-customize">&times;</button>
+    </div>
+    <div class="pr-customize-panel__body" id="pr-customize-list"></div>
+    <div class="pr-customize-panel__footer">
+        <button class="pr-cust-btn pr-cust-btn--ghost" id="pr-reset-customize">{% trans "Reset" %}</button>
+        <button class="pr-cust-btn pr-cust-btn--primary" id="pr-save-customize">{% trans "Save" %}</button>
+    </div>
+</div>
+
 <script>
 (function() {
     const isDark = document.documentElement.classList.contains('dark') || document.body.classList.contains('dark');
@@ -255,40 +357,41 @@
     const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
     const cardBg = isDark ? '#242424' : '#ffffff';
     const emptyHtml = (msg) => `<div class="pr-empty"><img src="/static/images/ui/no_records.svg" alt="">${msg}</div>`;
-    const empViewUrl = "{% url 'employee-view-individual' obj_id=0 %}";
-    const empUrlFor = id => id ? empViewUrl.replace('/0/', '/' + id + '/') : '#';
+    const taskAllUrlFor = id => id ? `{% url 'task-all' %}?task_members=${id}&status=completed&end_from=${prFromDate}&end_till=${prToDate}` : '#';
 
     const PR_URLS = {
-        kpi:          "{% url 'project-dashboard-kpi' %}",
         pipeline:     "{% url 'project-dashboard-pipeline' %}",
         tasks:        "{% url 'project-dashboard-tasks' %}",
-        trend:        "{% url 'project-dashboard-trend' %}",
+        timesheet:    "{% url 'project-dashboard-timesheet' %}",
         top:          "{% url 'project-dashboard-top' %}",
         contributors: "{% url 'project-dashboard-contributors' %}",
         deadlines:    "{% url 'project-dashboard-task-deadlines' %}",
+        taskKpi:      "{% url 'project-dashboard-task-kpi' %}",
         projectView:  "{% url 'project-view' %}",
         taskAll:      "{% url 'task-all' %}",
-        projectDetail: "/project/task-view/__ID__/?view=list",
+        projectDetail: "/project/task-view/__ID__/?view=card",
     };
 
     let prFromDate = "", prToDate = "";
 
-    function prSetPreset(preset, btn) {
-        document.querySelectorAll(".pr-period-preset").forEach(b => b.classList.remove("pr-period-preset--active"));
-        btn.classList.add("pr-period-preset--active");
-        const today = new Date();
-        const pad = n => String(n).padStart(2, "0");
-        const fmt = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
-        if (preset === "month") {
-            prFromDate = fmt(new Date(today.getFullYear(), today.getMonth(), 1));
-            prToDate = fmt(new Date(today.getFullYear(), today.getMonth()+1, 0));
-        } else if (preset === "quarter") {
-            const qStart = new Date(today.getFullYear(), Math.floor(today.getMonth()/3)*3, 1);
-            prFromDate = fmt(qStart);
-            prToDate = fmt(new Date(today.getFullYear(), Math.floor(today.getMonth()/3)*3+3, 0));
-        }
+    const PR_PERIOD_KEY = "pr_period_v1";
+    function prSavePeriod() { sessionStorage.setItem(PR_PERIOD_KEY, JSON.stringify({ from: prFromDate, to: prToDate })); }
+    function prSyncPresetActive() {
+        document.querySelectorAll(".pr-period-preset").forEach(b => {
+            const r = prPresetRange(b.dataset.preset);
+            b.classList.toggle("pr-period-preset--active", !!r && prFromDate === prFmt(r[0]) && prToDate === prFmt(r[1]));
+        });
+    }
+
+    function prSetPreset(preset) {
+        const r = prPresetRange(preset);
+        if (!r) return;
+        prFromDate = prFmt(r[0]);
+        prToDate = prFmt(r[1]);
         document.getElementById("pr-from-date").value = prFromDate;
         document.getElementById("pr-to-date").value = prToDate;
+        prSavePeriod();
+        prSyncPresetActive();
         prLoadAll();
     }
     window.prSetPreset = prSetPreset;
@@ -306,6 +409,58 @@
         return fetch(url + sep + p.slice(1)).then(r => r.json());
     }
 
+    // ── Chart Customize ──
+    const CUST_KEY = 'pr_chart_prefs';
+    function getDefaultOrder() { return Array.from(document.querySelectorAll('[data-chart-id]')).map(c => ({ id: c.dataset.chartId, visible: true })); }
+    function loadCustPrefs() { try { const r = localStorage.getItem(CUST_KEY); return r ? JSON.parse(r) : null; } catch { return null; } }
+    function saveCustPrefs(p) { localStorage.setItem(CUST_KEY, JSON.stringify(p)); }
+    function applyCustPrefs(p) {
+        if (!p) return;
+        const container = document.querySelector('.pr-chart-grid');
+        const cards = {}; container.querySelectorAll('[data-chart-id]').forEach(c => { cards[c.dataset.chartId] = c; });
+        p.forEach(pr => { const card = cards[pr.id]; if (card) { container.appendChild(card); if (pr.visible === false) card.style.display = 'none'; else card.style.display = ''; } });
+        Object.keys(cards).forEach(id => { if (!p.find(pr => pr.id === id)) { container.appendChild(cards[id]); cards[id].style.display = ''; } });
+    }
+    applyCustPrefs(loadCustPrefs());
+
+    const custOverlay = document.getElementById('pr-customize-overlay');
+    const custPanel = document.getElementById('pr-customize-panel');
+    const custList = document.getElementById('pr-customize-list');
+
+    function openCust() {
+        const prefs = loadCustPrefs() || getDefaultOrder();
+        const allCards = {}; document.querySelectorAll('[data-chart-id]').forEach(c => { allCards[c.dataset.chartId] = { id: c.dataset.chartId, label: c.dataset.chartLabel }; });
+        const ordered = []; prefs.forEach(p => { if (allCards[p.id]) ordered.push({ ...allCards[p.id], visible: p.visible !== false }); });
+        Object.keys(allCards).forEach(id => { if (!ordered.find(o => o.id === id)) ordered.push({ ...allCards[id], visible: true }); });
+        let html = ''; ordered.forEach((item, idx) => {
+            html += `<div class="pr-cust-item" draggable="true" data-cust-id="${item.id}"><span class="pr-cust-item__handle">&#x2630;</span><div class="pr-cust-item__label">${item.label}</div><button class="pr-cust-item__toggle ${item.visible ? 'pr-cust-item__toggle--on' : ''}" data-cust-toggle="${item.id}"></button></div>`;
+        });
+        custList.innerHTML = html;
+        initCustDrag();
+        custOverlay.classList.add('pr-customize-overlay--open'); custPanel.classList.add('pr-customize-panel--open');
+    }
+    function closeCust() { custOverlay.classList.remove('pr-customize-overlay--open'); custPanel.classList.remove('pr-customize-panel--open'); }
+
+    function initCustDrag() {
+        let dragEl = null;
+        custList.querySelectorAll('.pr-cust-item').forEach(item => {
+            item.addEventListener('dragstart', e => { dragEl = item; item.classList.add('pr-dragging'); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', ''); });
+            item.addEventListener('dragend', () => { if (dragEl) dragEl.classList.remove('pr-dragging'); custList.querySelectorAll('.pr-cust-item').forEach(i => i.classList.remove('pr-drag-over')); dragEl = null; });
+            item.addEventListener('dragover', e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (item !== dragEl) item.classList.add('pr-drag-over'); });
+            item.addEventListener('dragleave', () => item.classList.remove('pr-drag-over'));
+            item.addEventListener('drop', e => { e.preventDefault(); item.classList.remove('pr-drag-over'); if (dragEl && item !== dragEl) { const items = Array.from(custList.querySelectorAll('.pr-cust-item')); if (items.indexOf(dragEl) < items.indexOf(item)) item.parentNode.insertBefore(dragEl, item.nextSibling); else item.parentNode.insertBefore(dragEl, item); } });
+        });
+        custList.querySelectorAll('.pr-cust-item__toggle').forEach(btn => btn.addEventListener('click', e => { e.stopPropagation(); btn.classList.toggle('pr-cust-item__toggle--on'); }));
+    }
+
+    function getCustState() { return Array.from(custList.querySelectorAll('.pr-cust-item')).map(item => ({ id: item.dataset.custId, visible: item.querySelector('.pr-cust-item__toggle').classList.contains('pr-cust-item__toggle--on') })); }
+
+    document.getElementById('pr-open-customize').addEventListener('click', openCust);
+    document.getElementById('pr-close-customize').addEventListener('click', closeCust);
+    custOverlay.addEventListener('click', closeCust);
+    document.getElementById('pr-save-customize').addEventListener('click', () => { const p = getCustState(); saveCustPrefs(p); applyCustPrefs(p); closeCust(); });
+    document.getElementById('pr-reset-customize').addEventListener('click', () => { localStorage.removeItem(CUST_KEY); location.reload(); });
+
     // ── Chart instance registry (avoid stacking duplicate SVGs on reload) ──
     const chartInstances = {};
     function renderChart(key, el, options) {
@@ -317,57 +472,111 @@
         return chart;
     }
 
-    const fmtPct = v => (v > 0 ? '+' : '') + v + '%';
-
-    // ─── KPI CARDS ───
-    function prLoadKpi() {
-        prFetch(PR_URLS.kpi).then(d => {
-            const pv = PR_URLS.projectView;
-            const changeIcon = d.completed_change_pct > 0 ? '↑' : d.completed_change_pct < 0 ? '↓' : '→';
-            const changeClass = d.completed_change_pct > 0 ? 'pr-badge--green' : d.completed_change_pct < 0 ? 'pr-badge--red' : 'pr-badge--blue';
-            document.getElementById('pr-kpi-grid').innerHTML = `
-                <a href="${pv}" class="pr-kpi-card">
-                    <div class="pr-kpi-card__icon pr-kpi-card__icon--blue"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></div>
-                    <div class="pr-kpi-card__label">{% trans "Total Projects"|escapejs %}</div>
-                    <div class="pr-kpi-card__value">${d.total_projects}</div>
-                    <div class="pr-kpi-card__sub"><span class="pr-badge pr-badge--blue">+${d.total_new_this_month} {% trans "this month"|escapejs %}</span></div>
-                </a>
-                <a href="${pv}?status=in_progress" class="pr-kpi-card">
-                    <div class="pr-kpi-card__icon pr-kpi-card__icon--green"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg></div>
-                    <div class="pr-kpi-card__label">{% trans "Active"|escapejs %}</div>
-                    <div class="pr-kpi-card__value">${d.active_projects}</div>
-                    <div class="pr-kpi-card__sub"><span class="pr-badge pr-badge--green">+${d.active_started_this_month} {% trans "started this month"|escapejs %}</span></div>
-                </a>
-                <a href="${pv}?status=completed" class="pr-kpi-card">
-                    <div class="pr-kpi-card__icon pr-kpi-card__icon--purple"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div>
-                    <div class="pr-kpi-card__label">{% trans "Completed"|escapejs %}</div>
-                    <div class="pr-kpi-card__value">${d.completed_projects}</div>
-                    <div class="pr-kpi-card__sub"><span class="pr-badge ${changeClass}">${changeIcon} ${fmtPct(Math.abs(d.completed_change_pct))} {% trans "vs last month"|escapejs %}</span></div>
-                </a>
-                <a href="${pv}?overdue=True" class="pr-kpi-card">
-                    <div class="pr-kpi-card__icon pr-kpi-card__icon--red"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div>
-                    <div class="pr-kpi-card__label">{% trans "Overdue"|escapejs %}</div>
-                    <div class="pr-kpi-card__value">${d.overdue_projects}</div>
-                    <div class="pr-kpi-card__sub">${d.overdue_new_this_month > 0 ? `<span class="pr-badge pr-badge--red">+${d.overdue_new_this_month} {% trans "this month"|escapejs %}</span>` : '{% trans "Past end date"|escapejs %}'}</div>
-                </a>`;
-            document.getElementById('pr-last-updated').textContent =
-                `{% trans "Last updated"|escapejs %}: ${new Date().toLocaleTimeString()}`;
+    const prEsc = v => String(v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    function prCreateLegend({ el, noun, topN = 6 }) {
+        const prefId = el.id || noun;
+        let items = [], selected = new Set(), onToggle = null;
+        const dot = c => `<span class="pr-pill__dot" style="background:${c}"></span>`;
+        function pillsHtml(k) {
+            return items.slice(0, k).map(it => `<button type="button" class="pr-pill${selected.has(it.name) ? '' : ' is-off'}" data-name="${prEsc(it.name)}" title="${prEsc(it.name)}${it.detail != null ? ': ' + prEsc(it.detail) : ''}">${dot(it.color)}<span class="pr-pill__name">${prEsc(it.name)}</span>${it.detail != null ? `<span class="pr-pill__detail">${prEsc(it.detail)}</span>` : ''}</button>`).join('');
+        }
+        function build(k) {
+            const rest = items.slice(k);
+            let html = `<span class="pr-pills">${pillsHtml(k)}</span>`;
+            if (rest.length) {
+                html += `<span class="pr-pill-more"><button type="button" class="pr-pill pr-pill--more">+${rest.length} ${prEsc(noun)}</button>`
+                    + `<div class="pr-pop"><div class="pr-pop__box"><div class="pr-pop__list">`
+                    + rest.map(it => `<label class="pr-pop__row"><input type="checkbox" data-name="${prEsc(it.name)}"${selected.has(it.name) ? ' checked' : ''}>${dot(it.color)}<span class="pr-pop__text">${prEsc(it.name)}</span>${it.detail != null ? `<span class="pr-pop__count">${prEsc(it.detail)}</span>` : ''}</label>`).join('')
+                    + `</div></div></div></span>`;
+            }
+            el.innerHTML = html;
+            return k;
+        }
+        function render() {
+            let k = build(Math.min(topN, items.length));
+            while (k > 1 && el.scrollWidth > el.clientWidth + 1) k = build(k - 1);
+        }
+        function toggle(name) {
+            if (selected.has(name)) {
+                if (selected.size === 1) return;
+                selected.delete(name);
+            } else {
+                selected.add(name);
+            }
+            LegendPrefs.save(prefId, items.map(i => i.name), selected);
+            const pills = el.querySelector('.pr-pills');
+            if (pills) pills.querySelectorAll('.pr-pill').forEach(p => p.classList.toggle('is-off', !selected.has(p.dataset.name)));
+            el.querySelectorAll('input[data-name]').forEach(cb => { cb.checked = selected.has(cb.dataset.name); });
+            if (onToggle) onToggle(name, selected.has(name));
+        }
+        el.addEventListener('click', e => {
+            const pill = e.target.closest('.pr-pill[data-name]');
+            if (pill) toggle(pill.dataset.name);
         });
+        el.addEventListener('change', e => {
+            if (e.target.matches('input[data-name]')) toggle(e.target.dataset.name);
+        });
+        let lastWidth = 0;
+        new ResizeObserver(() => {
+            if (el.clientWidth === lastWidth) return;
+            lastWidth = el.clientWidth;
+            if (items.length) render();
+        }).observe(el);
+        return {
+            set(newItems, toggleFn) {
+                items = newItems;
+                selected = LegendPrefs.initial(prefId, items.map(i => i.name));
+                onToggle = toggleFn;
+                render();
+                // These charts only change through the toggle callback, so replay the
+                // items the user switched off on an earlier visit.
+                items.forEach(i => { if (!selected.has(i.name) && onToggle) onToggle(i.name, false); });
+            },
+            clear() { items = []; el.innerHTML = ''; },
+        };
     }
+    const timesheetLegend = prCreateLegend({ el: document.getElementById('pr-timesheet-legend'), noun: '{% trans "projects"|escapejs %}' });
+    const topLegend = prCreateLegend({ el: document.getElementById('pr-top-legend'), noun: '{% trans "projects"|escapejs %}', topN: 3 });
 
-    // ─── PROJECT PIPELINE ───
-    function prLoadPipeline() {
-        prFetch(PR_URLS.pipeline).then(d => {
-            const el = document.getElementById('pr-pipeline');
-            if (!d.total) { el.innerHTML = emptyHtml('{% trans "No active projects"|escapejs %}'); return; }
-            const colors = { new: 'rgba(148,163,184,0.15)', in_progress: 'rgba(59,130,246,0.15)', on_hold: 'rgba(245,158,11,0.15)', completed: 'rgba(34,197,94,0.15)' };
-            const textColors = { new: '#64748b', in_progress: '#2563eb', on_hold: '#d97706', completed: '#16a34a' };
-            el.innerHTML = '<div class="pr-pipeline">' + d.stages.map(s =>
-                `<div class="pr-pipeline-step" style="background:${colors[s.status]};">
-                    <div class="pr-pipeline-step__count" style="color:${textColors[s.status]};">${s.count}</div>
-                    <div class="pr-pipeline-step__label">${s.label}</div>
-                </div>`
-            ).join('<div style="display:flex;align-items:center;opacity:0.3;font-size:18px;">→</div>') + '</div>';
+    // ─── TASK & DEADLINE KPI ───
+    // "Today's", "nearing deadline" and "overdue" are always relative to
+    // today, not the period picker above -- same choice project_task_deadlines
+    // already makes for the Task Deadlines panel, so this row doesn't flip
+    // between showing nothing and showing everything as the picker changes.
+    function prLoadTaskKpi() {
+        prFetch(PR_URLS.taskKpi).then(d => {
+            const today = new Date();
+            const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1);
+            const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
+            const soon = new Date(today); soon.setDate(today.getDate() + 14);
+            const todayStr = prFmt(today), tomorrowStr = prFmt(tomorrow), yesterdayStr = prFmt(yesterday), soonStr = prFmt(soon);
+            const ta = PR_URLS.taskAll;
+            const pv = PR_URLS.projectView;
+            document.getElementById('pr-task-kpi-grid').innerHTML = `
+                <a href="${ta}?is_open=true&end_date=${todayStr}&filter_applied=on" class="pr-kpi-card">
+                    <div class="pr-kpi-card__icon pr-kpi-card__icon--blue"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></div>
+                    <div class="pr-kpi-card__label">{% trans "Today's Tasks"|escapejs %}</div>
+                    <div class="pr-kpi-card__value">${d.today_tasks}</div>
+                    <div class="pr-kpi-card__sub"><span class="pr-badge pr-badge--blue">{% trans "Due Today"|escapejs %}</span></div>
+                </a>
+                <a href="${ta}?is_open=true&end_from=${tomorrowStr}&end_till=${soonStr}&filter_applied=on" class="pr-kpi-card">
+                    <div class="pr-kpi-card__icon pr-kpi-card__icon--amber"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
+                    <div class="pr-kpi-card__label">{% trans "Nearing Deadline"|escapejs %}</div>
+                    <div class="pr-kpi-card__value">${d.nearing_deadline_tasks}</div>
+                    <div class="pr-kpi-card__sub"><span class="pr-badge pr-badge--amber">{% trans "Next 14 Days"|escapejs %}</span></div>
+                </a>
+                <a href="${ta}?is_open=true&end_till=${yesterdayStr}&filter_applied=on" class="pr-kpi-card">
+                    <div class="pr-kpi-card__icon pr-kpi-card__icon--red"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div>
+                    <div class="pr-kpi-card__label">{% trans "Overdue Tasks"|escapejs %}</div>
+                    <div class="pr-kpi-card__value">${d.overdue_tasks}</div>
+                    <div class="pr-kpi-card__sub"><span class="pr-badge pr-badge--red">{% trans "Past End Date"|escapejs %}</span></div>
+                </a>
+                <a href="${pv}?status=in_progress&end_from=${todayStr}&end_till=${soonStr}&filter_applied=on" class="pr-kpi-card">
+                    <div class="pr-kpi-card__icon pr-kpi-card__icon--purple"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l3 7h7l-5.5 4.5L18.5 21 12 16.5 5.5 21 7.5 13.5 2 9h7z"/></svg></div>
+                    <div class="pr-kpi-card__label">{% trans "Projects Ending Soon"|escapejs %}</div>
+                    <div class="pr-kpi-card__value">${d.projects_ending_soon}</div>
+                    <div class="pr-kpi-card__sub"><span class="pr-badge pr-badge--purple">{% trans "Next 14 Days"|escapejs %}</span></div>
+                </a>`;
         });
     }
 
@@ -376,56 +585,65 @@
     function prLoadTasks() {
         prFetch(PR_URLS.tasks).then(d => {
             const el = document.getElementById('pr-task-chart');
-            const legend = document.getElementById('pr-task-legend');
-            if (!d.counts.length) { el.innerHTML = emptyHtml('{% trans "No tasks yet"|escapejs %}'); legend.innerHTML = ''; return; }
+            if (!d.counts.length) { PieLegend.clearFor(el); el.innerHTML = emptyHtml('{% trans "No tasks in this period"|escapejs %}'); return; }
             const colors = d.keys.map(k => TASK_COLORS[k] || '#94a3b8');
             el.style.cursor = "pointer";
-            renderChart('task-status', el, {
+            // Completed and expired tasks are done; To Do and In Progress are
+            // what still needs attention, so the chart opens on those.
+            const initiallyOff = d.labels.filter((_, i) => d.keys[i] === 'completed' || d.keys[i] === 'expired');
+            renderChart('task-status', el, PieLegend.options(el, () => chartInstances['task-status'], '{% trans "statuses"|escapejs %}', {
                 series: d.counts,
                 labels: d.labels,
+                initiallyOff: initiallyOff,
                 chart: {
                     type: "donut", height: 240, toolbar: { show: false }, background: 'transparent', fontFamily: 'inherit',
                     events: { dataPointSelection: (e, ctx, cfg) => {
                         const key = d.keys[cfg.dataPointIndex];
-                        window.location.href = key ? PR_URLS.taskAll + "?status=" + encodeURIComponent(key) : PR_URLS.taskAll;
+                        const period = "period_from=" + prFromDate + "&period_to=" + prToDate;
+                        window.location.href = PR_URLS.taskAll + "?" + (key ? "status=" + encodeURIComponent(key) + "&" : "") + period;
                     }},
                 },
                 colors: colors,
                 legend: { show: false },
-                dataLabels: { enabled: true, formatter: (val) => Math.round(val) + '%' },
+                dataLabels: { enabled: false },
                 plotOptions: { pie: { donut: { size: "62%", labels: { show: true, total: { show: true, label: '{% trans "Total"|escapejs %}', color: textColor, fontSize: '12px', fontWeight: 600 } } } } },
                 stroke: { width: 2, colors: [cardBg] },
                 tooltip: { theme: isDark ? 'dark' : 'light' },
-            });
-            legend.innerHTML = d.labels.map((label, i) =>
-                `<div class="pr-legend__item"><span class="pr-legend__dot" style="background:${colors[i]};"></span>${label} <span class="pr-legend__count">(${d.counts[i]})</span></div>`
-            ).join('');
+            }));
         });
     }
 
-    // ─── PROJECT ACTIVITY TREND ───
-    function prLoadTrend() {
-        prFetch(PR_URLS.trend).then(d => {
-            const el = document.getElementById('pr-trend-chart');
-            const hasData = d.started.some(v => v > 0) || d.completed.some(v => v > 0) || d.overdue.some(v => v > 0);
-            if (!hasData) { el.innerHTML = emptyHtml('{% trans "No project activity yet"|escapejs %}'); return; }
-            renderChart('trend', el, {
-                series: [
-                    { name: "{% trans 'Started'|escapejs %}", data: d.started },
-                    { name: "{% trans 'Completed'|escapejs %}", data: d.completed },
-                    { name: "{% trans 'Overdue'|escapejs %}", data: d.overdue },
-                ],
-                chart: { type: 'area', height: 280, toolbar: { show: false }, background: 'transparent', fontFamily: 'inherit' },
-                colors: ['#3b82f6', '#22c55e', '#ef4444'],
-                fill: { type: 'gradient', gradient: { shadeIntensity: 1, opacityFrom: 0.3, opacityTo: 0.05, stops: [0, 95, 100] } },
-                stroke: { curve: 'smooth', width: 2.5 },
+    // ─── PROJECT TIMESHEET ───
+    function prLoadTimesheet() {
+        prFetch(PR_URLS.timesheet).then(d => {
+            const el = document.getElementById('pr-timesheet-chart');
+            if (!d.entries) { el.innerHTML = emptyHtml('{% trans "No timesheet entries in this period"|escapejs %}'); timesheetLegend.clear(); return; }
+            const seriesColors = ['#3b82f6', '#22c55e', '#f59e0b', '#a855f7', '#06b6d4', '#ec4899', '#94a3b8'];
+            const chart = renderChart('timesheet', el, {
+                series: d.series.map(s => ({ name: s.name, data: s.data })),
+                chart: { type: 'bar', stacked: true, height: 300, toolbar: { show: false }, background: 'transparent', fontFamily: 'inherit',
+                    events: { dataPointSelection: (e, ctx, cfg) => {
+                        if (!e || !e.isTrusted) return;
+                        const s = d.series[cfg.seriesIndex];
+                        if (s && s.project_id) window.location.href = PR_URLS.projectDetail.replace('__ID__', s.project_id);
+                    }},
+                },
+                colors: seriesColors,
+                plotOptions: { bar: { columnWidth: '55%', borderRadius: 3 } },
                 dataLabels: { enabled: false },
-                xaxis: { categories: d.months, labels: { style: { colors: textColor, fontSize: '11px' } }, axisBorder: { show: false }, axisTicks: { show: false } },
-                yaxis: { labels: { style: { colors: textColor }, formatter: v => Math.round(v) } },
+                stroke: { width: 1, colors: [cardBg] },
+                // Every date gets a label (up to ~2 months of daily bars); they're
+                // tilted once there are too many to sit side by side.
+                xaxis: { categories: d.labels, tickAmount: d.labels.length, labels: { rotate: -45, rotateAlways: d.labels.length > 14, hideOverlappingLabels: false, trim: false, style: { colors: textColor, fontSize: d.labels.length > 14 ? '10px' : '11px' } }, axisBorder: { show: false }, axisTicks: { show: false } },
+                yaxis: { min: 0, title: { text: '{% trans "Hours"|escapejs %}', style: { color: textColor, fontSize: '11px' } }, labels: { style: { colors: textColor }, formatter: v => Math.round(v * 10) / 10 } },
                 grid: { borderColor: gridColor, strokeDashArray: 4 },
-                legend: { position: 'top', horizontalAlign: 'right', labels: { colors: textColor }, fontSize: '11px', markers: { width: 8, height: 8, radius: 2 } },
-                tooltip: { theme: isDark ? 'dark' : 'light' },
+                legend: { show: false },
+                tooltip: { theme: isDark ? 'dark' : 'light', shared: true, intersect: false, y: { formatter: v => v + ' h' } },
             });
+            timesheetLegend.set(
+                d.series.map((s, i) => ({ name: s.name, color: seriesColors[i % seriesColors.length] })),
+                (name, on) => { if (on) chart.showSeries(name); else chart.hideSeries(name); }
+            );
         });
     }
 
@@ -433,42 +651,65 @@
     function prLoadTop() {
         prFetch(PR_URLS.top).then(d => {
             const el = document.getElementById("pr-top-chart");
-            if (!d.projects.length) { el.innerHTML = emptyHtml('{% trans "No active projects"|escapejs %}'); return; }
+            if (!d.projects.length) { el.innerHTML = emptyHtml('{% trans "No in-progress projects in this period"|escapejs %}'); topLegend.clear(); return; }
             el.style.cursor = "pointer";
-            renderChart('top-active', el, {
-                series: [{ name: '{% trans "Tasks"|escapejs %}', data: d.projects.map(p => p.task_count) }],
+            const palette = ['#E54F38', '#3b82f6', '#22c55e', '#f59e0b', '#a855f7', '#06b6d4', '#ec4899', '#94a3b8'];
+            const all = d.projects.map((p, i) => ({ p, color: palette[i % palette.length] }));
+            let shown = all;
+            const shortTitle = t => t.length > 18 ? t.slice(0, 18) + "…" : t;
+            const chart = renderChart('top-active', el, {
+                series: [{ name: '{% trans "Tasks"|escapejs %}', data: shown.map(s => s.p.task_count) }],
                 chart: {
                     type: "bar", height: 240, toolbar: { show: false }, background: 'transparent', fontFamily: 'inherit',
                     events: { dataPointSelection: (e, ctx, cfg) => {
-                        const proj = d.projects[cfg.dataPointIndex];
-                        if (proj && proj.id) window.location.href = PR_URLS.projectDetail.replace('__ID__', proj.id);
+                        const proj = shown[cfg.dataPointIndex] && shown[cfg.dataPointIndex].p;
+                        if (proj && proj.id) window.location.href = PR_URLS.taskAll + "?view=list&field=project&nested_fields=&project=" + proj.id;
                     }},
                 },
-                colors: ["#E54F38"],
-                xaxis: { categories: d.projects.map(p => p.title.length > 18 ? p.title.slice(0,18)+"…" : p.title), labels: { style: { colors: textColor, fontSize: "11px" } } },
+                colors: shown.map(s => s.color),
+                xaxis: { categories: shown.map(s => shortTitle(s.p.title)), labels: { style: { colors: textColor, fontSize: "11px" } } },
                 yaxis: { labels: { style: { colors: textColor, fontSize: "11px" } } },
-                plotOptions: { bar: { borderRadius: 4, horizontal: true } },
+                plotOptions: { bar: { borderRadius: 4, horizontal: true, distributed: true } },
+                legend: { show: false },
                 dataLabels: { enabled: false },
                 grid: { borderColor: gridColor, strokeDashArray: 4 },
                 tooltip: { theme: isDark ? 'dark' : 'light' },
             });
+            const hidden = new Set();
+            topLegend.set(
+                all.map(s => ({ name: s.p.title, color: s.color, detail: String(s.p.task_count) })),
+                (name, on) => {
+                    if (on) hidden.delete(name); else hidden.add(name);
+                    shown = all.filter(s => !hidden.has(s.p.title));
+                    chart.updateOptions({
+                        series: [{ name: '{% trans "Tasks"|escapejs %}', data: shown.map(s => s.p.task_count) }],
+                        xaxis: { categories: shown.map(s => shortTitle(s.p.title)) },
+                        colors: shown.map(s => s.color),
+                    });
+                }
+            );
         });
+    }
+
+    function prSetCountBadge(id, n) {
+        const b = document.getElementById(id);
+        b.textContent = n || 0;
+        b.hidden = !n;
     }
 
     // ─── TOP CONTRIBUTORS ───
     function prLoadContributors() {
         prFetch(PR_URLS.contributors).then(d => {
             const el = document.getElementById('pr-contributors');
-            document.getElementById('pr-contributors-month').textContent = d.month;
-            if (!d.contributors.length) { el.innerHTML = '<div class="pr-info-panel__empty">{% trans "No completed tasks this month"|escapejs %}</div>'; return; }
+            prSetCountBadge('pr-contributors-count', d.total);
+            if (!d.contributors.length) { el.innerHTML = '<div class="pr-info-panel__empty">{% trans "No completed tasks in this period"|escapejs %}</div>'; return; }
             el.innerHTML = d.contributors.map(c => {
                 const initials = c.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
                 const avatarInner = c.avatar ? `<img src="${c.avatar}" alt="">` : initials;
-                return `<a href="${empUrlFor(c.id)}" class="pr-list-item">
+                return `<a href="${taskAllUrlFor(c.id)}" class="pr-list-item">
                     <div class="pr-list-item__avatar">${avatarInner}</div>
                     <div class="pr-list-item__info">
                         <div class="pr-list-item__name">${c.name}</div>
-                        <div class="pr-list-item__detail">${c.completed_count} {% trans "tasks"|escapejs %}</div>
                     </div>
                     <div class="pr-list-item__value" style="color:var(--pr-green);">${c.completed_count}</div>
                 </a>`;
@@ -480,6 +721,7 @@
     function prLoadDeadlines() {
         prFetch(PR_URLS.deadlines).then(d => {
             const el = document.getElementById('pr-deadlines');
+            prSetCountBadge('pr-deadlines-count', d.total);
             const items = [
                 ...d.overdue.map(t => ({...t, kind: 'overdue'})),
                 ...d.upcoming.map(t => ({...t, kind: 'upcoming'})),
@@ -500,11 +742,105 @@
         }).catch(() => { document.getElementById('pr-deadlines').innerHTML = '<div class="pr-info-panel__empty">{% trans "No data"|escapejs %}</div>'; });
     }
 
+    // ── Period label shown on the period-aware charts/panels ──
+    const PR_PRESET_LABELS = {
+        today: '{% trans "Today"|escapejs %}',
+        week: '{% trans "This Week"|escapejs %}',
+        last_week: '{% trans "Last Week"|escapejs %}',
+        month: '{% trans "This Month"|escapejs %}',
+        last_month: '{% trans "Last Month"|escapejs %}',
+        year: '{% trans "This Year"|escapejs %}',
+    };
+    function prPad(n) { return String(n).padStart(2, "0"); }
+    function prFmt(d) { return `${d.getFullYear()}-${prPad(d.getMonth()+1)}-${prPad(d.getDate())}`; }
+    function prPresetRange(p) {
+        const t = new Date();
+        if (p === "today") return [t, t];
+        if (p === "week") {
+            const dow = (t.getDay() + 6) % 7;
+            const from = new Date(t.getFullYear(), t.getMonth(), t.getDate() - dow);
+            return [from, new Date(from.getFullYear(), from.getMonth(), from.getDate() + 6)];
+        }
+        if (p === "last_week") {
+            const dow = (t.getDay() + 6) % 7;
+            const from = new Date(t.getFullYear(), t.getMonth(), t.getDate() - dow - 7);
+            return [from, new Date(from.getFullYear(), from.getMonth(), from.getDate() + 6)];
+        }
+        if (p === "month") return [new Date(t.getFullYear(), t.getMonth(), 1), new Date(t.getFullYear(), t.getMonth()+1, 0)];
+        if (p === "last_month") return [new Date(t.getFullYear(), t.getMonth()-1, 1), new Date(t.getFullYear(), t.getMonth(), 0)];
+        if (p === "year") return [new Date(t.getFullYear(), 0, 1), new Date(t.getFullYear(), 11, 31)];
+        return null;
+    }
+    function prShortDate(d) { return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }); }
+    function prPeriodLabel() {
+        let preset = "";
+        for (const p of Object.keys(PR_PRESET_LABELS)) {
+            const r = prPresetRange(p);
+            if (r && prFromDate === prFmt(r[0]) && prToDate === prFmt(r[1])) { preset = p; break; }
+        }
+        const from = new Date(prFromDate + "T00:00:00");
+        const to = new Date(prToDate + "T00:00:00");
+        let detail;
+        if (preset === "month" || preset === "last_month") detail = from.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+        else if (preset === "year") detail = String(from.getFullYear());
+        else if (preset === "today") detail = prShortDate(from);
+        else detail = prShortDate(from) + " – " + prShortDate(to);
+        return (PR_PRESET_LABELS[preset] || '{% trans "Custom"|escapejs %}') + " · " + detail;
+    }
+    function prApplyPeriodLabels() {
+        if (!prFromDate || !prToDate) return;
+        const label = prPeriodLabel();
+        document.querySelectorAll("[data-period-label]").forEach(el => {
+            el.textContent = el.dataset.periodLabel === "bare" ? label : " — " + label;
+        });
+    }
+
+    document.getElementById("pr-date").textContent = new Date().toLocaleDateString("en-US", {
+        weekday: "long", year: "numeric", month: "long", day: "numeric"
+    });
+
+    // ── Auto-refresh (same as the other dashboards) ──
+    const PR_REFRESH_INTERVAL = 300000; // 5 minutes
+    const PR_REFRESH_KEY = "pr_auto_refresh";
+    let prRefreshTimer = null;
+    let prLastRefresh = Date.now();
+    let prAutoRefreshOn = localStorage.getItem(PR_REFRESH_KEY) !== "off";
+    const prRefreshDot = document.getElementById("pr-refresh-dot");
+    const prRefreshText = document.getElementById("pr-refresh-text");
+    const prRefreshToggle = document.getElementById("pr-refresh-toggle");
+    function prUpdateRefreshText() {
+        const mins = Math.floor((Date.now() - prLastRefresh) / 60000);
+        prRefreshText.textContent = mins < 1 ? '{% trans "Just now"|escapejs %}' : mins + '{% trans "m ago"|escapejs %}';
+    }
+    registerAutoRefresh(setInterval(prUpdateRefreshText, 30000));
+    function prStartAutoRefresh() {
+        prAutoRefreshOn = true;
+        localStorage.setItem(PR_REFRESH_KEY, "on");
+        prRefreshDot.classList.add("pr-refresh__dot--pulse");
+        prRefreshToggle.textContent = "⟳";
+        prRefreshToggle.title = '{% trans "Auto-refresh ON (5 min)"|escapejs %}';
+        // Wrapped so a hidden tab does not keep fetching; refreshes once on return.
+        prRefreshTimer = setInterval(autoRefreshWhenVisible(prLoadAll), PR_REFRESH_INTERVAL);
+        registerAutoRefresh(prRefreshTimer);
+    }
+    function prStopAutoRefresh() {
+        prAutoRefreshOn = false;
+        localStorage.setItem(PR_REFRESH_KEY, "off");
+        prRefreshDot.classList.remove("pr-refresh__dot--pulse");
+        prRefreshToggle.textContent = "⏸";
+        prRefreshToggle.title = '{% trans "Auto-refresh OFF"|escapejs %}';
+        if (prRefreshTimer) { clearInterval(prRefreshTimer); prRefreshTimer = null; }
+    }
+    prRefreshToggle.addEventListener("click", () => { if (prAutoRefreshOn) prStopAutoRefresh(); else prStartAutoRefresh(); });
+    if (prAutoRefreshOn) prStartAutoRefresh(); else prStopAutoRefresh();
+
     function prLoadAll() {
-        prLoadKpi();
-        prLoadPipeline();
+        prLastRefresh = Date.now();
+        prUpdateRefreshText();
+        prApplyPeriodLabels();
+        prLoadTaskKpi();
         prLoadTasks();
-        prLoadTrend();
+        prLoadTimesheet();
         prLoadTop();
         prLoadContributors();
         prLoadDeadlines();
@@ -512,23 +848,31 @@
 
     document.getElementById("pr-from-date").addEventListener("change", function() {
         prFromDate = this.value;
-        document.querySelectorAll(".pr-period-preset").forEach(b => b.classList.remove("pr-period-preset--active"));
+        prSavePeriod();
+        prSyncPresetActive();
         prLoadAll();
     });
     document.getElementById("pr-to-date").addEventListener("change", function() {
         prToDate = this.value;
-        document.querySelectorAll(".pr-period-preset").forEach(b => b.classList.remove("pr-period-preset--active"));
+        prSavePeriod();
+        prSyncPresetActive();
         prLoadAll();
     });
 
-    // Init with current month (end-of-month so future deadlines/tasks are visible)
-    const today = new Date();
-    const pad = n => String(n).padStart(2, "0");
-    const fmt = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
-    prFromDate = fmt(new Date(today.getFullYear(), today.getMonth(), 1));
-    prToDate = fmt(new Date(today.getFullYear(), today.getMonth()+1, 0));
+    // Init with the period saved for this tab, else the current month
+    // (end-of-month so future deadlines/tasks are visible)
+    const prSaved = (() => { try { return JSON.parse(sessionStorage.getItem(PR_PERIOD_KEY)); } catch { return null; } })();
+    if (prSaved && prSaved.from && prSaved.to) {
+        prFromDate = prSaved.from;
+        prToDate = prSaved.to;
+    } else {
+        const [f, t] = prPresetRange("month");
+        prFromDate = prFmt(f);
+        prToDate = prFmt(t);
+    }
     document.getElementById("pr-from-date").value = prFromDate;
     document.getElementById("pr-to-date").value = prToDate;
+    prSyncPresetActive();
     prLoadAll();
 })();
 </script>

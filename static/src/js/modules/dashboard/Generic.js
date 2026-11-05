@@ -139,7 +139,7 @@ class Generic {
 
     // Select 2 with image
     $(".oh-select-image").select2({
-      placeholder: "Search",
+      placeholder: gettext("Search"),
       templateResult: this.imageFormatState,
       templateSelection: this.imageFormatState,
     });

@@ -144,7 +144,7 @@ $(document).ready(function () {
 
     const objectiveChart = createStatusChart({
         elementId: "objectiveChart",
-        label: "Objective",
+        label: gettext("Objective"),
         defaultType: "doughnut",
         dataUrl: "/pms/dashboard-objective-status",
         labelKey: "objective_label",
@@ -154,7 +154,7 @@ $(document).ready(function () {
 
     const keyResultChart = createStatusChart({
         elementId: "keyResultChart",
-        label: "Key Result",
+        label: gettext("Key Result"),
         defaultType: "pie",
         dataUrl: "/pms/dashbord-key-result-status",
         viewUrl: "/pms/key-result-view",
@@ -164,7 +164,7 @@ $(document).ready(function () {
 
     const feedbackChart = createStatusChart({
         elementId: "feedbackChart",
-        label: "Feedback",
+        label: gettext("Feedback"),
         defaultType: "pie",
         dataUrl: "/pms/dashboard-feedback-status",
         viewUrl: "/pms/feedback-view",

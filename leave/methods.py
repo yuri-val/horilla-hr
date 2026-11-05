@@ -4,6 +4,7 @@ from datetime import date, datetime, timedelta
 import pandas as pd
 from django.apps import apps
 from django.db.models import Q
+from django.utils import timezone
 
 from employee.models import Employee
 from horilla.methods import get_horilla_model_class
@@ -44,39 +45,43 @@ def holiday_dates_list(holidays):
     return holiday_dates
 
 
-def company_leave_dates_list(company_leaves, start_date):
+def company_leave_dates_list(company_leaves, start_date, end_date=None):
     """
-    :return: This function returns a list of all company leave dates
+    :return: This function returns a list of all company leave dates for every
+    year from the start date to the end date
     """
     company_leave_dates = set()
-    year = start_date.year
-    for company_leave in company_leaves:
-        based_on_week = company_leave.based_on_week
-        based_on_week_day = company_leave.based_on_week_day
+    end_year = (end_date or start_date).year
+    for year in range(start_date.year, max(end_year, start_date.year) + 1):
+        for company_leave in company_leaves:
+            based_on_week = company_leave.based_on_week
+            based_on_week_day = company_leave.based_on_week_day
 
-        for month in range(1, 13):
-            month_calendar = calendar.monthcalendar(year, month)
+            for month in range(1, 13):
+                month_calendar = calendar.monthcalendar(year, month)
 
-            if based_on_week is not None:
-                # Set Sunday as the first day of the week
-                calendar.setfirstweekday(6)
-                try:
-                    week_days = [
-                        day for day in month_calendar[int(based_on_week)] if day != 0
-                    ]
-                    for day in week_days:
-                        date = datetime(year, month, day)
-                        if date.weekday() == int(based_on_week_day):
+                if based_on_week is not None:
+                    # Set Sunday as the first day of the week
+                    calendar.setfirstweekday(6)
+                    try:
+                        week_days = [
+                            day
+                            for day in month_calendar[int(based_on_week)]
+                            if day != 0
+                        ]
+                        for day in week_days:
+                            date = datetime(year, month, day)
+                            if date.weekday() == int(based_on_week_day):
+                                company_leave_dates.add(date.date())
+                    except IndexError:
+                        pass
+                else:
+                    # Set Monday as the first day of the week
+                    calendar.setfirstweekday(0)
+                    for week in month_calendar:
+                        if week[int(based_on_week_day)] != 0:
+                            date = datetime(year, month, week[int(based_on_week_day)])
                             company_leave_dates.add(date.date())
-                except IndexError:
-                    pass
-            else:
-                # Set Monday as the first day of the week
-                calendar.setfirstweekday(0)
-                for week in month_calendar:
-                    if week[int(based_on_week_day)] != 0:
-                        date = datetime(year, month, week[int(based_on_week_day)])
-                        company_leave_dates.add(date.date())
 
     return list(company_leave_dates)
 
@@ -198,3 +203,198 @@ def parse_excel_date(value):
 
     # If nothing matches, return None (caller should handle error)
     return None
+
+
+def request_leave_cancellation(leave_request_id, reason, employee):
+    """
+    Move an approved leave to "cancel_requested". The leave stays in force
+    until a manager decides on the cancellation.
+
+    The row is locked so two submissions can't both pass the status check.
+    Returns (leave_request, error_message); error_message is None on success.
+    """
+    from django.db import transaction
+    from django.utils.translation import gettext as _
+
+    from leave.models import LeaveRequest, LeaverequestComment
+
+    with transaction.atomic():
+        leave_request = (
+            LeaveRequest._base_manager.select_for_update()
+            .filter(id=leave_request_id)
+            .first()
+        )
+        if leave_request is None:
+            return None, _("Leave request not found.")
+        if leave_request.status == "cancel_requested":
+            return leave_request, _(
+                "A cancellation request is already pending for this leave."
+            )
+        if leave_request.cancellation_requested:
+            return leave_request, _(
+                "A cancellation has already been requested for this leave."
+            )
+        if leave_request.status != "approved" or leave_request.end_date < date.today():
+            return leave_request, _("You can't cancel this leave request.")
+        leave_request.cancellation_requested = True
+        leave_request.reject_reason = reason
+        leave_request.status = "cancel_requested"
+        leave_request.save()
+        LeaverequestComment.objects.create(
+            request_id=leave_request,
+            employee_id=employee,
+            comment=_("Cancellation requested: %(reason)s") % {"reason": reason},
+        )
+    return leave_request, None
+
+
+def decide_leave_cancellation(leave_request_id, approve, employee, reason=""):
+    """
+    Approve or reject a pending cancellation request.
+
+    Approve: the leave becomes "cancelled" and its approved days go back to the
+    employee's balance (the same refund a rejection makes). Reject: the leave
+    returns to "approved", dates and allocation untouched. Locked rows make
+    concurrent decisions apply only once.
+    Returns (leave_request, error_message); error_message is None on success.
+    """
+    from django.db import transaction
+    from django.utils.translation import gettext as _
+
+    from leave.models import AvailableLeave, LeaveRequest, LeaverequestComment
+
+    with transaction.atomic():
+        leave_request = (
+            LeaveRequest._base_manager.select_for_update()
+            .filter(id=leave_request_id)
+            .first()
+        )
+        if leave_request is None:
+            return None, _("Leave request not found.")
+        if leave_request.status != "cancel_requested":
+            return leave_request, _(
+                "This leave request has no pending cancellation request."
+            )
+        if approve:
+            available_leave = (
+                AvailableLeave._base_manager.select_for_update()
+                .filter(
+                    leave_type_id=leave_request.leave_type_id,
+                    employee_id=leave_request.employee_id,
+                )
+                .first()
+            )
+            if available_leave is None:
+                return leave_request, _(
+                    "No available leave record found for this employee and leave type."
+                )
+            available_leave.available_days += leave_request.approved_available_days
+            available_leave.carryforward_days += (
+                leave_request.approved_carryforward_days
+            )
+            available_leave.save()
+            leave_request.approved_available_days = 0
+            leave_request.approved_carryforward_days = 0
+            leave_request.status = "cancelled"
+            comment_text = _("Cancellation approved")
+        else:
+            leave_request.status = "approved"
+            leave_request.reject_reason = ""
+            comment_text = _("Cancellation rejected")
+        if reason:
+            comment_text = f"{comment_text}: {reason}"
+        leave_request.save()
+        LeaverequestComment.objects.create(
+            request_id=leave_request, employee_id=employee, comment=comment_text
+        )
+    return leave_request, None
+
+
+def due_available_leaves(leave_type, today_date=None):
+    """
+    Available leaves of a leave type whose reset or carryforward expiry date has passed.
+    """
+    today_date = today_date or timezone.localdate()
+    return leave_type.employee_available_leave.filter(
+        Q(reset_date__lte=today_date) | Q(expired_date__lte=today_date)
+    )
+
+
+def reset_available_leave(available_leave, today_date, reset_reason, expiry_reason):
+    """
+    Apply the reset and carryforward expiry already due on one available leave;
+    returns True if anything was applied, False if nothing was due.
+    """
+    reset_date = available_leave.reset_date
+    expired_date = available_leave.expired_date
+    applied = False
+    if reset_date and reset_date <= today_date:
+        available_leave.update_carryforward()
+        available_leave.reset_date = available_leave.set_reset_date(
+            assigned_date=today_date, available_leave=available_leave
+        )
+        available_leave._change_reason = reset_reason
+        available_leave.save()
+        applied = True
+    # Moves the date forward in the same save (per the leave type's expiry
+    # method), so a balance is never expired twice.
+    if expired_date and available_leave.expire_carryforward(
+        today_date, reason=expiry_reason
+    ):
+        applied = True
+    return applied
+
+
+def run_missed_resets(leave_type, reset_reason, expiry_reason, today_date=None):
+    """
+    Apply every reset and expiry already due for a leave type, then roll the
+    type's own carryforward expiry date; returns the per-balance outcome as
+    {"reset": [...], "failed": [...], "type_expiry_rolled": bool}.
+    """
+    import logging
+
+    from django.db import transaction
+
+    today_date = today_date or timezone.localdate()
+    result = {"reset": [], "failed": [], "type_expiry_rolled": False}
+    due_balances = due_available_leaves(leave_type, today_date).select_related(
+        "employee_id"
+    )
+    for available_leave in due_balances:
+        before = round(
+            (available_leave.available_days or 0)
+            + (available_leave.carryforward_days or 0),
+            2,
+        )
+        try:
+            with transaction.atomic():
+                applied = reset_available_leave(
+                    available_leave, today_date, reset_reason, expiry_reason
+                )
+        except Exception as error:
+            logging.getLogger(__name__).exception(
+                "Leave reset failed for available leave %s", available_leave.pk
+            )
+            result["failed"].append(
+                {"available_leave": available_leave, "error": str(error)}
+            )
+            continue
+        if applied:
+            after = round(
+                (available_leave.available_days or 0)
+                + (available_leave.carryforward_days or 0),
+                2,
+            )
+            result["reset"].append(
+                {"available_leave": available_leave, "before": before, "after": after}
+            )
+    # The shared date only exists for the "First Expiry Date" method.
+    if (
+        leave_type.carryforward_expiry_method == "first_expiry_date"
+        and leave_type.carryforward_expire_date
+        and leave_type.carryforward_expire_date <= today_date
+    ):
+        leave_type.carryforward_expire_date = leave_type.set_expired_date(today_date)
+        leave_type.save()
+        result["type_expiry_rolled"] = True
+    return result

@@ -21,13 +21,14 @@
             <div class="inline-flex gap-4" id="projectStages">
                 {% for stage in stages %}
                     <div
-                        class="oh-kanban__section stage kanban-block w-[350px] flex-shrink-0 relative p-2 pt-0 pb-0 bg-[#e9edf0] rounded-lg overflow-hidden overflow-y-auto h-[calc(100vh_-_500px)]"
+                        class="oh-kanban__section stage kanban-block w-[350px] flex-shrink-0 relative p-2 pt-0 pb-0 bg-[#e9edf0] rounded-lg overflow-hidden overflow-y-auto h-[calc(100vh_-_330px)] min-h-[300px]"
                         ondrop="drop(event)"
                         ondragover="allowDrop(event)"
                         id="projectStage{{stage.id}}"
                         data-stage-id="{{stage.id}}"
                         data-sequence="{{stage.sequence}}"
                         data-project-id="{{project.id}}"
+                        data-page-start="{{ stage.page_obj.start_index }}"
                     >
                         <!-- Stage Header -->
                         <div
@@ -115,157 +116,7 @@
 
                         <div>
                             <!-- Tasks -->
-                            {% for task in stage.tasks.all|dictsort:"sequence" %}
-                                {% if task in tasks %}
-                                    <div
-                                        class="task-card task"
-                                        data-task-id="{{task.id}}"
-                                        id="{{task.id}}"
-                                        draggable="true"
-                                        ondragstart="drag(event)"
-                                        data-target="#genericModal"
-                                        data-toggle="oh-modal-toggle"
-                                        hx-target="#genericModalBody"
-                                        hx-get="{% url 'task-detail-view' task.id %}?view=list"
-                                        onclick="event.stopPropagation()"
-                                    >
-                                        <div class="p-[20px] rounded-[5px] text-sm relative bg-white mb-2">
-                                            <!-- Task Options -->
-                                            <div
-                                                class="absolute inline-block right-5 top-5"
-                                                x-data="{ open: false }"
-                                                @click.outside="open = false"
-                                                style="cursor: pointer"
-                                                onclick="event.stopPropagation()"
-                                            >
-                                                <a @click="open = !open" class="cursor-pointer inline-block px-3">
-                                                    <i class="fa-solid fa-ellipsis-vertical text-black"></i>
-                                                </a>
-                                                <div
-                                                    x-show="open"
-                                                    x-transition
-                                                    class="absolute right-0 min-w-[100px] bg-white rounded-lg shadow-card py-2 z-50 text-xs"
-                                                    style="display: none"
-                                                >
-                                                    <ul>
-                                                        <li class="mb-1">
-                                                            <a
-                                                                hx-get="{% url 'update-task' task.id %}?project_task=true"
-                                                                hx-target="#TaskFormTarget"
-                                                                class="w-full text-left px-3 py-1 hover:text-info-600"
-                                                                data-toggle="oh-modal-toggle"
-                                                                data-target="#TaskModal"
-                                                            >
-                                                                {% trans "Edit" %}
-                                                            </a>
-                                                        </li>
-                                                        <li>
-                                                            <a
-                                                                hx-confirm="{% trans 'Do you really want to delete this task?' %}"
-                                                                hx-post="{% url 'delete-task' task.id %}?view=card"
-                                                                hx-target="#taskCreateForm{{stage.id}}"
-                                                                class="w-full text-left px-3 py-1 hover:text-danger"
-                                                            >
-                                                                {% trans "Delete" %}
-                                                            </a>
-                                                        </li>
-                                                    </ul>
-                                                </div>
-                                            </div>
-
-                                            <div
-                                                id="taskCreateForm{{stage.id}}"
-                                                class="oh-dropdown__menu oh-dropdown__menu--highlight oh-dropdown__menu--top-100 oh-dropdown__close-outside-click oh-dropdown__menu--right pt-2 pb-2 list-quick-add d-none"
-                                                style="z-index: 15"
-                                            >
-                                            </div>
-
-                                            <!-- Task Content -->
-                                            <div class="flex items-center gap-5 mb-3 pb-3 border-b border-b-[#565e6c13]">
-                                                <img
-                                                    src="{{ task.get_avatar }}"
-                                                    class="w-6 h-6 rounded-full"
-                                                    alt="{{ task }}"
-                                                    width="30"
-                                                >
-                                                <p class="mb-1">{{ task }}</p>
-                                            </div>
-
-                                            <!-- Task Metadata -->
-                                            <div class="flex gap-2 items-center relative">
-                                                <span
-                                                    class="font-medium text-xs text-[#565E6C] w-14"
-                                                >{% trans "End Date" %}</span>
-                                                <p class="text-xs font-semibold flex items-center gap-2">
-                                                    : <span>{{ task.end_date }}</span>
-                                                </p>
-
-                                                <!-- Dropdown Button -->
-                                                <div
-                                                    x-data="{ open: false }"
-                                                    class="absolute right-0 -top-1 z-50"
-                                                    onclick="event.stopPropagation()"
-                                                >
-                                                    <button
-                                                        @click="open = !open"
-                                                        @click.away="open = false"
-                                                        class="text-primary-600 focus:outline-none"
-                                                    >
-                                                        <i class="fa-regular fa-square-caret-down text-primary-600"></i>
-                                                    </button>
-
-                                                    <!-- Dropdown Content -->
-                                                    <div
-                                                        x-show="open"
-                                                        x-transition
-                                                        @click.stop
-                                                        class="absolute right-0 p-4 min-w-[200px] bg-white rounded-md shadow-lg z-50"
-                                                        style="display: none"
-                                                    >
-                                                        <ul class="text-sm text-gray-800">
-                                                            <li class="mb-3 hover:bg-gray-100">
-                                                                <strong>{% trans "Managers" %}:</strong>
-                                                                <span
-                                                                    style="display: inline-flex"
-                                                                >•{{ task.task_managers.all|join:"<br />•" }}
-                                                                </span>
-                                                            </li>
-                                                            <li class="hover:bg-gray-100 flex items-center gap-1">
-                                                                <strong>{% trans "Status" %}:</strong>
-                                                                <span
-                                                                    class="bg-gray-100 text-gray-700 block w-full text-xs"
-                                                                >
-                                                                    <select
-                                                                        class="oh-select"
-                                                                        hx-get="{% url 'update-project-task-status' task.id %}?view=list"
-                                                                        hx-trigger="change"
-                                                                        hx-swap="afterend"
-                                                                        tabindex="-1"
-                                                                        aria-hidden="true"
-                                                                        name="status"
-                                                                    >
-                                                                        {% for option in task.TASK_STATUS %}
-                                                                            <option
-                                                                                value="{{option.0}}"
-                                                                                {% if option.0 == task.status %}
-                                                                                    selected
-                                                                                {% endif %}
-                                                                            >
-                                                                                {{ option.1 }}
-                                                                            </option>
-                                                                        {% endfor %}
-                                                                    </select>
-                                                                </span>
-                                                            </li>
-                                                            <!-- Add more details if needed -->
-                                                        </ul>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                {% endif %}
-                            {% endfor %}
+                            {% include "task/new/_kanban_stage_cards.html" %}
                         </div>
                     </div>
                 {% endfor %}
@@ -275,6 +126,8 @@
 {% endif %}
 
 <script>
+    // Only the list view re-opens stages (see task_navbar.html).
+    window.__taskOpenStages = null;
     $(document).ready(function () {
         $(".cancelForm").on("click", function (e) {
             e.preventDefault();
@@ -366,6 +219,13 @@
 <script>
     function drag(ev) {
         ev.dataTransfer.setData("text", ev.target.id);
+        // Cards load page by page (infinite scroll), so this can't be bound
+        // once to the cards present at load.
+        const card = ev.target.closest(".task");
+        const parentStage = card && card.closest(".kanban-block");
+        if (card && parentStage) {
+            card.dataset.oldStageId = parentStage.dataset.stageId;
+        }
     }
 
     function allowDrop(ev) {
@@ -400,10 +260,12 @@
                 parseInt(taskCountElementNew.innerText) + 1;
         }
 
-        // Build new sequence inside this stage
+        // Build new sequence inside this stage. The block holds one page of
+        // the stage's tasks, so number them from where that page starts.
         const sequence = {};
+        const seqOffset = Math.max((parseInt(targetBlock.dataset.pageStart) || 1) - 1, 0);
         targetBlock.querySelectorAll(".task").forEach((el, index) => {
-            sequence[el.dataset.taskId] = index;
+            sequence[el.dataset.taskId] = seqOffset + index;
         });
 
         // Send AJAX request
@@ -442,16 +304,6 @@
         block.addEventListener("dragleave", (ev) =>
             block.classList.remove("highlight")
         );
-    });
-
-    // On drag start, set oldStageId in dataset
-    document.querySelectorAll(".task").forEach((taskEl) => {
-        taskEl.addEventListener("dragstart", () => {
-            const parentStage = taskEl.closest(".kanban-block");
-            if (parentStage) {
-                taskEl.dataset.oldStageId = parentStage.dataset.stageId;
-            }
-        });
     });
 
     function getCookie(name) {

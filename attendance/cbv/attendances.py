@@ -15,7 +15,6 @@ from django.utils.translation import gettext_lazy as _
 
 from attendance.cbv.attendance_activity import AttendanceActivityListView
 from attendance.cbv.attendance_tab import AttendanceTabView
-from attendance.cbv.tab_shell import AttendanceTabContentShell
 from attendance.filters import AttendanceFilters
 from attendance.forms import AttendanceExportForm, AttendanceForm, AttendanceUpdateForm
 from attendance.models import Attendance, AttendanceValidationCondition, strtime_seconds
@@ -34,6 +33,7 @@ from employee.filters import EmployeeFilter
 from employee.models import Employee
 from horilla.filters import HorillaFilterSet
 from horilla_views.cbv_methods import (
+    EmployeeScopeMixin,
     hx_request_required,
     login_required,
     render_template,
@@ -43,6 +43,7 @@ from horilla_views.generic.cbv.views import (
     HorillaFormView,
     HorillaListView,
     HorillaNavView,
+    HorillaTabContentShell,
     HorillaTabView,
     TemplateView,
 )
@@ -134,10 +135,17 @@ class AttendancesListView(HorillaListView):
         ("employee_id__employee_work_info__job_position_id", _("Job Position")),
         (
             "employee_id__employee_work_info__employee_type_id",
-            _("Employement Type"),
+            _("Employment Type"),
         ),
         ("employee_id__employee_work_info__company_id", _("Company")),
     ]
+
+    show_quick_date_filters = True
+    quick_date_fields = (
+        "attendance_date",
+        "attendance_date__gte",
+        "attendance_date__lte",
+    )
 
     # def get_queryset(self, queryset=None, filtered=False, *args, **kwargs):
     #     """
@@ -241,7 +249,6 @@ def _attendance_nav_common_actions(request, extra_action=None):
                 data-target = "#genericModal"
                 hx-target="#genericModalBody"
                 hx-get ="{reverse('attendences-navbar-export')}"
-                hx-vals='js:{{"has_selection": (function(){{var t=document.querySelector(".oh-tabs__content--active");var l=(t||document).querySelector("[data-selected-instances-key]");var k=(l&&l.getAttribute("data-selected-instances-key"))||"selectedInstances";var el=document.getElementById(k);return JSON.parse((el&&el.getAttribute("data-ids"))||"[]").length>0;}})()}}'
                 style="cursor: pointer;"
             """,
             }
@@ -318,7 +325,7 @@ class _AttendanceTabNavBase(HorillaNavView):
         ("employee_id__employee_work_info__job_position_id", _("Job Position")),
         (
             "employee_id__employee_work_info__employee_type_id",
-            _("Employement Type"),
+            _("Employment Type"),
         ),
         ("employee_id__employee_work_info__company_id", _("Company")),
     ]
@@ -344,7 +351,7 @@ class _AttendanceTabNavBase(HorillaNavView):
         ("employee_id__employee_work_info__job_position_id", _("Job Position")),
         (
             "employee_id__employee_work_info__employee_type_id",
-            _("Employement Type"),
+            _("Employment Type"),
         ),
         ("employee_id__employee_work_info__company_id", _("Company")),
     ]
@@ -416,21 +423,21 @@ class ValidatedAttendanceNav(_AttendanceTabNavBase):
         self.actions = _attendance_nav_common_actions(self.request)
 
 
-class ValidateAttendanceTabShell(AttendanceTabContentShell):
+class ValidateAttendanceTabShell(HorillaTabContentShell):
     nav_url_name = "validate-attendance-nav"
     container_id = "validateListContainer"
     tabs_root_id = "attendances-tab"
     selected_instances_key_id = "validateselectedInstances"
 
 
-class OTAttendanceTabShell(AttendanceTabContentShell):
+class OTAttendanceTabShell(HorillaTabContentShell):
     nav_url_name = "ot-attendance-nav"
     container_id = "otListContainer"
     tabs_root_id = "attendances-tab"
     selected_instances_key_id = "overtimeselectedInstances"
 
 
-class ValidatedAttendanceTabShell(AttendanceTabContentShell):
+class ValidatedAttendanceTabShell(HorillaTabContentShell):
     nav_url_name = "validated-attendance-nav"
     container_id = "validatedListContainer"
     tabs_root_id = "attendances-tab"
@@ -458,7 +465,6 @@ class AttendancesExportNav(TemplateView):
         context = super().get_context_data(**kwargs)
         context["export_form"] = export_form
         context["export"] = export
-        context["hide_export_filters"] = self.request.GET.get("has_selection") == "true"
         return context
 
 
@@ -510,6 +516,17 @@ class OTAttendancesList(AttendancesListView):
 
     selected_instances_key_id = "overtimeselectedInstances"
 
+    # Same columns as the other tabs, but the Overtime column (shown by
+    # default here) flags overtime below the minimum OT needed for approval.
+    columns = [
+        (_("Overtime"), "overtime_cell") if col[1] == "attendance_overtime" else col
+        for col in AttendancesListView.columns
+    ]
+    default_columns = [
+        *AttendancesListView.default_columns,
+        (_("Overtime"), "overtime_cell"),
+    ]
+
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.search_url = reverse("ot-attendance-tab")
@@ -529,6 +546,7 @@ class OTAttendancesList(AttendancesListView):
             self.queryset = self.queryset.filter(
                 overtime_second__gt=0,
                 attendance_validated=True,
+                employee_id__is_active=True,
             )
             self.queryset = filtersubordinates(
                 self.request, self.queryset, "attendance.view_attendance"
@@ -566,11 +584,19 @@ class ValidatedAttendancesList(AttendancesListView):
 
     def get_queryset(self):
 
-        if not self.queryset:
-            self.queryset = super().get_queryset()
-            self.queryset = self.queryset.filter(
-                attendance_validated=True, employee_id__is_active=True
+        if self.queryset is None:
+            self.queryset = (
+                super()
+                .get_queryset()
+                .select_related(
+                    "employee_id",
+                    "shift_id",
+                    "work_type_id",
+                    "attendance_day",
+                    "approved_by",
+                )
             )
+            self.queryset = self.queryset.filter(attendance_validated=True)
             self.queryset = filtersubordinates(
                 self.request, self.queryset, "attendance.view_attendance"
             )
@@ -674,14 +700,18 @@ class ValidatedDetailView(GenericAttendancesDetailView):
 
 @method_decorator(login_required, name="dispatch")
 @method_decorator(manager_can_enter("attendance.add_attendance"), name="dispatch")
-class AttendancesFormView(HorillaFormView):
+class AttendancesFormView(EmployeeScopeMixin, HorillaFormView):
     """
     form view
     """
 
+    scope_perm = "attendance.add_attendance"
+    scope_include_self = False
+
     form_class = AttendanceForm
     model = Attendance
     new_display_title = _("Add Attendances")
+    template_name = "requests/attendance/attendance_form.html"
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -714,6 +744,7 @@ class AttendanceUpdateFormView(HorillaFormView):
 
     model = Attendance
     form_class = AttendanceUpdateForm
+    template_name = "requests/attendance/attendance_form.html"
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -726,7 +757,7 @@ class AttendanceUpdateFormView(HorillaFormView):
 
     def form_valid(self, form: AttendanceUpdateForm) -> HttpResponse:
         if form.is_valid():
-            message = _("Attandance Updated")
+            message = _("Attendance Updated")
             form.save()
             messages.success(self.request, message)
             return self.HttpResponse(
@@ -771,6 +802,8 @@ class PenaltyAccountListView(HorillaListView):
     list view for penalty tab
     """
 
+    show_saved_filters = False
+
     filter_class = PenaltyFilter
     model = PenaltyAccounts
     columns = [
@@ -778,8 +811,9 @@ class PenaltyAccountListView(HorillaListView):
         (_("Minus Days"), "minus_leaves"),
         (_("Deducted From CFD"), "get_deduct_from_carry_forward"),
         (_("Penalty amount"), "penalty_amount"),
-        (_("Created Date"), "created_at"),
+        (_("Date"), "penalty_date_col"),
         (_("Penalty Type"), "penalty_type_col"),
+        (_("Applied For"), "penalty_reference_col"),
     ]
 
     confirm_text = _("Are you sure you want to delete this penalty?")
@@ -822,6 +856,9 @@ class ValidateAttendancesIndividualTabView(AttendancesListView):
     """
     list view for validate attendance tab view
     """
+
+    show_quick_date_filters = False
+    show_saved_filters = False
 
     def get_queryset(self):
         queryset = super().get_queryset()

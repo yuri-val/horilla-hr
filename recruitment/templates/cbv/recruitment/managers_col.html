@@ -1,37 +1,59 @@
 {% load i18n %}
-<style>
-    .count-span{
-      width: 100%;
-      display: -webkit-box;
-      display: -ms-flexbox;
-      display: flex;
-      padding: 0.5rem 0rem;
-      font-style: italic;
-      color: hsl(0deg,0%,37%);
-      width: 100%;
-    }
-  </style>
-
-<div>
-    {% for manager in instance.recruitment_managers.all %}
-    <span class="oh-user-panel oh-collapse-panel" data-type="user">
-      <div class="oh-profile oh-profile--md">
-        <div class="oh-profile__avatar mr-1">
-          <img
-          src="https://ui-avatars.com/api/?name={{manager.get_full_name}}&background=random"
-          class="oh-profile__image"
-          alt="{% trans 'Employee' %}"
-          />
+{% comment %}
+A stray input tag here is a deliberate no-op: horilla_theme's list table wraps
+every cell in a native title tooltip built from its flattened text, except
+when the cell contains an interactive-widget tag -- this opts our own hover
+popover below out of that, avoiding a garbled duplicate tooltip (see the same
+pattern in pms/templates/cbv/objectives/manager.html).
+{% endcomment %}
+<input type="hidden" class="d-none">
+<div class="oh-avatar-stack">
+    <div class="oh-avatar-stack__images">
+        {% for manager in instance.recruitment_managers.all|slice:":3" %}
+            <div class="oh-avatar-stack__img">
+                <img
+                    src="https://ui-avatars.com/api/?name={{ manager.get_full_name }}&background=random"
+                    alt="{{ manager.get_full_name }}"
+                >
+            </div>
+        {% endfor %}
+        {% with extra=instance.recruitment_managers.all|length|add:"-3" %}
+            {% if extra > 0 %}
+                <div class="oh-avatar-stack__img oh-avatar-stack__more">+{{ extra }}</div>
+            {% endif %}
+        {% endwith %}
+        {% if not instance.recruitment_managers.all %}
+            <span class="oh-avatar-stack__empty">{% trans "No managers" %}</span>
+        {% endif %}
+    </div>
+    {% if instance.recruitment_managers.all %}
+        {% comment %}
+        Hidden template read by the shared floating popover's JS
+        (cbv/recruitment/recruitment.html) -- it can't be shown in place
+        because the table cell's ancestor clips overflow.
+        {% endcomment %}
+        <div class="oh-avatar-stack__popover-content">
+            <div class="oh-avatar-stack__popover-title">{% trans "Managers" %}</div>
+            {% for manager in instance.recruitment_managers.all %}
+                <div class="oh-avatar-stack__popover-row">
+                    <img
+                        src="https://ui-avatars.com/api/?name={{ manager.get_full_name }}&background=random"
+                        alt=""
+                    >
+                    <span>{{ manager.get_full_name }}</span>
+                    <a
+                        hx-confirm="{% trans 'Are you sure you want to remove this recruitment manager?' %}"
+                        hx-post="{% url 'remove-recruitment-manager' manager.id instance.id %}?{{pd}}&page={{data.number}}"
+                        title="{% trans 'Remove' %}"
+                        hx-target="#listContainer"
+                        hx-swap="outerHTML"
+                        class="oh-avatar-stack__popover-remove"
+                        onclick="event.stopPropagation()"
+                    >
+                        <ion-icon name="close-outline"></ion-icon>
+                    </a>
+                </div>
+            {% endfor %}
         </div>
-        <span class="oh-profile__name oh-text--dark" title="{{manager}}"
-        >{{manager.employee_first_name|truncatechars:4}}</span
-        >
-      </div>
-      <a  hx-confirm="{% trans 'Are you sure you want to remove this recruitment manager?' %}" hx-post="{% url 'remove-recruitment-manager' manager.id instance.id %}?{{pd}}&page={{data.number}}"  title="{% trans "Remove" %}"
-      hx-target="#listContainer" hx-swap="outerHTML" class="oh-user-panel__remove" onclick="event.stopPropagation()">
-        <ion-icon name="close-outline"></ion-icon>
-      </a>
-    </span>
-    {% endfor %}
-    <span class="count-span">{{instance.recruitment_managers.all|length}} {% trans "Managers" %}</span>
-  </div>
+    {% endif %}
+</div>

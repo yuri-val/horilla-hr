@@ -5,6 +5,7 @@ horilla/cbv_methods.py
 import json
 import types
 import uuid
+from datetime import timedelta
 from io import BytesIO
 from typing import Any
 from urllib.parse import urlencode
@@ -35,6 +36,7 @@ from django.template import loader
 from django.template.defaultfilters import register
 from django.template.loader import render_to_string
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.datastructures import MultiValueDictKeyError
 from django.utils.functional import lazy
 from django.utils.html import format_html
@@ -156,6 +158,20 @@ def decorator_with_arguments(decorator):
     return wrapper
 
 
+def unauthenticated_response(request):
+    """
+    Full page refresh for HTMX requests, otherwise redirect to the login page.
+    """
+    if request.headers.get("HX-Request"):
+        return HttpResponse(status=204, headers={"HX-Refresh": "true"})
+    login_url = reverse("login")
+    params = urlencode(request.GET)
+    url = f"{login_url}?next={request.path}"
+    if params:
+        url += f"&{params}"
+    return redirect(url)
+
+
 def login_required(view_func):
     """
     Decorator to check authenticity of users
@@ -165,6 +181,8 @@ def login_required(view_func):
         request = getattr(_thread_locals, "request")
         if not getattr(self, "request", None):
             self.request = request
+        if not request.user.is_authenticated:
+            return unauthenticated_response(request)
         path = request.path
         res = path.split("/", 2)[1].capitalize().replace("-", " ").upper()
         if res == "PMS":
@@ -172,13 +190,6 @@ def login_required(view_func):
         request.session["title"] = res
         if path == "" or path == "/":
             request.session["title"] = "Dashboard".upper()
-        if not request.user.is_authenticated:
-            login_url = reverse("login")
-            params = urlencode(request.GET)
-            url = f"{login_url}?next={request.path}"
-            if params:
-                url += f"&{params}"
-            return redirect(url)
         try:
             func = view_func(self, request, *args, **kwargs)
         except KeyError:
@@ -192,6 +203,88 @@ def login_required(view_func):
         return func
 
     return wrapped_view
+
+
+class EmployeeScopeMixin:
+    """
+    Refuse a write that names an employee the caller may not act on.
+
+    The employee dropdown on these forms is narrowed to the caller's reports
+    only when the form is *rendered*, so a submitted ``employee_id`` was never
+    checked. This checks it on the server, before the form is bound: the caller
+    holds ``scope_perm`` (or, on an update route, ``scope_change_perm``), or
+    every submitted employee is one of their reports (or themselves, with
+    ``scope_include_self``). On an update route it also checks the employee the
+    existing record belongs to. Put it first in the bases, before
+    ``HorillaFormView``.
+    """
+
+    scope_perm = None
+    scope_change_perm = None
+    scope_fields = ("employee_id",)
+    scope_include_self = False
+    scope_instance_field = "employee_id"
+
+    def get_scope_perm(self):
+        if self.kwargs.get("pk"):
+            if self.scope_change_perm:
+                return self.scope_change_perm
+            return (self.scope_perm or "").replace(".add_", ".change_")
+        return self.scope_perm
+
+    def get_scoped_employee_ids(self, request):
+        ids = []
+        if request.method == "POST":
+            for field in self.scope_fields:
+                ids += [value for value in request.POST.getlist(field) if value]
+        pk = self.kwargs.get("pk")
+        model = getattr(self, "model", None)
+        if pk and model is not None and self.scope_instance_field:
+            instance = model.objects.filter(pk=pk).first()
+            owner = getattr(instance, self.scope_instance_field, None)
+            if owner is not None:
+                if hasattr(owner, "all"):
+                    ids += [employee.pk for employee in owner.all()]
+                else:
+                    ids.append(owner.pk)
+        return ids
+
+    def dispatch(self, request, *args, **kwargs):
+        from base.methods import employees_in_scope
+
+        ids = self.get_scoped_employee_ids(request)
+        perm = self.get_scope_perm()
+        if (
+            ids
+            and perm
+            and not employees_in_scope(request, ids, perm, self.scope_include_self)
+        ):
+            return handle_no_permission(request)
+        return super().dispatch(request, *args, **kwargs)
+
+
+class AddOrChangePermissionMixin:
+    """
+    Require ``add_perm`` to create and ``change_perm`` to edit.
+
+    A form view that serves both the create route (no ``pk``) and the update
+    route (``pk``) needs a different permission for each. Without this the
+    class carried ``login_required`` alone, so any signed-in user could write.
+    Put it first in the bases, before ``HorillaFormView``; ``login_required``
+    applied to ``dispatch`` still runs before it.
+    """
+
+    add_perm = None
+    change_perm = None
+
+    def get_required_permission(self):
+        return self.change_perm if self.kwargs.get("pk") else self.add_perm
+
+    def dispatch(self, request, *args, **kwargs):
+        perm = self.get_required_permission()
+        if perm and not request.user.has_perm(perm):
+            return handle_no_permission(request)
+        return super().dispatch(request, *args, **kwargs)
 
 
 @decorator_with_arguments
@@ -234,6 +327,9 @@ def owner_can_enter(
         if not getattr(self, "request", None):
             self.request = request
 
+        if not request.user.is_authenticated:
+            return unauthenticated_response(request)
+
         instance_id = None
         if kwargs:
             instance_id = kwargs[list(kwargs.keys())[0]]
@@ -270,6 +366,39 @@ def owner_can_enter(
 
 
 @decorator_with_arguments
+def allocation_manager_can_enter(function):
+    """
+    Decorator for allocation manager accessibility
+    """
+    from employee.cbv.accessibility import allocation_accessibility
+    from employee.models import Employee
+
+    def _function(request, *args, **kwargs):
+        # The views read ``instance_id`` from the query string in some places
+        # and from the form body in others (the write usually reads the body).
+        # Checking only the first one found let a caller pass the gate with an
+        # employee they may reach and then write to another. Every value
+        # supplied, in either place, has to pass.
+        supplied = [
+            value
+            for value in request.GET.getlist("instance_id")
+            + request.POST.getlist("instance_id")
+            if value
+        ]
+        if not supplied:
+            return handle_no_permission(request)
+        for value in supplied:
+            employee = (
+                Employee.objects.filter(pk=value).first() if value.isdigit() else None
+            )
+            if not allocation_accessibility(request, employee):
+                return handle_no_permission(request)
+        return function(request, *args, **kwargs)
+
+    return _function
+
+
+@decorator_with_arguments
 def check_feature_enabled(function, feature_name, model_class: models.Model):
     """
     Decorator for check feature enabled in singlton model
@@ -293,8 +422,14 @@ def hx_request_required(function):
     """
 
     def _function(request, *args, **kwargs):
+        # Sec-Fetch-Mode is set by the browser itself for a genuine
+        # top-level navigation and can't be spoofed by an htmx fetch()
+        # call, unlike the HX-Request header alone -- some browser setups
+        # send HX-Request even on a real address-bar visit, which would
+        # otherwise slip through this check and render the raw fragment.
+        is_real_navigation = request.META.get("HTTP_SEC_FETCH_MODE") == "navigate"
         key = "HTTP_HX_REQUEST"
-        if key not in request.META.keys():
+        if is_real_navigation or key not in request.META.keys():
             return render(request, "405.html", status=405)
         return function(request, *args, **kwargs)
 
@@ -376,6 +511,75 @@ def paginator_qry(qryset, page_number, records_per_page=50):
     paginator = Paginator(qryset, records_per_page)
     qryset = paginator.get_page(page_number)
     return qryset
+
+
+# A quick date range spanning a calendar week: (label, WEEK, weeks_from_this_week).
+WEEK = "week"
+
+
+def first_day_of_week():
+    """
+    settings.HORILLA_FIRST_DAY_OF_WEEK (0 = Sunday, 1 = Monday ... 6 =
+    Saturday). Monday, like the attendance dashboard, when it is unset,
+    empty or anything other than 0 to 6.
+    """
+    value = str(getattr(settings, "HORILLA_FIRST_DAY_OF_WEEK", "")).strip()
+    return int(value) if value in ("0", "1", "2", "3", "4", "5", "6") else 1
+
+
+def week_start(day):
+    """First day of the calendar week containing `day` (see first_day_of_week)."""
+    return day - timedelta(days=(day.isoweekday() - first_day_of_week()) % 7)
+
+
+def get_quick_date_filters(ranges, fields):
+    """
+    Build (label, onclick attrs) pairs from ranges and (exact, from, to) fields.
+
+    Each range is (label, start_offset, end_offset) in days from today (an
+    end_offset of None means that single day), or (label, WEEK, n) for a
+    whole calendar week: 0 is this week, -1 last week.
+    """
+    exact_field, from_field, to_field = fields
+    today = timezone.localdate()
+
+    def setter(name, value):
+        return (
+            f"$('#applyFilter').closest('form').find('[name={name}]').val('{value}');"
+        )
+
+    filters = []
+    for label, start_offset, end_offset in ranges:
+        if start_offset == WEEK:
+            start = week_start(today) + timedelta(weeks=end_offset)
+            end = start + timedelta(days=6)
+        else:
+            start = today + timedelta(days=start_offset)
+            end = None if end_offset is None else today + timedelta(days=end_offset)
+        steps = []
+        if end is None and exact_field:
+            steps += [setter(from_field, ""), setter(to_field, "")]
+            steps.append(setter(exact_field, start))
+        else:
+            if exact_field:
+                steps.append(setter(exact_field, ""))
+            steps.append(setter(from_field, start))
+            steps.append(setter(to_field, end or start))
+        steps.append("$('#applyFilter').click();")
+        filters.append((label, 'onclick="' + " ".join(steps) + '"'))
+    return filters
+
+
+SINGLE_VALUE_QUERY_PARAMS = {"page", "view_id", "filter_applied", "sortby"}
+
+
+def dedupe_single_value_params(query_dict):
+    """Copy of query_dict keeping only the last value of single-value params."""
+    cleaned = query_dict.copy()
+    for key in list(cleaned.keys()):
+        if key in SINGLE_VALUE_QUERY_PARAMS or key.startswith("dynamic_page"):
+            cleaned[key] = cleaned.getlist(key)[-1]
+    return cleaned
 
 
 def saved_filter_path_query(request):
@@ -500,10 +704,17 @@ def sortby(
             none_ids.append(object.pk)
         elif isinstance(result, models.Model):
             result = str(result)
+        if isinstance(result, str):
+            result = result.lower()
         return result
 
     order = not reverse
-    current_page = query_dict.get(page)
+    page_params = [query_dict.get(page)] + [
+        f"{key}={query_dict.get(key)}"
+        for key in sorted(query_dict)
+        if key.startswith("dynamic_page")
+    ]
+    current_page = "|".join(filter(None, page_params)) or None
     if current_page or is_first_sort:
         order = not order
         if reverse_object.page == current_page and not is_first_sort:
@@ -528,11 +739,60 @@ def sortby(
     return queryset
 
 
+# GET params that vary between the write (a request explicitly submitting a
+# search/filter) and a later bare reload of the same embedded list, so they
+# must be left out of saved_filter_cache_key's identity - see its docstring.
+SAVED_FILTER_CACHE_VOLATILE_PARAMS = {
+    "filter_applied",
+    "search",
+    "referrer",
+    "nav_url",
+    "page",
+    "view_id",
+}
+
+
+def saved_filter_cache_key(request):
+    """
+    Cache key for a request's "last search/filter" on a HorillaListView /
+    HorillaCardView page.
+
+    Keying on request.path alone collides whenever the same URL embeds more
+    than one independent list in a single session - e.g. every pipeline
+    stage's candidate list shares one path
+    (candidate-lists-cbv/, get-offboarding-employees-cbv/, ...) and is only
+    told apart by its own GET params (onboarding_stage_id, recruitment_id,
+    stage_id, ...). Without those in the key, stage A's cached filter (or
+    stage B's, whichever wrote last) got served back to every other stage's
+    plain reload on the same path - each stage's own identifying params
+    got silently swapped for a sibling stage's, filtering its queryset by
+    the wrong stage and rendering "No records found" despite the tab's own
+    badge count being correct.
+
+    Folding in this request's GET params - minus the volatile ones that
+    only ever appear on the "search submitted" request
+    (filter_applied/search themselves, plus referrer/nav_url/page/view_id
+    that ride along with it) - keeps the key symmetric between that write
+    and a later plain-reload read of the same identity: both carry the same
+    identifying params (onboarding_stage_id and friends), so they resolve
+    to the same key, while two different stages' requests - which never
+    share those identifying params - no longer collide.
+    """
+    identity_params = sorted(
+        (key, value)
+        for key, value in request.GET.items()
+        if key not in SAVED_FILTER_CACHE_VOLATILE_PARAMS
+    )
+    return (
+        request.session.session_key + request.path + urlencode(identity_params) + "cbv"
+    )
+
+
 def update_saved_filter_cache(request, cache):
     """
     Method to save filter on cache
     """
-    key = request.session.session_key + request.path + "cbv"
+    key = saved_filter_cache_key(request)
     existing = cache.get(key)
     if existing:
         existing.update(

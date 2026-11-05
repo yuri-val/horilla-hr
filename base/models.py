@@ -96,11 +96,12 @@ class Company(HorillaModel):
 
     company = models.CharField(max_length=50, verbose_name=_("Name"))
     hq = models.BooleanField(default=False)
-    address = models.TextField(max_length=255)
-    country = models.CharField(max_length=50)
-    state = models.CharField(max_length=50)
-    city = models.CharField(max_length=50)
-    zip = models.CharField(max_length=20)
+    # Nullable so a company can be created from just a name (master data import).
+    address = models.TextField(max_length=255, null=True)
+    country = models.CharField(max_length=50, null=True)
+    state = models.CharField(max_length=50, null=True)
+    city = models.CharField(max_length=50, null=True)
+    zip = models.CharField(max_length=20, null=True)
     icon = models.FileField(
         upload_to=upload_path,
         null=True,
@@ -123,10 +124,12 @@ class Company(HorillaModel):
         return str(self.company)
 
     def company_icon_with_name(self):
+        from django.templatetags.static import static
 
+        icon_url = self.icon.url if self.icon else static("images/ui/auth-logo.png")
         return format_html(
             '<img src="{}" style="width: 30px; border-radius: 100%; display:inline;" class="oh-profile__image" alt="" /> {}',
-            self.icon.url,
+            icon_url,
             self.company,
         )
 
@@ -714,7 +717,7 @@ class RotatingWorkTypeAssign(HorillaModel):
         """
 
         if self.is_active:
-            return "Is Active"
+            return "Active"
         else:
             return "Archived"
 
@@ -1288,7 +1291,7 @@ class RotatingShiftAssign(HorillaModel):
         """
 
         if self.is_active:
-            return "Is Active"
+            return "Active"
         else:
             return "Archived"
 
@@ -2404,6 +2407,40 @@ class MultipleApprovalCondition(HorillaModel):
 
         return managers
 
+    def get_description(self):
+        """
+        Plain-language summary of this approval rule, for the detail view --
+        what has to be true, and who has to approve it, in one sentence.
+        """
+        condition = _("%(field)s %(operator)s %(value)s") % {
+            "field": self.get_condition_field() or "",
+            "operator": (self.get_condition_operator() or "").lower(),
+            "value": self.get_condition_value() or "",
+        }
+        from base.templatetags.basefilters import readable
+
+        manager_names = [
+            (
+                manager.get_full_name()
+                if hasattr(manager, "get_full_name")
+                else readable(str(manager)).strip()
+            )
+            for manager in self.approval_managers()
+        ]
+        if manager_names:
+            return _(
+                "For the %(department)s department, when %(condition)s, "
+                "approval is required in order from: %(managers)s."
+            ) % {
+                "department": self.department,
+                "condition": condition,
+                "managers": ", then ".join(manager_names),
+            }
+        return _(
+            "For the %(department)s department, when %(condition)s, "
+            "approval is required, but no managers are configured yet."
+        ) % {"department": self.department, "condition": condition}
+
 
 class MultipleApprovalManagers(models.Model):
     """
@@ -2519,6 +2556,15 @@ class Announcement(HorillaModel):
     )
     company_id = models.ManyToManyField(
         Company, blank=True, related_name="announcement", verbose_name=_("Company")
+    )
+    is_visible_to_all = models.BooleanField(
+        default=True,
+        verbose_name=_("Publish to all"),
+        help_text=_(
+            "When enabled, the announcement is visible to every employee in "
+            "the selected company. Disable it to restrict visibility to the "
+            "employees/department/job position selected below."
+        ),
     )
     disable_comments = models.BooleanField(
         default=False, verbose_name=_("Disable Comments")
@@ -2642,6 +2688,10 @@ class EmailLog(models.Model):
 
     def __str__(self) -> str:
         return f"{self.subject} {self.to}"
+
+    def subject_display(self):
+        """The subject HTML-escaped, for list cells that render values as safe."""
+        return format_html("{}", self.subject)
 
     def status_display(self):
         status = dict(self.statuses).get(self.status)
@@ -2825,7 +2875,7 @@ class Holidays(HorillaModel):
     start_date = models.DateField(verbose_name=_("Start Date"))
     end_date = models.DateField(null=True, blank=True, verbose_name=_("End Date"))
     recurring = models.BooleanField(default=False, verbose_name=_("Recurring"))
-    is_specific = models.BooleanField(default=False, verbose_name=_("Is Specific"))
+    is_specific = models.BooleanField(default=False, verbose_name=_("Specific"))
     assigning_type = models.CharField(
         choices=ASSIGNING_TYPE,
         max_length=100,
@@ -2849,6 +2899,7 @@ class Holidays(HorillaModel):
     company_id = models.ForeignKey(
         Company,
         null=True,
+        blank=True,
         on_delete=models.PROTECT,
         verbose_name=_("Company"),
     )
@@ -2857,9 +2908,34 @@ class Holidays(HorillaModel):
     class Meta:
         verbose_name = _("Holiday")
         verbose_name_plural = _("Holidays")
+        constraints = [
+            # NULLs are distinct in a unique index, so company-scoped and
+            # global (company_id=None) holidays need separate constraints.
+            models.UniqueConstraint(
+                fields=["start_date", "end_date", "company_id"],
+                name="unique_holiday_dates_per_company",
+                violation_error_message=_(
+                    "A holiday already exists for this date range in this company."
+                ),
+            ),
+            models.UniqueConstraint(
+                fields=["start_date", "end_date"],
+                condition=models.Q(company_id__isnull=True),
+                name="unique_global_holiday_dates",
+                violation_error_message=_(
+                    "A holiday already exists for this date range for all companies."
+                ),
+            ),
+        ]
 
     def __str__(self):
         return self.name
+
+    def get_company_name(self):
+        return self.company_id.company if self.company_id else _("All Companies")
+
+    def get_available_for_all_status(self):
+        return _("No") if self.is_specific else _("Yes")
 
     def detail_view(self):
         """
@@ -3078,7 +3154,7 @@ class PenaltyAccounts(HorillaModel):
             verbose_name=_("Leave type"),
         )
         minus_leaves = models.FloatField(
-            default=0.0, null=True, verbose_name=_("Minus Leaves")
+            default=0.0, null=True, verbose_name=_("Deduct Leaves")
         )
         deduct_from_carry_forward = models.BooleanField(
             default=False, verbose_name=_("Deduct from Carry Forward")
@@ -3091,6 +3167,12 @@ class PenaltyAccounts(HorillaModel):
 
     penalty_amount = models.FloatField(
         default=0.0, null=True, verbose_name=_("Penalty Amount")
+    )
+    additional_info = models.JSONField(
+        default=dict,
+        blank=True,
+        editable=False,
+        verbose_name=_("Additional Info"),
     )
 
     def get_delete_url(self):
@@ -3107,10 +3189,32 @@ class PenaltyAccounts(HorillaModel):
         return self.pk
 
     def penalty_type_col(self):
-        if apps.is_installed("attendance"):
-            if self.late_early_id:
-                return "Late come or Early out Penalty"
+        if apps.is_installed("attendance") and self.late_early_id:
+            return "Late come or Early out Penalty"
+        if apps.is_installed("leave") and self.leave_request_id:
             return "Leave Penalty"
+        return "Manual Penalty"
+
+    def penalty_reference_col(self):
+        """Describe the late come / early out record or leave request this penalty was applied for."""
+        if apps.is_installed("attendance") and self.late_early_id:
+            late_early = self.late_early_id
+            return (
+                f"{late_early.get_type()} - {late_early.attendance_id.attendance_date}"
+            )
+        if apps.is_installed("leave") and self.leave_request_id:
+            leave = self.leave_request_id
+            end_date = leave.end_date or leave.start_date
+            return f"{leave.leave_type_id} - {leave.start_date} to {end_date}"
+        return "-"
+
+    def penalty_date_col(self):
+        """Return the attendance date or leave start date this penalty was applied for."""
+        if apps.is_installed("attendance") and self.late_early_id:
+            return self.late_early_id.attendance_id.attendance_date
+        if apps.is_installed("leave") and self.leave_request_id:
+            return self.leave_request_id.start_date
+        return self.created_at.date() if self.created_at else "-"
 
     def clean(self) -> None:
         super().clean()

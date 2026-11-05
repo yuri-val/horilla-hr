@@ -183,6 +183,21 @@ urlpatterns = [
         dashboard.MyOnboardingCandidatesSingleView.as_view(),
         name="candidate-tasks-status",
     ),
+    path(
+        "candidate-tasks-view/",
+        dashboard.CandidateTasksPage.as_view(),
+        name="candidate-tasks-view",
+    ),
+    path(
+        "candidate-tasks-nav/",
+        dashboard.CandidateTasksNav.as_view(),
+        name="candidate-tasks-nav",
+    ),
+    path(
+        "candidate-tasks-list/",
+        dashboard.CandidateTasksList.as_view(),
+        name="candidate-tasks-list",
+    ),
     path("change-task-status/", views.change_task_status, name="change-task-status"),
     path(
         "update-offer-letter-status/",
@@ -221,6 +236,11 @@ urlpatterns = [
         "onboarding-candidates-nav/",
         onboarding_candidates.OnboardingCandidatesNav.as_view(),
         name="onboarding-candidates-nav",
+    ),
+    path(
+        "get-cand-tasks/<int:pk>/",
+        onboarding_candidates.CandidateProfileTasks.as_view(),
+        name="get-cand-task",
     ),
     path(
         "offer-letter-bulk-status-update/",
@@ -289,6 +309,11 @@ urlpatterns = [
         pipeline.RecruitmentPipelineContentShell.as_view(),
         name="onboarding-pipeline-shell",
     ),
+    path(
+        "onboarding-pipeline-tab-nav/<int:rec_id>/",
+        pipeline.RecruitmentCandidateNav.as_view(),
+        name="onboarding-pipeline-tab-nav",
+    ),
     # path("cbv-change-stage/<int:pk>/",pipeline.ChangeStage.as_view(),name="cbv-change-stage")
     # ── Onboarding Modern Dashboard ──────────────────────────────────────────
     path(
@@ -302,29 +327,9 @@ urlpatterns = [
         name="onboarding-dashboard-kpi",
     ),
     path(
-        "dashboard/api/stages/",
-        on_dashboard.onboarding_stage_distribution,
-        name="onboarding-dashboard-stages",
-    ),
-    path(
-        "dashboard/api/tasks/",
-        on_dashboard.onboarding_task_status,
-        name="onboarding-dashboard-tasks",
-    ),
-    path(
-        "dashboard/api/recruitment/",
-        on_dashboard.onboarding_by_recruitment,
-        name="onboarding-dashboard-recruitment",
-    ),
-    path(
         "dashboard/api/position/",
         on_dashboard.onboarding_by_job_position,
         name="onboarding-dashboard-position",
-    ),
-    path(
-        "dashboard/api/candidates/",
-        on_dashboard.onboarding_candidates_list,
-        name="onboarding-dashboard-candidates",
     ),
     path(
         "dashboard/api/my-tasks/",
@@ -335,10 +340,5 @@ urlpatterns = [
         "dashboard/api/completion-trend/",
         on_dashboard.onboarding_completion_trend,
         name="onboarding-dashboard-completion-trend",
-    ),
-    path(
-        "dashboard/api/portal-status/",
-        on_dashboard.onboarding_portal_status,
-        name="onboarding-dashboard-portal-status",
     ),
 ]

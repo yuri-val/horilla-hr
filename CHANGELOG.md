@@ -32,6 +32,636 @@ date and open a fresh Unreleased above it.
 ### Security      — vulnerabilities fixed; link the advisory and credit the reporter
 -->
 
+## [2.3.0] — 2026-11-03
+
+Security release. It fixes four privately reported vulnerabilities (the tax formula
+sandbox, missing authorization checks in 36 views, the client address behind nginx, and
+unbounded session rows), brings in the dependency security updates that landed after
+2.2.0, repairs fresh source installs and image builds that broke when a spaCy dependency
+released a bad version, and carries the features and fixes merged since 2.2.0.
+
+**Upgrading from 2.2.0:** run `python manage.py migrate` (new migrations in `base`,
+`leave` and `payroll`), then read *Breaking* and *Upgrading* below.
+
+### Breaking
+
+- Payroll: new Python tax formulas are off by default. Creating a Python-mode filing
+  status, saving or editing a formula, and test-running one now need
+  `HORILLA_ALLOW_PYTHON_TAX_FORMULAS=True` in `.env`. Formulas that are already stored
+  keep running, so payslips are not affected, and slab-based filing statuses need
+  nothing.
+- Reverse proxies: the client address used for login lockouts and the attendance
+  office-IP restriction now comes from `X-Forwarded-For` only on a connection from a
+  proxy listed in `HORILLA_TRUSTED_PROXIES` (IP addresses, CIDR ranges or host names).
+  The bundled Docker setup trusts its `nginx` service, so it needs nothing. If you run
+  Horilla behind your own proxy or load balancer, set `HORILLA_TRUSTED_PROXIES` to its
+  address, or every login will be counted against the proxy's address. This replaces
+  `AXES_PROXY_COUNT`, which is no longer read.
+
+### Added
+
+- Employee: a Penalty tab on Policies and Disciplinary Actions, to list, create and
+  delete penalties.
+- Attendance: nested Group By on the monthly summary with pinned group headers, a columns
+  button on the header row, highlighting of a summary chip's days on hover, and bulk
+  overtime approval in a single update.
+- Exports: every export dialog now asks for a file name and a format (Excel, CSV or
+  PDF), shows an "Exporting..." progress dialog and uses the same column picker; the
+  asset export gains a column picker.
+- Recruitment: redesigned candidate login and application-tracking pages.
+- Profiles: a corner ribbon marks archived employees and candidates ("Archived") and
+  rejected candidates ("Rejected").
+- Base: expired sessions are now cleared daily at 03:00 in the configured time zone
+  (database-backed sessions; needs the scheduler process, as other background jobs do).
+- Settings: `HORILLA_FIRST_DAY_OF_WEEK` sets the first day of the week for the "This
+  Week" and "Last Week" quick dates (0 = Sunday, 1 = Monday ... 6 = Saturday). Monday by
+  default, and for an empty or invalid value.
+- Recruitment: dragging a candidate into a Hired stage that fills the vacancy shows a
+  "Vacancy is filled" popup.
+- Base: the scheduler's job history is trimmed daily at 03:15 in the configured time
+  zone, keeping `HORILLA_SCHEDULER_HISTORY_DAYS` days (7 by default). Nothing removed the
+  run history before, so the table grew without limit. Restart the scheduler to register
+  the job.
+- Payroll: pay periods are set per company in the Payslip Auto Generation tab. A period
+  is either a calendar month or a cycle that starts on a chosen day, with a pay day.
+  With *Generate Payslips Automatically* on, draft payslips are created for the
+  company's employees on the day after each period ends. A period is claimed before it
+  is generated, so two runs never produce the same period, and a manual run is
+  available beside the switch.
+- Leave: a leave type can choose how a carried-forward balance expires, from the first
+  expiry date or from the employee's assignment date, and can leave out the company's
+  week-offs when counting days. Missed leave resets can be run by hand from the leave
+  ledger and from the leave type.
+- Leave: leave types are created and edited in a dialog instead of a full page, and a
+  leave request shows the available balance and says when an attachment is required.
+- Recruitment: send an email to a candidate from the candidate profile, a rejection
+  details section on the profile, and candidate filters for rejection status and survey
+  answers.
+- Attendance: the Day-wise summary has a Default Date Range action (this month, previous
+  month, pay period or month cycle). Its import and export now use one sheet with status
+  dropdowns, replacing the summary sheet.
+
+### Changed
+
+- Quick dates: "This Week" now covers the calendar week (it was today plus seven
+  days), starting on Monday by default. "Last Week", "Last 7 Days" and "Next 7 Days" are
+  added, and the dropdown is labelled "Quick filter".
+- Attendance: Short Hours counts with Absent in the calendar strip and legend, and the
+  monthly summary says so.
+- Recruitment: the stage that holds rejected candidates is now created as "Rejected
+  Candidates" (it was "Cancelled Candidates"). Stages that already exist keep their name.
+  Recording a rejection moves the candidate into that stage, and moving a candidate out
+  of it clears the rejected flag.
+- Attendance: the Daily Work Status page moved from `/attendance/work-records/` to
+  `/attendance/work-status/`; update bookmarks and links.
+- Delete tooltips and labels that read "Remove" now read "Delete" in recruitment,
+  project, payroll, mail, leave and the shared theme.
+- PMS: the question template detail view uses the shared list view.
+- Polish: loading animation on the import screens, a pointer cursor over clickable list
+  rows, and standard button colours in several lists.
+- Dependencies: Django REST framework 3.18.3 and setuptools 84.1.0 (see *Security*);
+  `preshed` is pinned to 3.0.13 (see *Fixed*).
+- Attendance: the Daily Work Status page is deprecated, and the Day-wise summary
+  replaces it.
+- Attendance: a half-day leave now counts as half a leave plus the upcoming half in the
+  calendar. Half-day leave clashes are decided by the employee's shift and come with a
+  plain explanation. Week-offs follow the roster period, and the last regularisation
+  wins.
+- Leave: a restriction can now cover several departments (it held one).
+- Dashboard: the birthday widgets on the modern and ESS dashboards follow the
+  *Birthday view* accessibility setting.
+- Payroll: a tax formula is checked against an allow-list of syntax and attribute names
+  instead of a list of forbidden ones. Arithmetic, branching, loops, comprehensions,
+  helper functions and the list and dict methods `append`, `extend`, `insert`, `pop`,
+  `get`, `items`, `keys`, `values`, `update`, `setdefault`, `copy`, `count`, `index`,
+  `sort` and `reverse` all work as before. A stored formula that uses anything else
+  (string methods, `yield`, classes or decorators) is refused when a payslip is
+  generated, and needs rewriting.
+- Permissions: a reporting manager can now act only for their own reports. Many forms and
+  actions checked only that the user manages somebody, so a manager of one person could
+  act for every employee. They now check the employee the request names, in leave
+  (requests, allocations, assigning and importing balances), shift and work-type requests,
+  rotating shifts, attendance, overtime and attendance requests, the monthly attendance
+  summary, documents and document requests, employee records, bank details and notes, and
+  the leave request API. Holders of the matching permission still act for anyone, and
+  employees still act for themselves where they could before.
+- Employee records: updating bank details, work information, the employee edit page and
+  notes now checks the employee the record belongs to, as above. Employees can still update
+  their own bank details; work information, which holds the reporting manager and pay,
+  needs the permission even for one's own record.
+- Attendance: the monthly summary's day detail and calendar show an employee's attendance
+  only to that employee, their manager, or a holder of `attendance.view_attendance`.
+- Recruitment: the candidate login is limited to five failed attempts per email and twenty
+  per client address in fifteen minutes, and the session key changes on login.
+- Payroll: the Django admin applies the same rules to filing statuses as the payroll pages.
+- Client address: an IPv4 client reaching a dual-stack server (shown as `::ffff:a.b.c.d`)
+  is now read as the IPv4 address, so trusted proxies, lockouts and office-IP rules written
+  in IPv4 match.
+- Permissions: these now need a permission or a role they did not need before. Creating an
+  employee needs `employee.add_employee`. Archiving or un-archiving an employee needs
+  `employee.delete_employee` (opening the list of records that block an archive still needs
+  only view access). Holiday, weekly off day and approval-condition forms need the add or
+  change permission for the model. The two biometric user-mapping actions need
+  `biometric.add_biometricemployees`. LDAP settings and assigning permission groups are
+  for superusers only.
+- Roster Planner: it is limited to holders of `base.change_roster`. Everyone else sees and
+  plans only their own reports, and publishing a department publishes only their reports'
+  entries. The default Attendance Manager group now carries the roster permissions; they
+  are added on migrate, per company assignment, and existing permissions are kept.
+- Leave: the "approve now" option in the bulk leave allocation form needs the same right as
+  approving a single request.
+- Allocation screen: every employee named in a request is checked, whether it is in the
+  address or the form body. Switching a login off is refused for a superuser's account
+  (unless you are one) and for your own.
+- Sessions: a request that arrives without a session cookie no longer creates a session row,
+  so the session table no longer grows with every health check or script. Token-authenticated
+  API clients keep their accessibility cache per user instead of per session.
+
+### Removed
+
+- Twelve dashboard endpoints that nothing in Horilla called, left over from the dashboard
+  redesign: attendance trend, leave coverage, payroll summary, department overtime,
+  leave by department, department leave days, employee status, today's leave, upcoming
+  holidays, recruitment pipeline, announcement detail, and the read side of saved
+  preferences (`/dashboard/load-prefs/`; saving is unchanged). Anyone scripting against
+  those `/dashboard/` URLs should check them.
+- Payroll: the one-off repair commands `normalise_payslip_basic_pay` and
+  `normalise_payslip_deductions` are removed, with their tests. They repaired payslips
+  that early builds of the new payroll engine stored with basic pay twice or with more
+  deducted than earned. Release 2.2.0 already shipped the engine fix, so no released
+  version wrote such payslips. If you ran a pre-release build with payroll data you
+  want to keep, run the commands from the 2.2.0 tag first.
+
+### Fixed
+
+- Payroll: deductions on a payslip are now worked out in Sequence order (then creation
+  order), as the Sequence field says. They were gathered without an order, so a
+  deduction that uses the value of another one, such as a percentage of the provident
+  fund, could come out as 0 or as the right amount depending on the order the database
+  returned them. A deduction that reads another one with a higher Sequence than its own
+  now reads 0 when a payslip is regenerated, so give the deduction it reads the lower
+  Sequence. Payslips that are already generated do not change.
+- Installs: `preshed` 3.0.14 makes spaCy fail while loading its model, which stopped a
+  fresh `pip install -r requirements.txt` and image builds from producing a working app.
+  `preshed` is pinned to 3.0.13 until spaCy or preshed ships a fix.
+- Attendance dashboards: employees without a shift are expected only on the days they
+  check in, approved leave is treated the same way on both dashboards, and the on-time
+  and Checked In Today figures match who is checked in.
+- Leave: the clashed-requests modal scopes clashes to the company and compares against
+  the request that was opened.
+- Base: the shift schedule form no longer fails when the shift or day is missing, and a
+  company without a logo no longer shows a broken image in the sidebar.
+- Employee: the bulk Archive and Un-Archive actions are shown only to users who may
+  delete employees (the server already required it), and the confirmation dialog is
+  restyled. Penalties: validation of deducted leave, and two typos.
+- Recruitment: a rejected candidate can be dragged out of the Rejected stage on the
+  pipeline.
+- Exports: long values no longer overlap in PDF exports, and the project export no
+  longer fails when a manager has no last name.
+- Translated text containing quotes or other special characters no longer breaks the
+  JavaScript on a page.
+- Docker: nginx rate-limits login attempts rather than every request to the login page,
+  so a session that expired no longer ends in a 429 on the login form.
+- Geofencing: a company fence can be added while a global fence exists, and the global
+  fence now applies to every company that has no fence of its own. The web punch, the
+  API punch and the dashboard use the same rule, and the web punch is checked against
+  the employee's own company when "all companies" is selected
+  ([#1286](https://github.com/horilla/horilla-hr/issues/1286), reported by
+  **@sanjaybora04**).
+- Leave: a request that runs from December into January no longer charges the January
+  company week-offs as leave
+  ([#1315](https://github.com/horilla/horilla-hr/issues/1315), reported by **@Iweisc**).
+- Leave: a half-day request next to a weekend counts as a half day when both exclusions
+  (company leaves and holidays) are on, rather than a full day
+  ([#1316](https://github.com/horilla/horilla-hr/issues/1316), reported by **@Iweisc**).
+- Payroll: loan instalments that start on the 31st stay on the last day of each month
+  and return to the 31st when the month has it, instead of settling on the 28th after
+  February ([#1317](https://github.com/horilla/horilla-hr/issues/1317), reported by
+  **@Iweisc**).
+- Leave: the leave restriction keeps its department when it moves to several
+  departments. Restrictions saved by a build that ran the first version of the
+  migration lost their department and need to be entered again.
+- Payroll: the currency symbol and its position come from the selected company's payroll
+  settings in the payroll dashboard, report exports, payslips and emailed payslips,
+  instead of a leftover "$" row.
+- Payroll: deductions that reduce basic pay, gross pay or net pay are now also worked out
+  in Sequence order. For example a 10% deduction at sequence 20 and a fixed 500 at
+  sequence 10 on a gross of 27,000 now give 23,850 rather than 23,800. Payslips that are
+  already generated do not change.
+- Observability: `/metrics/` now reports `horilla_scheduler_jobs_overdue` and
+  `horilla_scheduler_executions_total` (a gauge over the retained history), and no longer
+  prints `horilla_scheduler_jobs_registered` twice.
+- Docker: a first `make prod` on an empty database no longer stops with "web is unhealthy"
+  before nginx starts. The first boot takes about five minutes, and the health check now
+  waits ten minutes before it counts failures
+  ([#1326](https://github.com/horilla/horilla-hr/issues/1326)). An existing installation
+  that only ever saw the error can run `make prod` again.
+- Helpdesk: the ticket detail page is readable in dark mode again: the description,
+  comment bubbles, chat box and avatars use the theme colours, and the action buttons
+  follow the primary colour
+  ([#1337](https://github.com/horilla/horilla-hr/issues/1337), reported and fixed by
+  **@ft-mammoo** in [#1346](https://github.com/horilla/horilla-hr/pull/1346)).
+
+### Security
+
+Four reports from outside the team, reported privately, are fixed in this release. With
+thanks to **@anjanamanojbhadra**, **@brynnclaw** and **@adamsthws** for reporting them
+responsibly.
+
+- **Tax formula sandbox** — [GHSA-j58f-hghh-3mxj](https://github.com/horilla/horilla-hr/security/advisories/GHSA-j58f-hghh-3mxj)
+  (High). A user who could edit a filing status could run code on the server through a
+  custom Python tax formula. Formulas are now checked against an allow-list of syntax and
+  attribute names instead of a list of forbidden ones, and new Python formulas are opt-in
+  with `HORILLA_ALLOW_PYTHON_TAX_FORMULAS`. Reported by **@anjanamanojbhadra**.
+- **Missing authorization checks in 36 views** — [GHSA-wqfh-3g4v-r9x5](https://github.com/horilla/horilla-hr/security/advisories/GHSA-wqfh-3g4v-r9x5)
+  (High). Views and routes across leave, shifts, attendance, documents, employee records,
+  the allocation screen, the roster planner, biometric devices, LDAP settings and the
+  leave API lacked a permission or ownership check. See "Changed" for the new rules.
+  Reported by **@brynnclaw**.
+- **Client address behind nginx** — [GHSA-655c-hrrv-xq2h](https://github.com/horilla/horilla-hr/security/advisories/GHSA-655c-hrrv-xq2h)
+  (Medium). Behind the bundled nginx every login came from the proxy's address, so the
+  lockout counted one user across all clients, and a forged `X-Forwarded-For` could be
+  used to avoid it or to pass the office-IP restriction. Reported by **@adamsthws**.
+- **Unbounded session rows** — [GHSA-6mg2-mfpm-5mhv](https://github.com/horilla/horilla-hr/security/advisories/GHSA-6mg2-mfpm-5mhv)
+  (Low). Every request without a session cookie created a database session row. Reported
+  by **@adamsthws**.
+
+Dependency updates:
+
+- Django REST framework 3.18.3 closes
+  [GHSA-33wh-fxxf-88vv](https://github.com/advisories/GHSA-33wh-fxxf-88vv),
+  [GHSA-3547-9m27-7rxg](https://github.com/advisories/GHSA-3547-9m27-7rxg) and
+  [GHSA-xw6w-gcfp-cf8m](https://github.com/advisories/GHSA-xw6w-gcfp-cf8m).
+- setuptools 84.1.0 closes
+  [GHSA-xmj3-9gf7-h52w](https://github.com/advisories/GHSA-xmj3-9gf7-h52w).
+
+### Upgrading
+
+- Run `python manage.py migrate` (new migrations in `base`, `leave` and `payroll`). This
+  also adds the roster permissions to the Attendance Manager group.
+- Source installs: run `pip install -r requirements.txt` again.
+- Restart the scheduler (`manage.py run_scheduler`) so the session-cleanup and history
+  trim jobs are registered.
+- Docker with the bundled nginx: `docker/nginx.conf` is mounted from your checkout, so
+  update it (git pull) and restart nginx to get the login rate-limit fix.
+- Behind your own reverse proxy or load balancer: set `HORILLA_TRUSTED_PROXIES` (see
+  *Breaking*).
+- Python tax formulas: if you edit or add Python formulas, set
+  `HORILLA_ALLOW_PYTHON_TAX_FORMULAS=True`, and only if everyone who can edit filing
+  statuses is fully trusted. Stored formulas keep running either way, but a stored formula
+  that uses string methods, `yield`, classes or decorators is now refused when a payslip
+  is generated and needs rewriting. Tax slabs are not affected.
+- Roles: check who plans rosters. Anyone who relied on the planner without
+  `base.change_roster` will now see only their own reports.
+- Managers who act for people outside their own team (for example a shared HR assistant
+  who is a manager) now need the matching permission for that work.
+- Installations whose own settings replace `MIDDLEWARE` should add
+  `horilla.horilla_middlewares.ExportDownloadCookieMiddleware` and
+  `horilla.horilla_middlewares.ExportOptionsMiddleware`, which the export dialogs use.
+- API clients: no API version change (`API_VERSION` unchanged).
+
+```bash
+docker pull horilla/horilla-hr:2.3.0
+```
+
+## [2.2.0] — 2026-10-21
+
+Feature release. Payroll gets a new engine (configurable components, batch runs, tax
+packs), every module dashboard is rebuilt around one chart and legend style, there is a
+new master-data import wizard, and leave gains a cancellation-request workflow. It also
+carries the security fixes listed below.
+
+**Upgrading from 2.1.x:** run `python manage.py migrate` (46 new migrations, additive;
+tested against a 2.1.8 database loaded with demo data, no pending migrations afterwards).
+See *Upgrading* below.
+
+### Added
+
+- **Payroll engine.** Configurable salary components with ordered evaluation, batch payroll
+  runs with pay periods and a run-review list, tax packs with filing-status rules
+  (income tax annualised by pay period), payslip editing with loss-of-pay breakdown and
+  employer contributions, "How this was worked out" popovers, bulk salary-structure
+  update from contracts, bonus-point balance on the encashment form, `YEARS_OF_SERVICE`
+  and `YEARS_OF_CONTRACT` in formulas.
+- **Master data import.** New `master_import` module with a wizard (employees first),
+  plus import for leave requests, leave types, projects and assets (multiple file
+  formats, per-row error reporting, downloadable templates).
+- **Leave.** "Cancel Requested" status and cancellation workflow, payment filter,
+  department chips on the trend chart, past-date restriction on requests, bulk
+  approve / reject / delete.
+- **Dashboards.** New Employee (My) Dashboard at `/my-dashboard/` with an Admin Dashboard
+  switch; period pickers, count badges and a shared donut legend across all module
+  dashboards; turnover report with hire-vs-turnover drill-down; legend choices are
+  remembered per user and page.
+- **Employees.** Random initial passwords, admin password reset and invitations, CSV
+  export of reset results, Badge ID search, expired-documents panel, history tab across
+  all models, more actions on the profile action button, back navigation from the edit
+  views, and the signed-in user's username on their own profile.
+- **Attendance.** Regularise a month by stating its totals, half-absent and split days
+  in the monthly summary, bulk-resolve a range of calendar days, option to show future
+  approved leave. The day popover has a single coloured status choice, editable hours
+  with a live breakdown, one Save, and the full change history for the day.
+- **Recruitment.** "How did you hear about us?" on the application form, rejected-by-reason
+  chart, redesigned survey preview.
+- **Other.** Announcement quick creation, asset *Lost* return status and service-request
+  flow, per-device biometric log fetch, holiday duplication and "available for all"
+  filter, mail-automation refresh, `seed_dashboard_demo_data` command.
+
+### Changed
+
+- Bulk actions (archive, approve, reject, delete) report counts and refresh the list in
+  place across employee, leave, attendance, payroll, helpdesk, PMS, project and
+  recruitment.
+- Employee list default ordering is by ID rather than first name.
+- "Is Active" / "Is …" labels are now "Active" etc. across all modules (migrations included).
+- New recruitments no longer pre-tick *Post on LinkedIn*.
+- The Cancelled stage type is now Rejected.
+- Profile tabs, list views and group-by tables share one performance-tuned layout;
+  dark-mode inconsistencies fixed.
+- Leave: the standalone employee leave dashboard is removed (My Dashboard replaces it).
+- Attendance: the *Partial Hours* option is removed from the calendar legend.
+- Recruitment: survey questions are no longer tied to a recruitment or template; a
+  question can be added to a template while the template is created. The About tab
+  follows the employee About tab style. PMS feedback detail and overview pages are
+  restyled.
+- Pillow 13 (`>=13.0.0,<14`), PyJWT 2.15.1.
+
+### Fixed
+
+- Payroll: CTC Down loss-of-pay and basic-pay handling, structure components reaching
+  everyone on the structure, payslip pages with unsaved payroll settings, tax-formula
+  worker timeout, tax-rule and slab save errors, payslip PDF when `wkhtmltopdf` is off
+  `PATH`.
+- Attendance: top-absentees ignoring leave and holidays, half-day regularisation,
+  future days counted absent, 405 on individual export, `WorkRecords.message` too short
+  for translated text.
+- Leave: 500 on the allocations list and on compensatory-file comment delete, empty
+  clashed-requests modal, row locking on cancellation under PostgreSQL.
+- Employee: password-reset modals, select fields and sticky tables, and the Documents
+  tab button. The monthly summary row now colours as a whole on hover.
+- Employee, PMS, recruitment, offboarding, helpdesk, project and base: assorted
+  breadcrumb, redirection, filter, modal and chart fixes (full list in the commit
+  history).
+- Scheduled-job failures are now logged with their traceback; `rotate_shift` no longer
+  fails when no rotating shift has started; Docker treats an empty `GUNICORN_WORKERS`
+  as unset.
+
+### Security
+
+Five access-control issues, all requiring a signed-in account, reported privately. Every
+one affects 2.0.0 through 2.1.8. With thanks to **@NotAFlightRisk**, **@deadpoor1**,
+**@m0ssser** and **@wict0rious** for reporting them responsibly.
+
+- **Employee leave tab** — [GHSA-mr87-qrw6-rf3g](https://github.com/horilla/horilla-hr/security/advisories/GHSA-mr87-qrw6-rf3g)
+  (Medium). Any employee could open another employee's leave tab. It now requires the
+  employee themselves, their manager, or the leave permission. Reported by **@NotAFlightRisk**.
+- **Helpdesk ticket view** — [GHSA-7jjm-mcgq-9jj5](https://github.com/horilla/horilla-hr/security/advisories/GHSA-7jjm-mcgq-9jj5)
+  (Medium). Any employee could read any ticket by id. Ticket access is now checked in
+  one place for every ticket view. Reported by **@deadpoor1**.
+- **Project and task detail API** — [GHSA-7jwm-2q24-6mv3](https://github.com/horilla/horilla-hr/security/advisories/GHSA-7jwm-2q24-6mv3)
+  (Medium). Detail requests now apply the same scope as the list. Reported by **@m0ssser**.
+- **Exports** — [GHSA-2847-55wj-6r5m](https://github.com/horilla/horilla-hr/security/advisories/GHSA-2847-55wj-6r5m)
+  (Medium). Exports selected by id now apply the requester's scope, and the candidate
+  export requires the candidate view permission. Reported by **@wict0rious**.
+- **Survey attachment file names** — [GHSA-925v-gjrp-mwcp](https://github.com/horilla/horilla-hr/security/advisories/GHSA-925v-gjrp-mwcp)
+  (Medium). Attachments are no longer saved under a client-controlled name. Reported by **@m0ssser**.
+
+Pillow 13 and urllib3 2.8.0 also close the image-decoder and HTTP advisories in those
+libraries.
+
+### Upgrading
+
+- Run `migrate`.
+- API clients: no API version change (`API_VERSION` unchanged).
+- Saved dashboard layouts are reset once so the new chart defaults apply.
+
+```bash
+docker pull horilla/horilla-hr:2.2.0
+```
+
+## [2.1.8] — 2026-09-26
+
+Security release. **Upgrade from any 2.x — this closes an unauthenticated
+remote code execution flaw.** All five issues below are reachable without
+administrative privileges; the RCE needs no account at all.
+
+### Security
+
+| Advisory | Severity | Issue |
+|---|---|---|
+| [GHSA-x567-v324-7mr2](https://github.com/horilla/horilla-hr/security/advisories/GHSA-x567-v324-7mr2) | High | Unauthenticated remote code execution: the public recruitment application/survey flow let an anonymous visitor upload a `.py` file into an importable path, and the automation `get-to-mail-field` endpoint `__import__()`-ed a request-supplied module path, so a stored `<img>` auto-fetched by any recruiter's browser executed it as the server process |
+| [GHSA-23vp-5g5x-mh2x](https://github.com/horilla/horilla-hr/security/advisories/GHSA-23vp-5g5x-mh2x) | High | Three `/api/attendance/` mail endpoints took the target `employee_id` from the request body under an unscoped "manages anyone" check, letting any reporting manager read any employee's PII, list every mail template, and send attacker-controlled HTML from the company SMTP identity to any employee |
+| [GHSA-j3hc-6v4r-j658](https://github.com/horilla/horilla-hr/security/advisories/GHSA-j3hc-6v4r-j658) | Medium | The web check-in/out views did not enforce the configured geofence that the mobile/API flow already applied, so an employee outside the permitted area could punch in from a browser |
+| [GHSA-r59f-4xh4-58cf](https://github.com/horilla/horilla-hr/security/advisories/GHSA-r59f-4xh4-58cf) | Medium | The web attendance office-IP restriction trusted the first `X-Forwarded-For` value, which the client controls, so an employee off the office network could spoof an allowed address |
+
+With thanks to **@AlbertoFDR**, **@Ntn10** (with **@CARLOS1994ROMERO**), and
+**@nanuzn** for reporting these responsibly.
+
+**The RCE chain is cut at two independent points.** The candidate-survey upload
+now rejects executable Python extensions (`.py`/`.pyc`/…), and the automation
+model resolver no longer imports a caller-supplied path — it matches only
+against Django's already-registered models, so a file placed on disk can never
+be imported or executed through it.
+
+**The attendance mail endpoints now name their target.**
+`converted-mail-template` and `offline-employee-mail-send` use the
+instance-scoped `manager_or_owner_permission_required` (the decorator the
+pk-routed attendance endpoints already use), and `mail-templates` requires
+`base.view_horillamailtemplate` — the same permission its web list view uses —
+instead of "manages anyone".
+
+**Web attendance enforces the same controls as the API.** Check-in/out now
+apply the configured geofence (failing closed when the fence is enabled but the
+location cannot be verified) and resolve the client IP with the trusted-proxy
+bound `django-axes` already uses, honoring `X-Forwarded-For` only up to the
+configured proxy count.
+
+Also hardened: manager-only leave views (approve/reject/edit/delete/read) are
+now scoped to the employee the caller actually manages rather than to any
+reporting manager.
+
+### Added
+
+- REST: a `pending_approvals` count in the mobile home aggregate, reject-reason
+  storage on request rejections, and a reimbursement `status` filter.
+- REST: line managers can approve/reject reimbursements and reject asset
+  requests for their own reports.
+- REST: announcement list now respects its audience and gained a detail endpoint.
+- Attendance dashboard: a tile for employees who missed a punch, and an
+  "On Time" KPI filter.
+
+### Fixed
+
+- Work-type request create/approve no longer return `400` after saving the record.
+- Leave ledger entries are dated by the local calendar rather than UTC.
+- `Reimbursement.delete()` no longer raises `UnboundLocalError` on a pending claim.
+- `EmployeeWorkInformationAPIView` no longer `500`s on its own list route.
+- Leave overlap check ignores cancelled and rejected requests.
+- Asset return-fine action is gated by configuration and permission.
+
+### Changed
+
+- Modern dashboard styling refresh (badge colors, KPI cards); the Open
+  Recruitments KPI card was removed.
+- PMS objective, meeting and task views restyled; objective templates excluded
+  from the Assigned/All Objectives lists.
+
+## [2.1.7] — 2026-09-16
+
+Bug-fix release, and the first to carry a **security fix**: archiving an
+employee did not revoke their login. Anyone offboarded by archiving since 2.1.x
+kept working credentials — see below for what to check after upgrading.
+
+One migration, `notifications.0003`, **drops five columns**. Read the Changed
+section before upgrading.
+
+### Security
+
+- **Archiving an employee did not revoke their login.**
+  ([#1239](https://github.com/horilla/horilla-hr/issues/1239), reported by
+  **@Safeer1877**) Archiving removed the employee from every list and left the
+  linked user account active, so an offboarded person could still sign in with
+  every permission they held. Two faults masked each other: the user's flag was
+  assigned the employee's *previous* value, and the user object was never saved
+  — so nothing was written either way. The login gate is
+  `HorillaUser.is_active`, which `CompanyScopedBackend` inherits from
+  `ModelBackend` and which knows nothing about `Employee.is_active`.
+
+  Affected the three archive views **and both REST API archive endpoints**
+  (`EmployeeBulkArchiveView`, `EmployeeArchiveView`), which were outside the
+  original report.
+
+  **After upgrading**, check for user accounts that are still active while
+  their employee record is archived — the fix corrects future archives but
+  does not retroactively disable accounts archived before it. Clearing
+  `is_active` also stops future logins without invalidating a session already
+  in flight.
+
+- **Three CRITICAL CVEs in the container's `perl-base`**
+  (CVE-2026-13221, CVE-2026-42496, CVE-2026-8376). The image installed
+  packages without first upgrading what the base image already carried, so a
+  published Debian security patch was never picked up. The build now upgrades
+  before installing.
+
+### Fixed
+
+- **Password reset emails linked to `example.com`.**
+  ([#1241](https://github.com/horilla/horilla-hr/issues/1241), reported by
+  **@KerelOlivier**) The link was built from `django.contrib.sites`, whose only
+  row on a normal install is the framework's own default — and which Horilla
+  never updates. Reset links now use the request host, matching what
+  leave-request mail already did. The host is taken from `request.get_host()`,
+  which is validated against `ALLOWED_HOSTS`; deployments behind a proxy should
+  set `USE_X_FORWARDED_HOST` rather than have an unvalidated forwarded header
+  steer a link that grants account access.
+
+- **Creating a payslip returned a 500 after the payslip had been saved.**
+  ([#1238](https://github.com/horilla/horilla-hr/issues/1238), reported by
+  **@Safeer1877**) The redirect used a URL name belonging to an argument-less
+  list view, so it raised `NoReverseMatch` *after* the payslip was committed.
+  The obvious response — clicking Create again — produced a duplicate for the
+  same employee and period. Also affected adding a bonus and a deduction.
+
+- **Unpaid leave was deducted twice** when `deduct_leave_from_basic_pay` is
+  enabled, which is the model default.
+  ([#1225](https://github.com/horilla/horilla-hr/issues/1225), reported by
+  **@Safeer1877**) The loss of pay came out of basic pay and again out of net
+  pay, so the employee was underpaid by exactly the LOP amount.
+
+- **The version shown in the UI said 2.1.5** on installs built from `2.0`
+  after 2.1.6, because an unrelated commit reverted the version module.
+
+- Numerous URL, HTMX-request and error-handling fixes across Asset,
+  Attendance, Base, Leave, Offboarding, PMS and Project, including a
+  `RelatedObjectDoesNotExist` when work information is absent and a duplicate
+  key error on some URLs.
+
+### Changed
+
+- **Notification text now uses Django's native i18n** rather than storing one
+  column per language. `notifications.0003` **removes the `verb_ar`,
+  `verb_de`, `verb_en`, `verb_es` and `verb_fr` columns**, and that is not
+  reversible: any text stored in them is dropped. Notifications are translated
+  at render time from the base `verb` instead. Take a database backup before
+  upgrading if those columns matter to you.
+
+- Dependency updates, including `djangorestframework` 3.17.2 → 3.18.1 and
+  `sentry-sdk` 2.20.0 → 2.69.1.
+
+## [2.1.6] — 2026-09-11
+
+Bug-fix release. No security content. One migration, `employee.0006`, which
+alters only a field's `choices` and therefore emits no DDL on PostgreSQL — it
+exists to put migration state back in step with the models.
+
+### Fixed
+
+- **An internal developer note rendered onto every report page, and into
+  generated PDFs.** Django's template lexer is compiled without `re.DOTALL`, so
+  a `{# #}` comment spanning lines is not recognised as a comment at all and is
+  emitted as literal text. Nine templates shipped that way: all seven explorer
+  reports, the standard report letterhead, and `standard_report_pdf.html` —
+  the last of which put the note inside the PDFs that get circulated outside
+  the company. A repo-wide check now rejects any `{#` left unterminated on its
+  own line.
+
+- **The Employee dashboard never loaded its KPIs or charts.**
+
+- **A 500 on the attendance response endpoint.**
+
+- **The self-onboarding portal crashed on its final step.** The account it
+  creates is built directly from the portal form rather than through
+  `authenticate()`, so it carries no `.backend`. `login()` requires one
+  whenever several authentication backends are configured — always true here —
+  and raised `ValueError` instead of completing onboarding.
+
+- **Filters bled between lists that share a URL.** The saved-filter cache was
+  keyed on path alone, so every pipeline stage embedded at the same path
+  (candidate lists, offboarding employees) shared one entry: whichever stage
+  wrote last had its filter served back to the others, which then rendered "No
+  records found" while their own tab badge showed the correct count. The key
+  now includes the params that identify the individual list.
+
+- **Recruitment pipeline loading**, including N+1 queries, tab persistence,
+  mail preview, column-toggle labels, and notification links that pointed at a
+  stale pipeline.
+
+- **Onboarding**: a missing active view-toggle, the wrong pagination size, a
+  stage cache miss, and a two-column layout bug in the Create/Update Task
+  modals.
+
+- **The scheduler container reported itself unhealthy forever.** It reuses the
+  web image and inherited a `HEALTHCHECK` that curls `localhost:8000/health/`,
+  but it runs `run_scheduler` and binds no port, so the check could never pass.
+  Harmless under Compose; an orchestrator gating on health would have
+  restart-looped a service that was working correctly.
+
+- **`pip install -r requirements.txt` behaved differently across machines.**
+  Four packages had no version floor at all, and `pandas` asks for a different
+  `numpy` major above and below Python 3.14 — so the same file resolved
+  differently depending on the interpreter. Packages that ship compiled
+  artifacts now carry a floor and a major cap, so pip can select a build that
+  has a wheel for the interpreter in front of it instead of falling back to a
+  source compile. Every pure-Python pin, and so every advisory pin, is
+  unchanged. The README now also upgrades pip before installing, which the
+  Dockerfile always did and the manual instructions never mentioned.
+
+- **PMS**: nested scrollbars in the OKR detailed view.
+
+- **A duplicate Status column** on the work type and shift request tabs.
+
+- Requested Attendances now renders through the shared list table.
+
+### Changed
+
+- The Leave assign form and the Offboarding Exit Process pipeline follow the v2
+  layout, the latter using per-tab navigation to match Recruitment.
+- Filter, nav and pagination borders and accents follow the selected theme
+  colour, including the per-app quick-action panels.
+- Action button styling is consistent between detail and list views.
+- Translations updated for Arabic, German, English, Spanish and French,
+  including strings in JavaScript that were never marked for translation.
+
 ## [2.1.5] — 2026-09-09
 
 Bug-fix release. No security content and no migration — but it carries fixes
@@ -310,7 +940,14 @@ Secret — message delivery stops until it is set.
 docker pull horilla/horilla-hr:2.1.1
 ```
 
-[Unreleased]: https://github.com/horilla/horilla-hr/compare/2.1.3...HEAD
+[Unreleased]: https://github.com/horilla/horilla-hr/compare/2.3.0...HEAD
+[2.3.0]: https://github.com/horilla/horilla-hr/compare/2.2.0...2.3.0
+[2.2.0]: https://github.com/horilla/horilla-hr/compare/2.1.8...2.2.0
+[2.1.8]: https://github.com/horilla/horilla-hr/compare/2.1.7...2.1.8
+[2.1.7]: https://github.com/horilla/horilla-hr/compare/2.1.6...2.1.7
+[2.1.6]: https://github.com/horilla/horilla-hr/compare/2.1.5...2.1.6
+[2.1.5]: https://github.com/horilla/horilla-hr/compare/2.1.4...2.1.5
+[2.1.4]: https://github.com/horilla/horilla-hr/compare/2.1.3...2.1.4
 [2.1.3]: https://github.com/horilla/horilla-hr/compare/2.1.2...2.1.3
 [2.1.2]: https://github.com/horilla/horilla-hr/compare/2.1.1...2.1.2
 [2.1.1]: https://github.com/horilla/horilla-hr/releases/tag/2.1.1

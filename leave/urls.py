@@ -241,6 +241,21 @@ urlpatterns = [
         views.available_leave_update,
         name="available-leave-update",
     ),
+    path(
+        "leave-balance-ledger/<int:pk>/",
+        views.leave_balance_ledger,
+        name="leave-balance-ledger",
+    ),
+    path(
+        "leave-balance-reset/<int:pk>/",
+        views.leave_balance_reset,
+        name="leave-balance-reset",
+    ),
+    path(
+        "leave-type-run-missed-resets/<int:pk>/",
+        views.leave_type_run_missed_resets,
+        name="leave-type-run-missed-resets",
+    ),
     # path("available-leave-update/<int:pk>",assigned_leave.AssignedLeaveFormView.as_view(),name="available-leave-update"),
     path(
         "assign-delete/<int:obj_id>/", views.leave_assign_delete, name="assign-delete"
@@ -249,6 +264,16 @@ urlpatterns = [
         "assigned-leave-bulk-delete/",
         views.leave_assign_bulk_delete,
         name="assigned-leave-bulk-delete",
+    ),
+    path(
+        "leave-request-excel/",
+        views.leave_request_excel,
+        name="leave-request-excel",
+    ),
+    path(
+        "leave-request-info-import/",
+        views.leave_request_import,
+        name="leave-request-info-import",
     ),
     path(
         "assign-leave-type-excel/",
@@ -316,6 +341,16 @@ urlpatterns = [
         name="user-request-delete",
     ),
     path(
+        "cancellation-approve/<int:id>/",
+        views.leave_cancellation_approve,
+        name="leave-cancellation-approve",
+    ),
+    path(
+        "cancellation-reject/<int:id>/",
+        views.leave_cancellation_reject,
+        name="leave-cancellation-reject",
+    ),
+    path(
         "user-request-cancel/<int:id>/",
         views.user_leave_cancel,
         name="user-request-cancel",
@@ -329,11 +364,6 @@ urlpatterns = [
         "leave-dashboard/",
         RedirectView.as_view(pattern_name="leave-dashboard"),
         name="leave-dashboard-legacy",
-    ),
-    path(
-        "leave-employee-dashboard/",
-        views.employee_dashboard,
-        name="leave-employee-dashboard",
     ),
     path("available-leaves/", views.available_leave_chart, name="available-leaves"),
     path(
@@ -413,6 +443,21 @@ urlpatterns = [
         "leave-allocation-request-delete/<int:req_id>/",
         views.leave_allocation_request_delete,
         name="leave-allocation-request-delete",
+    ),
+    path(
+        "leave-allocation-request-bulk-approve/",
+        views.leave_allocation_bulk_approve,
+        name="leave-allocation-request-bulk-approve",
+    ),
+    path(
+        "leave-allocation-request-bulk-reject/",
+        views.leave_allocation_bulk_reject,
+        name="leave-allocation-request-bulk-reject",
+    ),
+    path(
+        "leave-allocation-request-bulk-delete/",
+        views.leave_allocation_bulk_delete,
+        name="leave-allocation-request-bulk-delete",
     ),
     # path(
     #     "leave-allocation-request-view/",
@@ -721,9 +766,9 @@ urlpatterns = [
         name="leave-dashboard-kpi",
     ),
     path(
-        "dashboard/api/monthly-trend/",
-        leave_dashboard.leave_monthly_trend,
-        name="leave-dashboard-monthly-trend",
+        "dashboard/api/department-trend/",
+        leave_dashboard.leave_department_trend,
+        name="leave-dashboard-department-trend",
     ),
     path(
         "dashboard/api/type-distribution/",
@@ -769,31 +814,6 @@ urlpatterns = [
         "dashboard/api/upcoming/",
         leave_dashboard.leave_upcoming,
         name="leave-dashboard-upcoming",
-    ),
-    path(
-        "employee-dashboard/api/kpi/",
-        leave_dashboard.employee_kpi_data,
-        name="leave-employee-dashboard-kpi",
-    ),
-    path(
-        "employee-dashboard/api/balance/",
-        leave_dashboard.employee_leave_balance,
-        name="employee-dashboard-balance",
-    ),
-    path(
-        "employee-dashboard/api/trend/",
-        leave_dashboard.employee_monthly_trend,
-        name="employee-dashboard-trend",
-    ),
-    path(
-        "employee-dashboard/api/upcoming/",
-        leave_dashboard.employee_upcoming_leaves,
-        name="employee-dashboard-upcoming",
-    ),
-    path(
-        "employee-dashboard/api/history/",
-        leave_dashboard.employee_leave_history,
-        name="employee-dashboard-history",
     ),
 ]
 

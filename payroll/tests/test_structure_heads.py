@@ -1,0 +1,302 @@
+"""
+The payslip heads in the worked example, and the redesigned detail modal.
+
+Four bare totals said what the figures were but not where they came from:
+which earnings gross counted, what taxable gross took off, why net differs
+from gross by more than the lines above it. The panel now states the equation
+behind each head.
+
+These assert those equations are the ENGINE's — calculate_gross_pay,
+calculate_taxable_gross_pay and payroll_run's total_deductions — because a
+panel that explains its arithmetic in terms payroll does not use would be
+worse than one that explains nothing: it would be believed.
+"""
+
+from django.test import TestCase
+from django.urls import reverse
+
+from horilla.testkit import make_company, make_employee, make_user
+from payroll.models.models import Allowance, Deduction, FilingStatus, SalaryStructure
+
+
+class ExampleHeadTests(TestCase):
+    def setUp(self):
+        user = make_user("headadmin", is_superuser=True)
+        company = make_company("Head Co")
+        make_employee(company=company, email="headadmin@test.horilla", user=user)
+        self.client.force_login(user)
+        self.hx = {"HTTP_HX_REQUEST": "true"}
+        self.structure = SalaryStructure.objects.create(title="Heads")
+
+    def _run(self, basic=50000, filing_status=""):
+        response = self.client.post(
+            reverse("salary-structure-preview", kwargs={"pk": self.structure.pk}),
+            {"ctc": 0, "basic": basic, "lop_days": 0, "filing_status": filing_status},
+            **self.hx,
+        )
+        self.assertEqual(response.status_code, 200)
+        return response.json()
+
+    def _head(self, data, key):
+        return next(head for head in data["heads"] if head["key"] == key)
+
+    def _stock(self):
+        """A taxable earning, a non-taxable one, and a pre-tax deduction."""
+        taxable = Allowance.objects.create(
+            title="HRA",
+            sequence=10,
+            is_fixed=True,
+            amount=10000.0,
+            is_taxable=True,
+            maximum_unit="full_period",
+        )
+        exempt = Allowance.objects.create(
+            title="Meal Card",
+            sequence=20,
+            is_fixed=True,
+            amount=2000.0,
+            is_taxable=False,
+            maximum_unit="full_period",
+        )
+        pretax = Deduction.objects.create(
+            title="PF",
+            sequence=30,
+            is_fixed=True,
+            amount=6000.0,
+            is_pretax=True,
+            maximum_unit="full_period",
+        )
+        self.structure.allowances.add(taxable, exempt)
+        self.structure.deductions.add(pretax)
+
+    def test_every_head_is_reported(self):
+        expected = ["gross_pay", "taxable_gross", "total_deductions", "net_pay"]
+        # An empty structure still reports every head.
+        self.assertEqual([head["key"] for head in self._run()["heads"]], expected)
+
+        self._stock()
+        self.assertEqual([head["key"] for head in self._run()["heads"]], expected)
+
+    def test_the_terms_add_up_to_the_head(self):
+        """
+        The whole point of showing the working: an equation whose parts do not
+        reach its own total would be actively misleading.
+        """
+        self._stock()
+        for head in self._run()["heads"]:
+            with self.subTest(head=head["key"]):
+                total = sum(
+                    term["amount"] if term["sign"] == "+" else -term["amount"]
+                    for term in head["terms"]
+                )
+                self.assertAlmostEqual(total, head["amount"], places=2)
+
+    def test_taxable_gross_takes_off_non_taxable_earnings_as_well(self):
+        """
+        calculate_taxable_gross_pay subtracts both non-taxable earnings and
+        pre-tax deductions. The preview subtracted only the deductions, so a
+        structure with an exempt earning previewed more tax than it charges.
+        """
+        self._stock()
+        data = self._run()
+
+        gross = self._head(data, "gross_pay")["amount"]
+        taxable = self._head(data, "taxable_gross")["amount"]
+        self.assertAlmostEqual(taxable, gross - 2000.0 - 6000.0, places=2)
+        self.assertAlmostEqual(data["taxable_gross"], taxable, places=2)
+
+    def test_gross_is_basic_plus_the_earnings(self):
+        self._stock()
+        data = self._run(basic=50000)
+        self.assertAlmostEqual(
+            self._head(data, "gross_pay")["amount"], 62000.0, places=2
+        )
+
+    def test_net_is_gross_less_the_deductions(self):
+        self._stock()
+        data = self._run()
+        self.assertAlmostEqual(
+            self._head(data, "net_pay")["amount"],
+            self._head(data, "gross_pay")["amount"] - data["deductions_total"],
+            places=2,
+        )
+        self.assertAlmostEqual(
+            data["net_pay"], self._head(data, "net_pay")["amount"], places=2
+        )
+
+    def test_the_deduction_buckets_are_the_engine_three(self):
+        """
+        payslip_calc partitions deductions on is_pretax and is_tax into three
+        disjoint sets, and total_deductions is their sum plus income tax.
+        """
+        self._stock()
+        post = Deduction.objects.create(
+            title="Union Dues",
+            sequence=40,
+            is_fixed=True,
+            amount=100.0,
+            is_pretax=False,
+            maximum_unit="full_period",
+        )
+        self.structure.deductions.add(post)
+
+        data = self._run()
+        self.assertAlmostEqual(data["pretax_total"], 6000.0, places=2)
+        self.assertAlmostEqual(data["post_tax_total"], 100.0, places=2)
+        self.assertAlmostEqual(data["tax_component_total"], 0.0, places=2)
+        self.assertAlmostEqual(data["deductions_total"], 6100.0, places=2)
+
+
+class TaxBaseTests(TestCase):
+    """
+    Which figure the income tax is read from. It changes the answer
+    substantially — taxing gross rather than taxable gross ignores every
+    pre-tax deduction — and the panel did not say which it had used.
+    """
+
+    def setUp(self):
+        user = make_user("baseadmin", is_superuser=True)
+        company = make_company("Base Co")
+        make_employee(company=company, email="baseadmin@test.horilla", user=user)
+        self.client.force_login(user)
+        self.hx = {"HTTP_HX_REQUEST": "true"}
+        self.structure = SalaryStructure.objects.create(title="Base")
+        self.structure.deductions.add(
+            Deduction.objects.create(
+                title="PF",
+                sequence=30,
+                is_fixed=True,
+                amount=6000.0,
+                is_pretax=True,
+                maximum_unit="full_period",
+            )
+        )
+
+    def _status(self, based_on):
+        from payroll.tax_packs import load_tax_packs
+
+        load_tax_packs(["in_new"])
+        status = FilingStatus.objects.get(filing_status__startswith="India")
+        status.based_on = based_on
+        status.save()
+        return status
+
+    # Comfortably clear of the 87A rebate band. At 100,000 a month both bases
+    # annualise to under 12,00,000 after the standard deduction, so the rebate
+    # cancelled the tax on BOTH and the two came out equal at zero -- the
+    # engine was right and the figures were badly chosen.
+    SAMPLE_BASIC = 300000
+
+    def _run(self, status):
+        response = self.client.post(
+            reverse("salary-structure-preview", kwargs={"pk": self.structure.pk}),
+            {
+                "ctc": 0,
+                "basic": self.SAMPLE_BASIC,
+                "lop_days": 0,
+                "filing_status": status.pk,
+            },
+            **self.hx,
+        )
+        self.assertEqual(response.status_code, 200)
+        return response.json()
+
+    def test_the_tax_line_names_the_figure_it_was_read_from(self):
+        for based_on, expected in (
+            ("taxable_gross_pay", "taxable gross pay"),
+            ("gross_pay", "gross pay"),
+            ("basic_pay", "basic pay"),
+        ):
+            with self.subTest(based_on=based_on):
+                line = self._run(self._status(based_on))["tax_line"]
+                self.assertEqual(line["base_key"], based_on)
+                self.assertEqual(line["base_label"], expected)
+                self.assertIn(expected, line["calculation"])
+
+    def test_the_base_amount_is_the_head_it_names(self):
+        data = self._run(self._status("taxable_gross_pay"))
+        self.assertAlmostEqual(
+            data["tax_line"]["base_amount"], data["taxable_gross"], places=2
+        )
+
+        data = self._run(self._status("gross_pay"))
+        self.assertAlmostEqual(
+            data["tax_line"]["base_amount"], data["gross_pay"], places=2
+        )
+
+    def test_the_two_bases_differ_by_the_pretax_deduction(self):
+        """
+        Which is why naming the base matters: the bases here are 6,000 apart,
+        so the tax is not the same number either.
+        """
+        taxable = self._run(self._status("taxable_gross_pay"))
+        gross = self._run(self._status("gross_pay"))
+        self.assertAlmostEqual(
+            gross["tax_line"]["base_amount"] - taxable["tax_line"]["base_amount"],
+            6000.0,
+            places=2,
+        )
+        self.assertNotAlmostEqual(
+            gross["tax_line"]["amount"], taxable["tax_line"]["amount"], places=2
+        )
+
+
+class LossOfPayLineTests(TestCase):
+    """
+    Loss of pay, shown where a payslip shows it.
+
+    It is listed with the deductions but not added to their total, and says so
+    on the line. This example reduces the pay itself — the behaviour of a
+    contract with "deduct leave from basic pay" on, where the engine leaves
+    loss_of_pay_amount at zero — so subtracting it again would take the same
+    days off twice.
+    """
+
+    def setUp(self):
+        user = make_user("lopadmin", is_superuser=True)
+        company = make_company("LOP Co")
+        make_employee(company=company, email="lopadmin@test.horilla", user=user)
+        self.client.force_login(user)
+        self.hx = {"HTTP_HX_REQUEST": "true"}
+        self.structure = SalaryStructure.objects.create(title="LOP")
+
+    def _run(self, lop_days=0, basic=44000):
+        response = self.client.post(
+            reverse("salary-structure-preview", kwargs={"pk": self.structure.pk}),
+            {"ctc": 0, "basic": basic, "lop_days": lop_days},
+            **self.hx,
+        )
+        self.assertEqual(response.status_code, 200)
+        return response.json()
+
+    def test_no_loss_of_pay_means_no_line(self):
+        self.assertIsNone(self._run()["lop_line"])
+
+    def test_the_line_states_the_days_and_what_they_cost(self):
+        data = self._run(lop_days=11, basic=44000)
+        line = data["lop_line"]
+
+        self.assertIsNotNone(line)
+        self.assertIn("11", line["calculation"])
+        # 11 of 22 working days lost is half the wage.
+        self.assertAlmostEqual(line["amount"], 22000.0, places=2)
+
+    def test_it_is_not_counted_twice(self):
+        """
+        The days are already gone from gross, so the deduction total and net
+        must be identical whether or not the line is shown.
+        """
+        data = self._run(lop_days=11, basic=44000)
+
+        self.assertTrue(data["lop_line"]["informational"])
+        self.assertAlmostEqual(data["deductions_total"], 0.0, places=2)
+        self.assertAlmostEqual(data["net_pay"], data["gross_pay"], places=2)
+
+    def test_the_line_says_why_it_is_not_subtracted(self):
+        """Otherwise it reads as an amount that failed to come off."""
+        self.assertIn("not subtracted again", self._run(lop_days=5)["lop_line"]["note"])
+
+    def test_the_gross_it_sits_under_is_already_reduced(self):
+        full = self._run(lop_days=0, basic=44000)["gross_pay"]
+        half = self._run(lop_days=11, basic=44000)["gross_pay"]
+        self.assertAlmostEqual(half, full / 2, places=2)

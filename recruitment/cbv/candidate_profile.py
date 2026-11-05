@@ -10,10 +10,8 @@ from django.utils.translation import gettext_lazy as _
 
 from employee.cbv.employee_profile import EmployeeProfileView
 from horilla import settings
-from horilla_views.cbv_methods import login_required
+from horilla_views.cbv_methods import hx_request_required, login_required
 from horilla_views.generic.cbv.views import HorillaListView, HorillaProfileView
-from onboarding.filters import CandidateTaskFilter
-from onboarding.models import CandidateTask
 from recruitment.cbv import skill_zone
 from recruitment.cbv.candidate_document import CandidateDocumentListView
 from recruitment.cbv.candidate_mail_log import CandidateMailLogTabList
@@ -37,6 +35,9 @@ class CandidateProfileView(HorillaProfileView):
     push_url = "candidate-view-individual"
     key_name = "cand_id"
 
+    def get_queryset(self):
+        return Candidate.objects.get_queryset()
+
     def dispatch(self, request, *args, **kwargs):
         # This endpoint returns only the profile fragment; direct browser opens should
         # land on the full candidate page that loads this fragment via HTMX.
@@ -50,6 +51,27 @@ class CandidateProfileView(HorillaProfileView):
                 redirect_url = f"{redirect_url}?{query_string}"
             return redirect(redirect_url)
         return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["send_mail_url"] = reverse(
+            "send-mail", kwargs={"cand_id": self.kwargs.get("pk")}
+        )
+        context["send_mail_modal"] = "#genericModal"
+        context["send_mail_target"] = "#genericModalBody"
+        return context
+
+    def get_status_ribbon(self, instance):
+        if instance.canceled:
+            return {"label": _("Rejected"), "variant": "danger"}
+        if instance.hired:
+            # "hired" is literally defined (Candidate.save()) as "current
+            # stage's stage_type is 'shortlisted'" -- the same vocabulary the
+            # rest of the app uses (dashboard KPIs, the pipeline's "Resume
+            # Shortlisting" action), not a separate concept.
+            return {"label": _("Shortlisted"), "variant": "success"}
+        if not instance.is_active:
+            return {"label": _("Archived"), "variant": "secondary"}
 
     actions = [
         {
@@ -70,98 +92,120 @@ class CandidateProfileView(HorillaProfileView):
                 class="oh-dropdown__link"
             """,
         },
+        {
+            "title": _("Convert to Employee"),
+            "accessibility": "recruitment.cbv.accessibility.profile_convert_emp",
+            "attrs": """
+                onclick="return confirm('Are you sure you want to convert this candidate into an employee?')"
+                href="{get_convert_to_emp}"
+                class="oh-dropdown__link"
+            """,
+        },
+        {
+            "title": _("Send Mail"),
+            "attrs": """
+                data-toggle="oh-modal-toggle"
+                data-target="#genericModal"
+                hx-get="{get_send_mail_url}"
+                hx-target="#genericModalBody"
+                hx-swap="innerHTML"
+                class="oh-dropdown__link"
+            """,
+        },
+        {
+            "title": _("Add to Talent Pool"),
+            "accessibility": "recruitment.cbv.accessibility.profile_add_skill_zone",
+            "attrs": """
+                data-toggle="oh-modal-toggle"
+                data-target="#genericModal"
+                hx-get="{get_add_to_skill}"
+                hx-target="#genericModalBody"
+                hx-swap="innerHTML"
+                class="oh-dropdown__link"
+            """,
+        },
+        {
+            "title": _("Request Document"),
+            "accessibility": "recruitment.cbv.accessibility.request_document",
+            "attrs": """
+                data-toggle="oh-modal-toggle"
+                data-target="#genericModal"
+                hx-get="{get_document_request_doc}"
+                hx-target="#genericModalBody"
+                hx-swap="innerHTML"
+                class="oh-dropdown__link"
+            """,
+        },
+        {
+            "title": _("Add to Rejected"),
+            "accessibility": "recruitment.cbv.accessibility.add_reject",
+            "attrs": """
+                data-toggle="oh-modal-toggle"
+                data-target="#genericModal"
+                hx-get="{get_add_to_reject}"
+                hx-target="#genericModalBody"
+                hx-swap="innerHTML"
+                class="oh-dropdown__link"
+            """,
+        },
+        {
+            "title": _("Edit Rejected Candidate"),
+            "accessibility": "recruitment.cbv.accessibility.edit_reject",
+            "attrs": """
+                data-toggle="oh-modal-toggle"
+                data-target="#genericModal"
+                hx-get="{get_add_to_reject}"
+                hx-target="#genericModalBody"
+                hx-swap="innerHTML"
+                class="oh-dropdown__link"
+            """,
+        },
+        {
+            "title": _("Remove Rejection"),
+            "accessibility": "recruitment.cbv.accessibility.remove_reject",
+            "attrs": """
+                hx-post="{get_remove_rejection_url}"
+                hx-swap="none"
+                hx-confirm="Are you sure you want to remove this candidate's rejection?"
+                hx-on::after-request="window.location.reload()"
+                class="oh-dropdown__link"
+            """,
+        },
+        {"divider": True},
+        {
+            "title": _("Archive"),
+            "variant": "danger",
+            "accessibility": "recruitment.cbv.accessibility.archive_perm",
+            "attrs": """
+                hx-post="{get_archive_action_url}"
+                hx-swap="none"
+                hx-confirm="Do you want to archive this candidate?"
+                hx-on::after-request="window.location.reload()"
+            """,
+        },
+        {
+            "title": _("Un-archive"),
+            "variant": "danger",
+            "accessibility": "recruitment.cbv.accessibility.unarchive_perm",
+            "attrs": """
+                hx-post="{get_archive_action_url}"
+                hx-swap="none"
+                hx-confirm="Do you want to un-archive this candidate?"
+                hx-on::after-request="window.location.reload()"
+            """,
+        },
+        {
+            "title": _("Delete"),
+            "variant": "danger",
+            "accessibility": "recruitment.cbv.accessibility.delete_candidate_perm",
+            "attrs": """
+                hx-post="{get_delete_url}"
+                hx-swap="none"
+                hx-confirm="Are you sure you want to delete this candidate?"
+                hx-on::after-request="window.location.href='{get_list_url}'"
+            """,
+        },
     ]
-
-
-@method_decorator(login_required, name="dispatch")
-@method_decorator(
-    all_manager_can_enter(perm="recruitment.view_candidate"), name="dispatch"
-)
-class CandidateProfileTasks(HorillaListView):
-    """
-    CandidateProfileTasks
-    """
-
-    custom_empty_template = "onboarding/empty_task.html"
-    model = CandidateTask
-    template_name = "cbv/candidates/onboarding_tasks_tab.html"
-    show_filter_tags = False
-    filter_class = CandidateTaskFilter
-    filter_selected = False
-    selected_instances_key_id = "selectedInstanceIds"
-    bulk_update_fields = [
-        "status",
-    ]
-
-    def dispatch(self, request, *args, **kwargs):
-        # No matching candidate (e.g. a stale/invalid pk) -- render nothing
-        # rather than a "None's Onboarding Tasks" page with the raw,
-        # unstyled list+export+column-picker fragment underneath it.
-        if not Candidate.objects.filter(id=kwargs.get("pk")).exists():
-            return HttpResponse()
-        return super().dispatch(request, *args, **kwargs)
-
-    def bulk_update_accessibility(self):
-        return (
-            super().bulk_update_accessibility()
-            or self.request.user.employee_get.onboardingstage_set.filter(
-                candidate__candidate_id__pk=self.kwargs["pk"]
-            ).exists()
-        )
-
-    columns = [
-        (_("Task"), "onboarding_task_id__task_title"),
-        (_("Status"), "status_col"),
-        (
-            _("Modified By"),
-            "modified_by__employee_get__get_full_name",
-            "modified_by__employee_get__get_avatar",
-        ),
-    ]
-
-    sortby_mapping = [
-        (_("Task"), "onboarding_task_id__task_title"),
-        (_("Status"), "status"),
-        (_("Modified By"), "modified_by__employee_get__get_full_name"),
-    ]
-
-    header_attrs = {
-        "status_col": """
-        style="width:180px!important;"
-"""
-    }
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.search_url = self.request.path
-        # Fixed (not auto-random) so pagination/sort/search requests - which
-        # all hx-target="#{{view_id}}" from generic/horilla_list_table.html -
-        # can be recognized in get_template_names() below and answered with
-        # just that fragment. Without this, every such request re-renders the
-        # full tab (title header included) and htmx's outerHTML swap dumps
-        # that whole response in place of the table, duplicating the header
-        # on each page/sort/search click.
-        self.view_id = "candidateOnboardingTaskList"
-
-    def get_template_names(self):
-        if self.request.headers.get("HX-Target") == self.view_id:
-            return ["generic/horilla_list_table.html"]
-        return [self.template_name]
-
-    def get_queryset(self, queryset=None, filtered=False, *args, **kwargs):
-        self.queryset = (
-            super()
-            .get_queryset(queryset, filtered, *args, **kwargs)
-            .filter(candidate_id__pk=self.kwargs["pk"])
-        )
-        return self.queryset
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        context["candidate"] = Candidate.objects.filter(
-            id=self.kwargs.get("pk")
-        ).first()
-        return context
 
 
 CandidateProfileView.add_tab(
@@ -200,11 +244,6 @@ CandidateProfileView.add_tab(
             "title": _("Rating"),
             "view": views.candidate_rating_tab,
             "accessibility": "recruitment.cbv.accessibility.rating_accessibility",
-        },
-        {
-            "title": _("Onboarding"),
-            "view": CandidateProfileTasks.as_view(),
-            "accessibility": "recruitment.cbv.accessibility.onboarding_accessibility",
         },
         {
             "title": _("Mail Log"),

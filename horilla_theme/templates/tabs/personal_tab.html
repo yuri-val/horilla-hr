@@ -122,10 +122,10 @@
                                     {% if work_info.department_id %}
                                         {% if perms.base.view_department %}
                                             <a
-                                                href="{% url 'department-view' %}"
+                                                href="{% url 'department-view' %}?search={{ work_info.department_id.department|urlencode }}"
                                                 class="group inline-flex max-w-full items-center gap-2 rounded-full border border-[#ebebeb] bg-white py-1 px-2.5 transition-colors hover:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-600 focus:ring-offset-1"
                                             >
-                                                <span class="min-w-0 truncate text-xs font-medium text-dark-500 group-hover:text-primary-600">
+                                                <span class="min-w-0 truncate text-sm font-medium text-dark-500 group-hover:text-primary-600">
                                                     {{ work_info.department_id }}
                                                 </span>
                                                 <svg
@@ -156,10 +156,10 @@
                                     {% if work_info.shift_id %}
                                         {% if perms.base.view_employeeshift %}
                                             <a
-                                                href="{% url 'employee-settings-view' %}?tab=shift"
+                                                href="{% url 'employee-settings-view' %}?tab=shift&search={{ work_info.shift_id.employee_shift|urlencode }}"
                                                 class="group inline-flex max-w-full items-center gap-2 rounded-full border border-[#ebebeb] bg-white py-1 px-2.5 transition-colors hover:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-600 focus:ring-offset-1"
                                             >
-                                                <span class="min-w-0 truncate text-xs font-medium text-dark-500 group-hover:text-primary-600">
+                                                <span class="min-w-0 truncate text-sm font-medium text-dark-500 group-hover:text-primary-600">
                                                     {{ work_info.shift_id }}
                                                 </span>
                                                 <svg
@@ -190,10 +190,10 @@
                                     {% if work_info.employee_type_id %}
                                         {% if perms.base.view_employeetype %}
                                             <a
-                                                href="{% url 'employee-settings-view' %}?tab=employee-type"
+                                                href="{% url 'employee-settings-view' %}?tab=employee-type&search={{ work_info.employee_type_id.employee_type|urlencode }}"
                                                 class="group inline-flex max-w-full items-center gap-2 rounded-full border border-[#ebebeb] bg-white py-1 px-2.5 transition-colors hover:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-600 focus:ring-offset-1"
                                             >
-                                                <span class="min-w-0 truncate text-xs font-medium text-dark-500 group-hover:text-primary-600">
+                                                <span class="min-w-0 truncate text-sm font-medium text-dark-500 group-hover:text-primary-600">
                                                     {{ work_info.employee_type_id }}
                                                 </span>
                                                 <svg
@@ -234,7 +234,7 @@
                                                         class="h-full w-full object-cover"
                                                     >
                                                 </span>
-                                                <span class="min-w-0 truncate text-xs font-medium text-dark-500 group-hover:text-primary-600">
+                                                <span class="min-w-0 truncate text-sm font-medium text-dark-500 group-hover:text-primary-600">
                                                     {{ manager.get_full_name }}
                                                 </span>
                                                 {% if manager.badge_id %}
@@ -282,10 +282,10 @@
                                     {% if work_info.job_position_id %}
                                         {% if perms.base.view_jobposition %}
                                             <a
-                                                href="{% url 'job-position-view' %}"
+                                                href="{% url 'job-position-view' %}?search={{ work_info.job_position_id.job_position|urlencode }}"
                                                 class="group inline-flex max-w-full items-center gap-2 rounded-full border border-[#ebebeb] bg-white py-1 px-2.5 transition-colors hover:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-600 focus:ring-offset-1"
                                             >
-                                                <span class="min-w-0 truncate text-xs font-medium text-dark-500 group-hover:text-primary-600">
+                                                <span class="min-w-0 truncate text-sm font-medium text-dark-500 group-hover:text-primary-600">
                                                     {{ work_info.job_position_id }}
                                                 </span>
                                                 <svg
@@ -316,10 +316,10 @@
                                     {% if work_info.work_type_id %}
                                         {% if perms.base.view_worktype %}
                                             <a
-                                                href="{% url 'employee-settings-view' %}?tab=work-type"
+                                                href="{% url 'employee-settings-view' %}?tab=work-type&search={{ work_info.work_type_id.work_type|urlencode }}"
                                                 class="group inline-flex max-w-full items-center gap-2 rounded-full border border-[#ebebeb] bg-white py-1 px-2.5 transition-colors hover:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-600 focus:ring-offset-1"
                                             >
-                                                <span class="min-w-0 truncate text-xs font-medium text-dark-500 group-hover:text-primary-600">
+                                                <span class="min-w-0 truncate text-sm font-medium text-dark-500 group-hover:text-primary-600">
                                                     {{ work_info.work_type_id }}
                                                 </span>
                                                 <svg
@@ -346,17 +346,27 @@
                             </div>
                             <div class="flex items-baseline justify-between gap-3 py-2">
                                 <dt class="text-xs font-medium text-color-600">{% trans "Salary" %}</dt>
-                                <dd class="text-right text-sm {% if work_info.basic_salary %}font-medium text-dark-500{% else %}italic text-dark-100{% endif %}">
-                                    {% if work_info.basic_salary %}
-                                        {% if perms.employee.view_employee or request.user == employee.employee_user_id %}
-                                            {{ work_info.basic_salary }}
+                                {% with pay=employee.get_pay_summary %}
+                                <dd class="text-right">
+                                    {% if perms.employee.view_employee or request.user == employee.employee_user_id %}
+                                        {% comment %}
+                                        Always a bubble, like Department and the rest. With an active contract it
+                                        opens that contract's edit form (change permission), else the employee's
+                                        contracts list (view permission). Without the permission it is shown
+                                        disabled, not linked.
+                                        {% endcomment %}
+                                        {% if pay and perms.payroll.change_contract %}
+                                            {% with link=employee.get_pay_contract_url %}{% include "tabs/_pay_bubble.html" %}{% endwith %}
+                                        {% elif perms.payroll.view_contract %}
+                                            {% with link=employee.get_pay_contracts_list_url %}{% include "tabs/_pay_bubble.html" %}{% endwith %}
                                         {% else %}
-                                            **********
+                                            {% include "tabs/_pay_bubble.html" %}
                                         {% endif %}
                                     {% else %}
-                                        {% trans "Not set" %}
+                                        <span class="text-sm font-medium text-dark-500">**********</span>
                                     {% endif %}
                                 </dd>
+                                {% endwith %}
                             </div>
                             <div class="flex items-baseline justify-between gap-3 py-2">
                                 <dt class="text-xs font-medium text-color-600">{% trans "Company" %}</dt>
@@ -365,7 +375,7 @@
                                         {% with company=work_info.company_id %}
                                             {% if perms.base.view_company %}
                                                 <a
-                                                    href="{% url 'company-view' %}"
+                                                    href="{% url 'company-view' %}?search={{ company.company|urlencode }}"
                                                     class="group inline-flex max-w-full items-center gap-2 rounded-full border border-[#ebebeb] bg-white py-1 pl-1 pr-2.5 transition-colors hover:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-600 focus:ring-offset-1"
                                                 >
                                                     <span class="relative flex h-4 w-4 shrink-0 overflow-hidden rounded-full bg-primary-100 ring-1 ring-secondary-100">
@@ -375,7 +385,7 @@
                                                             class="h-full w-full object-cover"
                                                         >
                                                     </span>
-                                                    <span class="min-w-0 truncate text-xs font-medium text-dark-500 group-hover:text-primary-600">
+                                                    <span class="min-w-0 truncate text-sm font-medium text-dark-500 group-hover:text-primary-600">
                                                         {{ company }}
                                                     </span>
                                                     {% if company.city %}

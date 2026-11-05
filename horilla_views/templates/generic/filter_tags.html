@@ -54,14 +54,33 @@
         {% for field, values in filter_dict.items %}
             {% if values and field != "path" %}
                 <span class="oh-titlebar__tag filter-field" data-field="{{ field }}">
-                    {% if field == "field" %}{% trans "Group by" %}{% else %}{{ field|filter_field }}{% endif %}: &nbsp
-                    {% for value in values %}
-                        <span class="filter-value" data-value="{{value|filter_field}}">
-                        {{value|filter_field}}
+                    {% if field == "field" %}{% trans "Group by" %}{% else %}{{ field|tag_label:filter_tag_labels }}{% endif %}: &nbsp
+                    {% if values|length > 3 %}
+                        {% comment %}
+                            A deep link (e.g. a dashboard tile) can pre-select
+                            dozens of values for one field -- spelling all of
+                            them out ran them together into one unreadable
+                            wall of digits/text instead of a short filter
+                            tag. Collapse to a count once there are more than
+                            a few, with the full list still available on
+                            hover.
+                        {% endcomment %}
+                        <span
+                            class="filter-value"
+                            title="{% for value in values %}{{ value|tag_value }}{% if not forloop.last %}, {% endif %}{% endfor %}"
+                        >
+                            {% blocktrans count counter=values|length %}{{ counter }} selected{% plural %}{{ counter }} selected{% endblocktrans %}
                         </span>
-                    {% endfor %}
+                    {% else %}
+                        {% for value in values %}
+                            <span class="filter-value" data-value="{{value|tag_value}}">
+                            {{value|tag_value}}{% if not forloop.last %},{% endif %}
+                            </span>
+                        {% endfor %}
+                    {% endif %}
                     <button class="oh-titlebar__tag-close"
                         data-x-field="{{ field }}"
+                        data-x-extra="{{ field|tag_extra:filter_tag_extras }}"
                     >
                         <ion-icon name="close-outline" class="close-icon"></ion-icon>
                     </button>
@@ -119,12 +138,20 @@
 		nav.html(template);
 
 		// Events (clean separation)
-		nav.on("click", ".oh-titlebar__tag-close", function () {
+		nav.off("click.filterTags");
+
+		nav.on("click.filterTags", ".oh-titlebar__tag-close", function () {
+			const chip = $(this).closest(".filter-field");
 			clearFilterFromTag($(this));
+			chip.remove();
+			if (!nav.find(".filter-field").length) {
+				nav.empty();
+			}
 		});
 
-		nav.on("click", ".clear-all", function () {
+		nav.on("click.filterTags", ".clear-all", function () {
 			clearAllFilter($(this));
+			nav.empty();
 		});
 
 		$("#saveFilterBtn").on("click", function () {

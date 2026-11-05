@@ -1,5 +1,6 @@
 {% load i18n %} {% load basefilters %}
 <div class="oh-dropdown__filter-body">
+    {{form.end_date}}
     <div class="oh-accordion{% if modern_filter %} oh-accordion--show{% endif %}">
         <div class="oh-accordion-header"
             onclick="event.stopImmediatePropagation();$(this).parent().toggleClass('oh-accordion--show');">
@@ -55,6 +56,12 @@
                     <div class="oh-input-group">
                         <label class="oh-label" for="{{ form.is_active.id_for_label }}">{{form.is_active.label}}</label>
                         {{form.is_active}}
+                    </div>
+                </div>
+                <div class="col-sm-12 col-md-12 col-lg-6">
+                    <div class="oh-input-group">
+                        <label class="oh-label" for="{{ form.end_from.id_for_label }}">{{form.end_from.label}}</label>
+                        {{form.end_from}}
                     </div>
                 </div>
                 <div class="col-sm-12 col-md-12 col-lg-6">

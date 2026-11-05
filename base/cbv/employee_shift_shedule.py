@@ -118,6 +118,9 @@ class EmployeeShiftSheduleList(HorillaListView):
     filter_class = EmployeeShiftScheduleFilter
     show_filter_tags = False
     bulk_select_option = False
+    # Only this page's grouped view changes -- the shared generic/group_by_table.html
+    # stays untouched for every other page that uses the app-wide "Group By" feature.
+    group_by_template_name = "cbv/settings/employee_shift_schedule_group_by.html"
 
     columns = [
         (_("Day"), "day_col", "get_avatar"),

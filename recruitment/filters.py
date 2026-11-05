@@ -6,6 +6,7 @@ This page is used to register filter for recruitment models
 """
 
 import ast
+import json
 import uuid
 
 import django_filters
@@ -24,6 +25,13 @@ def _filter_source_not_set(qs, name, value):
     if value:
         return qs.filter(Q(source__isnull=True) | Q(source=""), referral__isnull=True)
     return qs
+
+
+def _survey_question_choices():
+    questions = set()
+    for (answer_json,) in RecruitmentSurveyAnswer.objects.values_list("answer_json"):
+        questions.update(CandidateFilter._survey_answers(answer_json))
+    return [(q, q) for q in sorted(questions)]
 
 
 def _filter_recruitment_by_obj_id(qs, name, value):
@@ -66,10 +74,19 @@ class CandidateFilter(HorillaFilterSet):
 
     name = django_filters.CharFilter(field_name="name", lookup_expr="icontains")
     search = django_filters.CharFilter(method="search_by_name", lookup_expr="icontains")
+    search_field = django_filters.CharFilter(method="search_in")
     has_referral = django_filters.BooleanFilter(
         method=_filter_has_referral,
         widget=django_filters.widgets.BooleanWidget(),
     )
+    rejected = django_filters.BooleanFilter(
+        method="filter_rejected",
+        widget=django_filters.widgets.BooleanWidget(),
+    )
+    survey_question = django_filters.ChoiceFilter(
+        method="filter_survey", choices=_survey_question_choices
+    )
+    survey_response = django_filters.CharFilter(method="filter_survey")
     source_not_set = django_filters.BooleanFilter(
         method=_filter_source_not_set,
         widget=django_filters.widgets.BooleanWidget(),
@@ -86,6 +103,10 @@ class CandidateFilter(HorillaFilterSet):
 
     candidate_name = django_filters.CharFilter(
         method="pipeline_search", lookup_expr="icontains"
+    )
+    stage_id__stage_type = django_filters.MultipleChoiceFilter(
+        choices=Stage.stage_types,
+        label=_("Stage Type"),
     )
     start_date = django_filters.DateFilter(
         field_name="recruitment_id__start_date",
@@ -168,6 +189,35 @@ class CandidateFilter(HorillaFilterSet):
     portal_sent = django_filters.BooleanFilter(
         field_name="onboarding_portal",
         method="filter_mail_sent",
+        widget=django_filters.widgets.BooleanWidget(),
+    )
+    # True = portal link sent but the candidate hasn't finished the portal
+    # flow yet (OnboardingPortal.used only flips to True once they reach
+    # the very end -- see employee_bank_details_save in onboarding/views.py).
+    # A candidate with no portal row at all doesn't match either direction,
+    # same as portal_sent's own all-or-nothing semantics above.
+    portal_incomplete = django_filters.BooleanFilter(
+        field_name="onboarding_portal__used",
+        method="filter_portal_incomplete",
+        widget=django_filters.widgets.BooleanWidget(),
+    )
+    # True = candidate is actually sitting in an onboarding pipeline stage
+    # (a CandidateStage row exists) -- start_onboard isn't a reliable
+    # proxy for this (see onboarding/dashboard.py's own notes: a candidate
+    # can be added to the pipeline without that flag ever getting set),
+    # and job_position_id alone matches every recruitment candidate for
+    # that position, not just the ones currently onboarding.
+    in_onboarding_pipeline = django_filters.BooleanFilter(
+        field_name="onboarding_stage",
+        method="filter_in_onboarding_pipeline",
+        widget=django_filters.widgets.BooleanWidget(),
+    )
+    # Direct field lookup (no method needed) -- unlike the two above, this
+    # doesn't need an isnull-inversion dance: a candidate with no
+    # CandidateStage row at all simply never matches either True or False
+    # here, same as any plain filter on a nullable related field.
+    in_final_onboarding_stage = django_filters.BooleanFilter(
+        field_name="onboarding_stage__onboarding_stage_id__is_final_stage",
         widget=django_filters.widgets.BooleanWidget(),
     )
     joining_set = django_filters.BooleanFilter(
@@ -269,12 +319,55 @@ class CandidateFilter(HorillaFilterSet):
         """
         search by name method
         """
+        if self.data.get("search_field"):
+            return queryset
         queryset = (
             queryset.filter(name__icontains=value)
             | queryset.filter(stage_id__stage__icontains=value)
             | queryset.filter(stage_id__recruitment_id__title__icontains=value)
         )
         return queryset.distinct()
+
+    def search_in(self, queryset, name, value):
+        """
+        Same "search in" dropdown as RecruitmentFilter.search_in, reused here
+        because the Pipeline's per-recruitment candidate columns (GetStages,
+        CandidateCard in recruitment/cbv/pipeline.py) are loaded with the
+        exact same querystring the top search box submitted -- the tab search
+        narrows which recruitment to show, and that same search/search_field
+        then arrives here to narrow which of its candidates show.
+
+        "candidate", "stage" and "recruitment_managers" are RecruitmentFilter
+        field names with no identically-named attribute on Candidate, so the
+        generic HorillaFilterSet.search_in (horilla/filters.py) would resolve
+        each to "" for every row via getattribute()'s not-found fallback,
+        silently matching nothing -- every stage column would render empty,
+        not just the ones without a match. "title"/"job_position_id"/
+        "company_id" are left to the generic method: Candidate has its own
+        job_position_id, so that one already matches correctly, and title/
+        company have no Candidate-side meaning worth narrowing further than
+        "this is the recruitment that already matched" -- the generic method
+        resolving them to "" would otherwise empty every column exactly the
+        same way the broken fields did.
+        """
+        search_field = self.data.get("search_field")
+        search = self.data.get("search", "")
+        if search_field == "candidate":
+            return queryset.filter(name__icontains=search)
+        if search_field == "stage":
+            return queryset.filter(stage_id__stage__icontains=search)
+        if search_field == "recruitment_managers":
+            return queryset.filter(
+                Q(
+                    recruitment_id__recruitment_managers__employee_first_name__icontains=search
+                )
+                | Q(
+                    recruitment_id__recruitment_managers__employee_last_name__icontains=search
+                )
+            ).distinct()
+        if search_field in ("title", "company_id"):
+            return queryset
+        return super().search_in(queryset, name, value)
 
     class Meta:
         """
@@ -318,6 +411,7 @@ class CandidateFilter(HorillaFilterSet):
             "candidate_rating__rating",
             "candidate_interview__employee_id",
             "source",
+            "referral_source",
         ]
 
     def __init__(self, *args, **kwargs):
@@ -330,60 +424,66 @@ class CandidateFilter(HorillaFilterSet):
             form_fields[field].widget.attrs["id"] = str(uuid.uuid4())
 
         self._update_field_labels(form_fields)
-        choices = []
-        try:
-            survey_answers = RecruitmentSurveyAnswer.objects.all()
-            for survey in survey_answers:
-                candidate = survey.candidate_id
-                answer_json = survey.answer_json
-
-                # Parse JSON if stored as string
-                if isinstance(answer_json, str):
-                    try:
-                        answer_json = ast.literal_eval(answer_json)
-                    except Exception:
-                        continue
-
-                # Extract questions & answers
-                for question, answer_list in answer_json.items():
-                    if question == "csrfmiddlewaretoken":
-                        continue
-
-                    answer = (
-                        ", ".join(answer_list)
-                        if isinstance(answer_list, list)
-                        else str(answer_list)
-                    )
-
-                    choices.append(
-                        (
-                            candidate.pk,
-                            f"Q: {question} || Ans: {answer} || {candidate.get_full_name()}",
-                        )
-                    )
-        except:
-            pass
-
-        # Add filter dynamically
-        survey_answer_by = django_filters.MultipleChoiceFilter(
-            choices=choices,
-            field_name="recruitmentsurveyanswer__candidate_id",
-            label=_("Survey Answer By"),
+        self.form.fields["survey_question"].widget.attrs.update(
+            {"class": "oh-select oh-select-2 w-100", "style": "width:100% !important;"}
         )
-        self.filters["survey_answer_by"] = survey_answer_by
-        self.form.fields["survey_answer_by"] = survey_answer_by.field
-        self.form.fields["survey_answer_by"].widget.attrs.update(
-            {
-                "data-placeholder": _("Select survey answers..."),
-                # Was "survey-select" -- that class was never targeted by
-                # any select2 init handler (horilla_theme's htmxSelect2.js
-                # only auto-initializes ".oh-select"/".oh-select-ajax"),
-                # so this field always rendered as a bare unstyled
-                # <select multiple> regardless of how many choices it had.
-                "class": "oh-select w-100",
-                "style": "width:100% !important;",
-            }
+        self.form.fields["survey_response"].widget.attrs.update(
+            {"class": "oh-input w-100", "placeholder": _("Response contains...")}
         )
+
+    @staticmethod
+    def _survey_answers(answer_json):
+        """
+        Normalise a stored survey answer into {question: answer_text}.
+        """
+        if isinstance(answer_json, str):
+            try:
+                answer_json = json.loads(answer_json)
+            except ValueError:
+                try:
+                    answer_json = ast.literal_eval(answer_json)
+                except (ValueError, SyntaxError):
+                    return {}
+        if not isinstance(answer_json, dict):
+            return {}
+        return {
+            question: (
+                ", ".join(map(str, answer))
+                if isinstance(answer, (list, tuple))
+                else str(answer)
+            )
+            for question, answer in answer_json.items()
+            if question != "csrfmiddlewaretoken"
+        }
+
+    def filter_survey(self, queryset, name, value):
+        """
+        Filter candidates by survey question and/or response text. When both
+        are given they must match within the same question.
+        """
+        question = (self.data.get("survey_question") or "").strip()
+        response = (self.data.get("survey_response") or "").strip().lower()
+        if not question and not response:
+            return queryset
+        candidate_ids = set()
+        answers = RecruitmentSurveyAnswer.objects.filter(
+            candidate_id__in=queryset
+        ).values_list("candidate_id", "answer_json")
+        for candidate_id, answer_json in answers:
+            for q, a in self._survey_answers(answer_json).items():
+                if question and q != question:
+                    continue
+                if response and response not in a.lower():
+                    continue
+                candidate_ids.add(candidate_id)
+                break
+        return queryset.filter(pk__in=candidate_ids)
+
+    def filter_rejected(self, queryset, name, value):
+        """
+        Rejected candidates are those with a RejectedCandidate record.
+        """
+        return queryset.filter(rejected_candidate__isnull=not value)
 
     def _update_field_labels(self, form_fields):
         """Helper method to update field labels from model verbose names"""
@@ -430,6 +530,12 @@ class CandidateFilter(HorillaFilterSet):
 
     def filter_mail_sent(self, queryset, name, value):
         return queryset.filter(onboarding_portal__isnull=(not value))
+
+    def filter_portal_incomplete(self, queryset, name, value):
+        return queryset.filter(onboarding_portal__used=(not value))
+
+    def filter_in_onboarding_pipeline(self, queryset, name, value):
+        return queryset.filter(onboarding_stage__isnull=(not value))
 
     def filter_joining_set(self, queryset, name, value):
         return queryset.filter(joining_date__isnull=(not value))
@@ -562,6 +668,7 @@ class RecruitmentFilter(HorillaFilterSet):
         widget=forms.DateInput(attrs={"type": "date"}),
     )
     search = django_filters.CharFilter(method="filter_by_name")
+    search_field = django_filters.CharFilter(method="search_in")
     is_active = django_filters.ChoiceFilter(
         choices=[
             (True, "Yes"),
@@ -620,6 +727,8 @@ class RecruitmentFilter(HorillaFilterSet):
         """
         Filter queryset by first name or last name.
         """
+        if self.data.get("search_field"):
+            return queryset
         # Split the search value into first name and last name
         parts = value.split()
         first_name = parts[0]
@@ -630,6 +739,9 @@ class RecruitmentFilter(HorillaFilterSet):
             | queryset.filter(title__icontains=value)
             | queryset.filter(stage_set__stage__icontains=value)
             | queryset.filter(stage_set__candidate__name__icontains=value)
+            # A candidate who has not been moved into a stage yet (stage_id is
+            # null) is missed by the stage_set__candidate lookup above.
+            | queryset.filter(candidate__name__icontains=value)
         )
         if first_name and last_name:
             queryset = queryset.filter(
@@ -647,6 +759,23 @@ class RecruitmentFilter(HorillaFilterSet):
 
         queryset = queryset | job_queryset
         return queryset.distinct()
+
+    def search_in(self, queryset, name, value):
+        """
+        Narrow the quick-search to one field, for the "search in" dropdown.
+        """
+        search_field = self.data.get("search_field")
+        search = self.data.get("search", "")
+        if search_field == "candidate":
+            return queryset.filter(candidate__name__icontains=search).distinct()
+        if search_field == "stage":
+            return queryset.filter(stage_set__stage__icontains=search).distinct()
+        if search_field == "recruitment_managers":
+            return queryset.filter(
+                Q(recruitment_managers__employee_first_name__icontains=search)
+                | Q(recruitment_managers__employee_last_name__icontains=search)
+            ).distinct()
+        return super().search_in(queryset, name, value)
 
     def pipeline_search(self, queryset, _, value):
         """
@@ -929,11 +1058,18 @@ class SurveyFilter(HorillaFilterSet):
         field_name="question",
     )
 
+    recruitment = django_filters.ModelMultipleChoiceFilter(
+        field_name="template_id__recruitment",
+        queryset=Recruitment.objects.all(),
+        distinct=True,
+        label=_("Recruitment"),
+    )
+
     # HorillaFilterSet.ajax_fields (generic AJAX-loaded combobox mechanism)
     # -- Recruitment opts into an AJAX-searched combobox instead of
     # pre-rendering its whole queryset as <option> tags.
     ajax_fields = {
-        "recruitment_ids": {
+        "recruitment": {
             "key": "survey-recruitment",
             "queryset_fn": lambda request: Recruitment.objects.all(),
             "display_fn": lambda obj: obj.title,

@@ -80,6 +80,42 @@
     body.dark .emp-profile-meta-chip i {
         color: var(--primary-600, #e54f38) !important;
     }
+    .emp-status-ribbon {
+        position: absolute;
+        bottom: 0;
+        right: 0;
+        z-index: 2;
+        width: 78px;
+        height: 78px;
+        pointer-events: none;
+        filter: drop-shadow(-1px -1px 1px rgba(0, 0, 0, 0.25));
+    }
+    .emp-status-ribbon::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: var(--ribbon-bg, #64748b);
+        border-bottom-right-radius: 1rem;
+        clip-path: polygon(100% 0, 100% 100%, 0 100%);
+    }
+    .emp-status-ribbon--danger { --ribbon-bg: #e11d1d; }
+    .emp-status-ribbon--success { --ribbon-bg: #16a34a; }
+    .emp-status-ribbon--warning { --ribbon-bg: #facc15; --ribbon-fg: #422006; }
+    .emp-status-ribbon--orange { --ribbon-bg: #f97316; }
+    .emp-status-ribbon--info { --ribbon-bg: #2563eb; }
+    .emp-status-ribbon--secondary { --ribbon-bg: #64748b; }
+    .emp-status-ribbon span {
+        position: absolute;
+        bottom: 23px;
+        right: 23px;
+        transform: translate(50%, 50%) rotate(-45deg);
+        color: var(--ribbon-fg, #fff);
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.3px;
+        text-transform: uppercase;
+        white-space: nowrap;
+    }
 </style>
 
 <div class="emp-profile-page space-y-4" id="{{view_id|safe}}">
@@ -94,6 +130,11 @@
 
     <!-- Profile header -->
     <section class="emp-profile-card rounded-2xl bg-white p-4 shadow-card sm:p-6">
+        {% if status_ribbon %}
+            <div class="emp-status-ribbon emp-status-ribbon--{{ status_ribbon.variant|default:'secondary' }}" role="status" title="{{ status_ribbon.label }}">
+                <span>{{ status_ribbon.label }}</span>
+            </div>
+        {% endif %}
         <div class="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
             <div class="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-center sm:gap-5">
                 <div class="relative shrink-0 self-start sm:self-center">
@@ -116,6 +157,12 @@
                     <div class="flex flex-wrap items-center gap-x-2 gap-y-1.5">
                         <h2 class="text-xl font-semibold leading-tight text-dark-500">{{ object }}</h2>
                     </div>
+                    {% if object.employee_user_id and object.employee_user_id == request.user %}
+                        <p class="mt-1 flex items-center gap-1.5 text-xs text-color-600">
+                            <i class="fa-solid fa-user text-primary-600 text-xxs"></i>
+                            {{ object.employee_user_id.username }}
+                        </p>
+                    {% endif %}
 
                     {% if object.get_job_position or object.get_department %}
                         <div class="mt-2 flex flex-wrap gap-2">
@@ -140,19 +187,33 @@
                                 <i class="fa-solid fa-envelope text-xxs"></i>
                             </span>
                             <dd class="min-w-0">
-                                <a href="mailto:{{ object.get_email }}" class="block truncate text-sm text-dark-200 transition-colors hover:text-primary-600">
+                                <span class="block truncate text-sm text-dark-200">
                                     {{ object.get_email }}
-                                </a>
+                                </span>
                             </dd>
+                            {% if send_mail_url %}
+                                <button
+                                    type="button"
+                                    class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-primary-600 transition-colors hover:bg-primary-100"
+                                    title="{% trans 'Send Mail' %}"
+                                    hx-get="{{ send_mail_url }}"
+                                    hx-target="{{ send_mail_target|default:'#mail-content' }}"
+                                    hx-swap="innerHTML"
+                                    data-toggle="oh-modal-toggle"
+                                    data-target="{{ send_mail_modal|default:'#sendMailModal' }}"
+                                >
+                                    <i class="fa-solid fa-paper-plane text-xxs"></i>
+                                </button>
+                            {% endif %}
                         </div>
                         <div class="flex items-center gap-2">
                             <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary-100 text-primary-700">
                                 <i class="fa-solid fa-phone text-xxs"></i>
                             </span>
                             <dd>
-                                <a href="tel:{{ object.phone }}" class="text-sm text-dark-200 transition-colors hover:text-primary-600">
+                                <span class="text-sm text-dark-200">
                                     {{ object.phone }}
-                                </a>
+                                </span>
                             </dd>
                         </div>
                     </dl>
@@ -167,7 +228,6 @@
                         title="{% trans 'Back' %}"
                         class="inline-flex items-center gap-1.5 rounded-xl border border-secondary-200 bg-white px-3.5 py-2 text-sm font-medium text-color-600 shadow-sm transition-all hover:border-primary-500 hover:text-primary-600"
                         onclick="candidateProfileGoBack()"
-                        style="display: none"
                     >
                         <i class="fa-solid fa-arrow-left"></i>
                         {% trans "Back" %}
@@ -199,15 +259,9 @@
                             }
                             window.candidateProfileGoBack = function () {
                                 var backUrl = resolveCandidateBackUrl();
-                                if (backUrl) {
-                                    try { sessionStorage.removeItem("candidateProfileBackUrl"); } catch (e) {}
-                                    window.location.href = backUrl;
-                                }
+                                try { sessionStorage.removeItem("candidateProfileBackUrl"); } catch (e) {}
+                                window.location.href = backUrl || "{% url 'candidate-view' %}";
                             };
-                            var backBtn = document.getElementById("candidateBackButton");
-                            if (backBtn && resolveCandidateBackUrl()) {
-                                backBtn.style.display = "";
-                            }
                         })();
                     </script>
                 {% elif request.resolver_match.url_name == "profile-new" or request.resolver_match.url_name == "employee-view-individual" %}
@@ -260,14 +314,14 @@
                             type="button"
                             class="flex h-9 w-9 items-center justify-center rounded-xl border border-secondary-200 bg-white text-color-600 shadow-sm transition-all hover:border-primary-500 hover:text-primary-600"
                             :class="{ 'border-primary-500 bg-primary-50 text-primary-600': open }"
-                            title="{% trans 'Settings' %}"
+                            title="{% trans 'Actions' %}"
                             aria-haspopup="true"
                             :aria-expanded="open.toString()"
                             @click="open = !open"
                             @click.outside="open = false"
                             @keydown.escape="open = false"
                         >
-                            <i class="fas fa-cog transition-transform duration-200" :class="{ 'rotate-45': open }"></i>
+                            <img src="{% static 'horilla_theme/assets/img/icons/setting-line.svg' %}" alt="{% trans 'Actions' %}" width="15">
                         </button>
                         <div
                             class="absolute right-0 z-50 mt-2 w-max min-w-[200px] max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-xl bg-white py-2 shadow-card ring-1 ring-secondary-100"
@@ -280,9 +334,6 @@
                             x-transition:leave-end="opacity-0 scale-95"
                             x-cloak
                         >
-                            <span class="block px-3 pb-1.5 pt-0.5 text-[10px] font-semibold uppercase tracking-wide text-color-600 opacity-60">
-                                {% trans "Account Settings" %}
-                            </span>
                             <ul>
                                 {% for action in actions %}
                                     {% if action.divider %}
@@ -290,7 +341,7 @@
                                     {% elif action.accessibility|accessibility:instance %}
                                         <li>
                                             <a
-                                                class="flex w-full items-center gap-2.5 px-3 py-2 text-left text-xs font-medium transition duration-200
+                                                class="flex w-full items-center px-3 py-2 text-left text-xs font-medium transition duration-200
                                                     {% if action.variant == 'danger' %}
                                                         text-danger hover:bg-danger/10
                                                     {% elif action.variant == 'success' %}
@@ -301,16 +352,6 @@
                                                 @click="open = false"
                                                 {{action.attrs|format:instance|safe}}
                                             >
-                                                <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg
-                                                    {% if action.variant == 'danger' %}
-                                                        bg-danger/10
-                                                    {% elif action.variant == 'success' %}
-                                                        bg-success/10
-                                                    {% else %}
-                                                        bg-primary-100
-                                                    {% endif %}">
-                                                    <img src="{{action.src}}" alt="" class="h-3 w-3">
-                                                </span>
                                                 <span class="truncate">{{ action.title }}</span>
                                             </a>
                                         </li>
@@ -453,15 +494,21 @@
             success: function (response) {}
         });
     });
-    {% if active_target %}
-        $("#{{view_id|safe}}").find(`{{active_target|safe}}`).click();
-        setTimeout(() => {
-            $("#{{view_id|safe}}").find(`{{active_target|safe}}`).parent().find('span').click()
-        }, 100);
-    {% else %}
-        setTimeout(() => {
-            $("#{{view_id|safe}} .usertablist").find(`li button[data-url]:first`).click()
-            $("#{{view_id|safe}} .usertablist").find(`li button[data-url]:first`).parent().find('span').click()
-        }, 100);
-    {% endif %}
+    // The script can run before htmx has processed the swapped-in tab buttons, so a
+    // single click may be a no-op and leave the content empty. Retry until the tab
+    // content has loaded; fall back to the first tab (About) if the saved one is missing.
+    (function openInitialTab() {
+        var root = $("#{{view_id|safe}}");
+        var content = $("#{{view_id}}profileTab");
+        var attempts = 0;
+        function openTab() {
+            if (!root.length || content.children().length || attempts++ > 20) return;
+            var btn = {% if active_target %}root.find(`{{active_target|safe}}`).first(){% else %}$(){% endif %};
+            if (!btn.length) btn = root.find("ul.usertablist li button[data-url]").first();
+            btn.click();
+            btn.parent().find("span").click();
+            setTimeout(openTab, 150);
+        }
+        setTimeout(openTab, 100);
+    })();
 </script>

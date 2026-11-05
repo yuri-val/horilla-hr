@@ -32,7 +32,15 @@
             href="{% if white_label_company.icon %}{{white_label_company.icon.url}} {% else %}{% static 'favicons/favicon-16x16.png' %}{% endif %}"
         >
 
-        <script src='{% static "horilla_theme/assets/js/tailwindcdn.js" %}'></script>
+        {% comment %} defer, not removed: tailwind.css below is a periodically
+           re-exported snapshot, not a build-pipeline output kept in sync on
+           every template change, so this runtime JIT compiler is still the
+           source of truth for any utility class added since that snapshot.
+           `defer` only delays execution past HTML parsing (this compiler
+           scans the DOM via MutationObserver, so it doesn't need to run
+           before other content loads) -- it doesn't change what gets
+           styled. {% endcomment %}
+        <script src='{% static "horilla_theme/assets/js/tailwindcdn.js" %}' defer></script>
         {% include "horilla_theme/components/header_scripts.html" %}
 
         <link
@@ -50,12 +58,12 @@
         <link href="{% static 'horilla_theme/assets/css/tailwind.css' %}" rel="stylesheet">
         <link href="{% static 'cdn/select2/css/select2.min.css' %}" rel="stylesheet">
 
-        <script src="{% static 'horilla_theme/assets/js/global.js' %}"></script>
+        <script src="{% static 'horilla_theme/assets/js/global.js' %}?v=2"></script>
         <script src="{% static 'cdn/hyperscript/script/_hyperscript.min.js' %}"></script>
         <!-- Load global.css after Select2 to ensure custom styles override Select2 defaults -->
         <link
             rel="stylesheet"
-            href="{% static 'horilla_theme/assets/css/global.css' %}"
+            href="{% static 'horilla_theme/assets/css/global.css' %}?v=2"
         >
         {% comment %} ?v= busts browser caches when this stylesheet changes
            (same trick as tourController.js in footer_scripts.html) - bump it
@@ -63,7 +71,7 @@
            happily cache. {% endcomment %}
         <link
             rel="stylesheet"
-            href="{% static 'horilla_theme/assets/css/v1_styles.css' %}?v=3"
+            href="{% static 'horilla_theme/assets/css/v1_styles.css' %}?v=25"
         >
         <link rel="stylesheet" href="{% static 'build/css/pivottable.min.css' %}">
         {% with theme=theme_obj %}
@@ -118,12 +126,6 @@
                     border: 1px solid {{ theme_obj.primary_600|default:"#E54F38" }};
                 }
 
-                .myform input:focus, .myform select:focus, .myform textarea:focus,
-                .oh-input:focus, .oh-input:focus-visible, .oh-select:focus, .oh-select:focus-visible
-                {
-                    border: 1px solid {{ theme_obj.primary_600|default:"#E54F38" }} !important;
-                }
-
                 {% comment %} .oh-activity-sidebar {
                     background-color: {{ theme_obj.secondary_100|default:"#F0F0F0" }} !important;
                 } {% endcomment %}
@@ -158,8 +160,21 @@
                 /* Text color */
                 .oh-tabs__movable-header,
                 .sidebox ul li a:hover,
-                .breadcrumb li a:hover {
+                .breadcrumb li a:hover,
+                /* Current crumb: global.css hardcodes the default red here, so
+                   it needs the theme shade like the hover state above. */
+                .breadcrumb li.oh-breadcrumb-current {
                     color: {{ theme.primary_600|default:"#E54F38" }};
+                }
+
+                /* Pill tab group (.mytab): global.css hardcodes the default red
+                   for both the outer border and the active tab's fill. */
+                .mytab {
+                    border-color: {{ theme.primary_600|default:"#E54F38" }};
+                }
+
+                .mytab .tab-button.active {
+                    background: {{ theme.primary_600|default:"#E54F38" }};
                 }
 
                 /* ── Theme-aware Tailwind primary-* utilities ─────────────────────
@@ -188,10 +203,16 @@
                 .hover\:text-primary-600:hover { color: {{ theme.primary_600|default:"#E54F38" }}; }
                 .focus\:border-primary-600:focus { border-color: {{ theme.primary_600|default:"#E54F38" }}; }
 
-                /* Active list/grid view-toggle button (.oh-view-btn--active) —
-                   its border was hardcoded red in v1_styles.css. */
-                .oh-view-btn--active {
-                    border: 1px solid {{ theme.primary_600|default:"#E54F38" }} !important;
+                /* Quick filter pills (Offline/Online etc., generic/quick_actions.html)
+                   submit and get swapped out of the DOM immediately on click, so a
+                   Tailwind focus:/active: utility class often loses the timing race
+                   against that swap and never paints. Plain :focus/:active here
+                   applies unconditionally rather than depending on the class being
+                   picked up before the element is replaced. */
+                .oh-row-status-indication:focus,
+                .oh-row-status-indication:active {
+                    outline: none;
+                    border-color: {{ theme.primary_600|default:"#E54F38" }} !important;
                 }
 
                 /* ── List-view row selection follows the theme ────────────────────
@@ -203,6 +224,43 @@
                    left borders (validated/rejected/…) are semantic and untouched. */
                 .highlight-selected {
                     background: color-mix(in srgb, {{ theme.primary_600|default:"#E54F38" }} 12%, transparent) !important;
+                }
+                .highlight-selected .stickyleft,
+                .highlight-selected .stickyleft-second,
+                .highlight-selected .stickyright {
+                    /* Opaque (mixed onto white, not transparent): sticky cells
+                       must fully mask non-sticky column content that scrolls
+                       underneath them, the same way the unselected row's solid
+                       white background does -- a translucent tint here would
+                       let scrolled-under text bleed through visually. */
+                    background: color-mix(in srgb, {{ theme.primary_600|default:"#E54F38" }} 12%, white) !important;
+                }
+                /* Some rows (e.g. cancelled leave requests, see
+                   is_attendance_request_cancelled in leave/models.py) set an
+                   inline tr[style="background-color: lightgrey"] instead of a
+                   class. Sticky columns' own opaque background-color paints
+                   over that too, same issue as .highlight-selected above. */
+                tr[style*="background-color: lightgrey"] .stickyleft,
+                tr[style*="background-color: lightgrey"] .stickyleft-second,
+                tr[style*="background-color: lightgrey"] .stickyright {
+                    background-color: lightgrey !important;
+                }
+                /* Same problem for the rgba(255, 166, 0, 0.158) row tint set
+                   inline by diff_cell() (Employee: rows you manage as reporting
+                   manager; Leave: rejected requests). Sticky cells need the
+                   tint mixed onto their own opaque base so it shows in every
+                   column while still masking content scrolled underneath. */
+                tr[style*="background-color: rgba(255, 166, 0, 0.158)"] > td.stickyleft,
+                tr[style*="background-color: rgba(255, 166, 0, 0.158)"] > td.stickyleft-second,
+                tr[style*="background-color: rgba(255, 166, 0, 0.158)"] > td.stickyright {
+                    background-color: color-mix(in srgb, rgb(255, 166, 0) 15.8%, white);
+                }
+                body.dark tr[style*="background-color: rgba(255, 166, 0, 0.158)"] > td.stickyleft {
+                    background-color: color-mix(in srgb, rgb(255, 166, 0) 15.8%, #2e2e2e);
+                }
+                body.dark tr[style*="background-color: rgba(255, 166, 0, 0.158)"] > td.stickyleft-second,
+                body.dark tr[style*="background-color: rgba(255, 166, 0, 0.158)"] > td.stickyright {
+                    background-color: color-mix(in srgb, rgb(255, 166, 0) 15.8%, #444444);
                 }
                 input[type="checkbox"].custom-checkbox:checked {
                     background-color: {{ theme.primary_600|default:"#E54F38" }} !important;

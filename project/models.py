@@ -17,8 +17,10 @@ from django.utils.formats import localize
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 
+from attendance.methods.utils import validate_time_format
 from base.horilla_company_manager import HorillaCompanyManager
 from base.models import Company
+from employee.methods.duration_methods import format_time, strtime_seconds
 from employee.models import Employee
 from horilla import horilla_middlewares
 from horilla.horilla_middlewares import _thread_locals
@@ -56,7 +58,7 @@ class Project(HorillaModel):
         ("cancelled", _("Cancelled")),
         ("expired", _("Expired")),
     ]
-    title = models.CharField(max_length=200, unique=True, verbose_name=_("Name"))
+    title = models.CharField(max_length=200, verbose_name=_("Name"))
     managers = models.ManyToManyField(
         Employee,
         blank=True,
@@ -76,6 +78,12 @@ class Project(HorillaModel):
         Company, null=True, editable=False, on_delete=models.PROTECT
     )
     objects = HorillaCompanyManager("company_id")
+
+    def get_company_name(self):
+        """
+        Company column of the list view; "All Companies" when none is assigned.
+        """
+        return self.company_id.company if self.company_id else _("All Companies")
 
     def get_description(self, length=50):
         """
@@ -133,7 +141,7 @@ class Project(HorillaModel):
             or any(employee in task.task_members.all() for task in self.task_set.all())
             or request.user.has_perm("project.view_project")
         ):
-            return f"onclick=\"window.location.href='{url}?view=list'\""
+            return f"onclick=\"window.location.href='{url}?view=card'\""
         return ""
 
     def get_detail_url(self):
@@ -253,6 +261,7 @@ class Project(HorillaModel):
         verbose_name = _("Project")
         verbose_name_plural = _("Projects")
         ordering = ["-id"]
+        unique_together = ["title", "company_id"]
 
 
 class ProjectStage(HorillaModel):
@@ -270,7 +279,7 @@ class ProjectStage(HorillaModel):
         verbose_name=_("Project"),
     )
     sequence = models.IntegerField(null=True, blank=True, editable=False)
-    is_end_stage = models.BooleanField(default=False, verbose_name=_("Is end stage"))
+    is_end_stage = models.BooleanField(default=False, verbose_name=_("End stage"))
     objects = HorillaCompanyManager("project__company_id")
 
     def __str__(self) -> str:
@@ -357,6 +366,14 @@ class Task(HorillaModel):
     )
     start_date = models.DateField(null=True, blank=True, verbose_name=_("Start Date"))
     end_date = models.DateField(null=True, blank=True, verbose_name=_("End Date"))
+    allocated_hours = models.CharField(
+        null=True,
+        blank=True,
+        default="00:00",
+        max_length=10,
+        validators=[validate_time_format],
+        verbose_name=_("Allocated Hours"),
+    )
     document = models.FileField(
         upload_to=upload_path, blank=True, null=True, verbose_name=_("Task File")
     )
@@ -403,6 +420,52 @@ class Task(HorillaModel):
         """
 
         return self.project if self.project else "None"
+
+    @property
+    def is_overdue(self):
+        """
+        Past its end date and not completed -- checked against the date
+        directly rather than trusting self.status == "expired", since that
+        transition only happens when clean() runs (i.e. on an explicit
+        form save), not passively as time passes.
+        """
+        return bool(
+            self.end_date
+            and self.status != "completed"
+            and self.end_date < date.today()
+        )
+
+    @property
+    def is_due_soon(self):
+        """
+        Due within the next 2 days and not already overdue/completed --
+        used for the card view's due-date indicator.
+        """
+        if not self.end_date or self.is_overdue or self.status == "completed":
+            return False
+        return self.end_date <= date.today() + datetime.timedelta(days=2)
+
+    @property
+    def due_status_display(self):
+        """
+        Human-readable due-state label for the card ("Overdue by 3 days",
+        "Due today", "Due in 2 days", ...), empty when there's nothing
+        worth flagging (no end date, or already completed).
+        """
+        if not self.end_date or self.status == "completed":
+            return ""
+        days = (self.end_date - date.today()).days
+        if days < 0:
+            return (
+                _("Overdue by 1 day")
+                if days == -1
+                else _("Overdue by %(days)d days") % {"days": -days}
+            )
+        if days == 0:
+            return _("Due today")
+        if days == 1:
+            return _("Due tomorrow")
+        return _("Due in %(days)d days") % {"days": days}
 
     def task_detail_view(self):
         """
@@ -470,6 +533,66 @@ class Task(HorillaModel):
         return render_template(
             path="cbv/tasks/task_actions.html",
             context={"instance": self},
+        )
+
+    @property
+    def allocated_seconds(self):
+        """
+        allocated_hours (HH:MM) converted to seconds, 0 when unset/invalid.
+        """
+        if not self.allocated_hours:
+            return 0
+        try:
+            return strtime_seconds(self.allocated_hours)
+        except (ValueError, AttributeError):
+            return 0
+
+    @property
+    def timesheet_spent_seconds(self):
+        """
+        Sum of time_spent across every timesheet logged against this task.
+        """
+        total = 0
+        for time_spent in self.task_timesheet.values_list("time_spent", flat=True):
+            if not time_spent:
+                continue
+            try:
+                total += strtime_seconds(time_spent)
+            except (ValueError, AttributeError):
+                continue
+        return total
+
+    def timesheet_progress_col(self):
+        """
+        Progress bar comparing logged timesheet hours against allocated_hours,
+        rendered full-width in the task detail view.
+        """
+        allocated = self.allocated_seconds
+        spent = self.timesheet_spent_seconds
+        if not allocated:
+            return ""
+        percent = min(100, round((spent / allocated) * 100))
+        bar_color = (
+            "var(--md-red, #ef4444)"
+            if percent >= 100
+            else "var(--primary-600, #e54f38)"
+        )
+        return format_html(
+            """
+            <div class="oh-timeoff-modal__stat">
+                <span class="oh-timeoff-modal__stat-title">{label}</span>
+                <span class="oh-timeoff-modal__stat-count">{spent} / {allocated} {hrs}</span>
+            </div>
+            <div style="background:#e5e7eb;border-radius:6px;height:10px;overflow:hidden;margin-top:6px;">
+                <div style="width:{percent}%;background:{bar_color};height:100%;"></div>
+            </div>
+            """,
+            label=_("Timesheet Progress"),
+            spent=format_time(spent),
+            allocated=format_time(allocated),
+            hrs=_("hrs"),
+            percent=percent,
+            bar_color=bar_color,
         )
 
     def get_avatar(self):

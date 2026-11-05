@@ -33,7 +33,7 @@ def enter_if_accessible(function, feature, perm=None, method=None):
 
         if accessible or has_perm or (method and method(request, *args, **kwargs)):
             return function(request, *args, **kwargs)
-        messages.info(request, _("You dont have access to the feature"))
+        messages.info(request, _("You don't have access to the feature"))
 
         return HorillaRedirect(request)
 

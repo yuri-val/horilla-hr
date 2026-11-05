@@ -26,6 +26,7 @@ from django.utils.decorators import method_decorator
 from django.utils.translation import gettext as _
 from django.views import View
 from django.views.decorators.csrf import csrf_protect
+from django.views.decorators.http import require_POST
 from openpyxl import Workbook
 from openpyxl.drawing.image import Image
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -162,7 +163,12 @@ class ReloadField(View):
         queryset = field.queryset
         choices = [(instance.id, instance) for instance in queryset]
         choices.insert(0, ("", "Select option"))
-        choices.append(("dynamic_create", "Dynamic create"))
+        choices.append(
+            (
+                "dynamic_create",
+                _("Create %(label)s") % {"label": field.label or cache_field},
+            )
+        )
 
         form_field = forms.ChoiceField
         if isinstance(field, forms.ModelMultipleChoiceField):
@@ -699,8 +705,15 @@ class HorillaDeleteConfirmationView(View):
         # deleting related objects
         collector.nested(delete_callback)
         reload_target = self.request.GET.get("reload_target")
+        redirect_url = self.request.GET.get("redirect_url")
         script = ""
-        if reload_target:
+        if redirect_url:
+            # For a delete that removes a whole tab/record the page's own
+            # nav is built around (e.g. a recruitment's job tab) - an
+            # in-place click reload can't make that tab disappear, so
+            # navigate the whole page instead.
+            script = f"window.location.href = {json.dumps(redirect_url)};"
+        elif reload_target:
             script = f"$('{reload_target}').first().click();"
 
         return HorillaFormView.HttpResponse(script=script)
@@ -803,7 +816,14 @@ def export_data(request, *args, **kwargs):
     columns = eval_validate(request.POST.get("columns", "[]"))
 
     export_format = request.POST.get("format", "csv").lower()
-    file_name = request.POST.get("export_file_name", "quick_export")
+    # The modal lets the user clear the name, so fall back to the default.
+    # (and keep it to characters that are safe in a file name / header)
+    from horilla.horilla_middlewares import ExportOptionsMiddleware
+
+    file_name = (
+        ExportOptionsMiddleware._clean_name(request.POST.get("export_file_name", ""))
+        or "quick_export"
+    )
 
     date_range = request.session.get("report_date_range", "")
 
@@ -837,7 +857,7 @@ def export_data(request, *args, **kwargs):
     # EXPORT ACCESS CONTROL
     # =====================================================
     if not has_export_access(request, model):
-        messages.info(request, _("You dont have access to export this data"))
+        messages.info(request, _("You don't have access to export this data"))
         return HorillaRedirect(request)
 
     # =====================================================
@@ -1075,3 +1095,31 @@ class DynamicView(View):
             return HttpResponseForbidden("Invalid session key.")
 
         return render(request, "dynamic.html", {"field": field})
+
+
+@func_login_required
+@require_POST
+def existing_ids(request):
+    """
+    Which of the posted ids still exist for a model.
+
+    List views keep their selection in the browser (data-ids on the selection
+    store), so once records are deleted the store still holds their ids and the
+    "Unselect (N)" / "Update (N)" counts stay too high. The list asks this after
+    it reloads and drops the ids that are gone.
+    """
+    label = request.POST.get("model", "")
+    try:
+        model = apps.get_model(label)
+        ids = json.loads(request.POST.get("ids", "[]"))
+        if not isinstance(ids, list):
+            raise ValueError
+    except (LookupError, ValueError):
+        return JsonResponse({"ids": []}, status=400)
+    try:
+        existing = list(
+            model._base_manager.filter(pk__in=ids).values_list("pk", flat=True)
+        )
+    except (ValueError, TypeError):
+        return JsonResponse({"ids": []}, status=400)
+    return JsonResponse({"ids": [str(pk) for pk in existing]})

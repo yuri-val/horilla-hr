@@ -6,26 +6,6 @@
 </style>
 {% is_manager_of request.user instance as can_manage %}
 <div class="flex items-center justify-center gap-1">
-    <a
-        title="{% trans 'Edit' %}"
-        class="oh-btn oh-btn--light-bkg oh-btn--sq-sm"
-        data-toggle="oh-modal-toggle"
-        data-target="#genericModal"
-        hx-get="{% url 'update-attendance-request' instance.id %}"
-        hx-target="#genericModalBody"
-    >
-        <ion-icon name="create-outline" role="img" class="md hydrated"></ion-icon>
-    </a>
-    <a
-        data-toggle="oh-modal-toggle"
-        data-target="#validateAttendanceRequest"
-        hx-get="{% url 'validate-attendance-request' instance.id %}"
-        hx-trigger="click"
-        hx-target="#validateAttendanceRequestModalBody"
-        class="oh-btn oh-btn--light-bkg oh-btn--sq-sm"
-        title="{% trans 'View' %}"
-    ><ion-icon name="eye-outline" role="img"></ion-icon>
-    </a>
     {% if request.user|is_reportingmanager or perms.attendance.change_attendance %}
         <a
             href="#"
@@ -77,4 +57,25 @@
             <ion-icon name="close-circle-outline"></ion-icon>
         </a>
     {% endif %}
+
+    <a
+        title="{% trans 'Edit' %}"
+        class="oh-btn oh-btn--light-bkg oh-btn--sq-sm"
+        data-toggle="oh-modal-toggle"
+        data-target="#genericModal"
+        hx-get="{% url 'update-attendance-request' instance.id %}"
+        hx-target="#genericModalBody"
+    >
+        <ion-icon name="create-outline" role="img" class="md hydrated"></ion-icon>
+    </a>
+    <a
+        data-toggle="oh-modal-toggle"
+        data-target="#validateAttendanceRequest"
+        hx-get="{% url 'validate-attendance-request' instance.id %}"
+        hx-trigger="click"
+        hx-target="#validateAttendanceRequestModalBody"
+        class="oh-btn oh-btn--light-bkg oh-btn--sq-sm"
+        title="{% trans 'View' %}"
+    ><ion-icon name="eye-outline" role="img"></ion-icon>
+    </a>
 </div>

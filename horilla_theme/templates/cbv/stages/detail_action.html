@@ -4,11 +4,11 @@
         class="oh-btn oh-btn--light-bkg w-24 px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300"
         data-toggle="oh-modal-toggle"
         data-target="#genericModal"
-        hx-get="{% url 'rec-stage-update' instance.id %}?instances_ids={{ instance.ordered_ids }}"
+        hx-get="{% url 'rec-stage-duplicate' instance.id %}"
         hx-swap="innerHTML"
         hx-target="#genericModalBody"
     >
-        <ion-icon name="create-outline"></ion-icon>{% trans "Edit" %}
+        <ion-icon name="copy-outline"></ion-icon>{% trans "Duplicate" %}
     </a>
 {% endif %}
 
@@ -17,11 +17,11 @@
         class="oh-btn oh-btn--light-bkg w-24 px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300"
         data-toggle="oh-modal-toggle"
         data-target="#genericModal"
-        hx-get="{% url 'rec-stage-duplicate' instance.id %}"
+        hx-get="{% url 'rec-stage-update' instance.id %}?instances_ids={{ instance.ordered_ids }}"
         hx-swap="innerHTML"
         hx-target="#genericModalBody"
     >
-        <ion-icon name="copy-outline"></ion-icon>{% trans "Duplicate" %}
+        <ion-icon name="create-outline"></ion-icon>{% trans "Edit" %}
     </a>
 {% endif %}
 

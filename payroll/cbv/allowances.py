@@ -37,6 +37,16 @@ class AllowanceFormView(HorillaFormView):
     new_display_title = _("Create Allowance")
     template_name = "payroll/allowance/allowance_form.html"
 
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        # Section layout, formula chips and any saved extra conditions. Built
+        # in payroll/forms/component_layout.py so both component forms lay out
+        # the same way and a new field cannot go unrendered.
+        from payroll.forms.component_layout import form_context
+
+        context.update(form_context(self.form, Allowance))
+        return context
+
     def form_valid(self, form: AllowanceForm) -> HttpResponse:
         if form.is_valid():
             if form.instance.pk:
@@ -79,6 +89,13 @@ class AllowanceListView(HorillaListView):
     model = Allowance
     filter_class = AllowanceFilter
 
+    # "from" tracks which page embeds this list's nav (so "Add from library"
+    # returns there instead of always landing on the standalone Allowances
+    # page -- see AllowanceNavView) -- not a real filter, so it must not
+    # render as one in the applied-filters tag bar, complete with a Save
+    # button offering to save "From: Settings" as a saved filter.
+    filter_keys_to_remove = ["from"]
+
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.view_id = "allowance_id"
@@ -92,13 +109,10 @@ class AllowanceListView(HorillaListView):
 
     columns = [
         (_("Allowance"), "title"),
-        (_("Is Taxable"), "get_is_taxable_display"),
-        (_("Is Condition Based"), "get_is_condition_based"),
-        (_("Condition"), "condition_based_display"),
-        (_("Is Fixed"), "get_is_fixed"),
-        (_("Amount"), "amount"),
-        (_("Based On"), "get_based_on_display"),
-        (_("Rate"), "rate"),
+        (_("Code"), "code"),
+        (_("Taxable"), "get_is_taxable_display"),
+        (_("Calculation"), "get_calculation_col"),
+        (_("Applied To"), "get_applied_to_col"),
     ]
 
     sortby_mapping = [
@@ -119,10 +133,11 @@ class AllowanceListView(HorillaListView):
     }
 
     row_attrs = """
-                hx-get='{allowance_detail_view}?instance_ids={ordered_ids}'
-                hx-target="#genericModalBody"
-                data-target="#genericModal"
+                hx-get="{get_update_url}"
+                hx-target="#objectCreateModalTarget"
+                data-target="#objectCreateModal"
                 data-toggle="oh-modal-toggle"
+                hx-swap="innerHTML"
                 """
 
     row_status_class = "taxable-{is_taxable} fixed-{is_fixed}"
@@ -182,7 +197,10 @@ class AllowanceListView(HorillaListView):
         """
 
         queryset = super().get_queryset()
-        queryset = queryset.exclude(only_show_under_employee=True)
+        # Generated lines belong to one employee and the standard pay items are always applied: neither is a component to configure, so neither is listed.
+        queryset = queryset.exclude(only_show_under_employee=True).exclude(
+            is_system=True
+        )
 
         return queryset
 
@@ -205,6 +223,27 @@ class AllowanceNavView(HorillaNavView):
                                 hx-get="{reverse_lazy('create-allowance')}"
                                 hx-target="#objectCreateModalTarget"
                                 """
+            # Which page this nav is embedded in, so loading a
+            # component returns there rather than always landing on
+            # Allowances. Both standalone pages and the two
+            # payroll-settings tabs share these navs.
+            library_from = self.request.GET.get("from") or "allowance"
+            # The ready-made components. Offered beside Create rather than
+            # instead of it: HRA, PF, GOSI and the rest are the same handful
+            # every company builds by hand, and the rate or the base is easy
+            # to get subtly wrong.
+            self.actions = [
+                {
+                    "action": _("Add from library"),
+                    "attrs": f"""
+                        data-toggle="oh-modal-toggle"
+                        data-target="#objectCreateModal"
+                        hx-get="{reverse('component-library')}?from={library_from}"
+                        hx-target="#objectCreateModalTarget"
+                        hx-swap="innerHTML"
+                        """,
+                },
+            ]
 
         self.view_types = [
             {
@@ -230,6 +269,11 @@ class AllowanceNavView(HorillaNavView):
     filter_body_template = "cbv/allowances/allowance_filter.html"
     filter_form_context_name = "form"
     search_swap_target = "#listContainer"
+    # The page embeds this nav above an empty #listContainer and never fetches
+    # into it. apply_first_filter=True (the default) tells the nav "whoever
+    # embedded me already fetched the content", so nothing did -- the list
+    # stayed blank until a save or a filter happened to trigger a reload.
+    apply_first_filter = False
     # Modern slide-over filter panel (generic/horilla_nav.html's own
     # {% if modern_filter %} branch) -- same treatment as every other
     # panel this session. AllowanceFilter has no FK/M2M fields, so no
@@ -248,6 +292,10 @@ class AllowancesCardView(HorillaCardView):
     model = Allowance
     filter_class = AllowanceFilter
 
+    # See AllowanceListView's matching attribute: "from" tracks which page
+    # embeds this list's nav, not a real filter.
+    filter_keys_to_remove = ["from"]
+
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.search_url = reverse("allowances-card-view")
@@ -259,7 +307,10 @@ class AllowancesCardView(HorillaCardView):
         """
 
         queryset = super().get_queryset()
-        queryset = queryset.exclude(only_show_under_employee=True)
+        # Generated lines belong to one employee and the standard pay items are always applied: neither is a component to configure, so neither is listed.
+        queryset = queryset.exclude(only_show_under_employee=True).exclude(
+            is_system=True
+        )
 
         return queryset
 
@@ -278,10 +329,11 @@ class AllowancesCardView(HorillaCardView):
     }
 
     card_attrs = """
-                hx-get='{allowance_detail_view}?instance_ids={ordered_ids}'
-                hx-target="#genericModalBody"
-                data-target="#genericModal"
+                hx-get="{get_update_url}"
+                hx-target="#objectCreateModalTarget"
+                data-target="#objectCreateModal"
                 data-toggle="oh-modal-toggle"
+                hx-swap="innerHTML"
                 """
 
     card_status_class = "taxable-{is_taxable} fixed-{is_fixed}"

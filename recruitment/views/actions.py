@@ -14,6 +14,7 @@ from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
 from django.utils.translation import gettext as __
 from django.utils.translation import gettext_lazy as _
+from django.utils.translation import gettext_noop
 from django.views.decorators.http import require_http_methods
 
 from base.forms import MailTemplateForm
@@ -27,6 +28,7 @@ from employee.models import Employee
 from horilla.decorators import hx_request_required, login_required, permission_required
 from horilla.group_by import group_by_queryset
 from horilla.http import HorillaRedirect
+from horilla.http.response import with_bulk_result
 from notifications.signals import notify
 from recruitment.decorators import (
     candidate_login_required,
@@ -357,20 +359,16 @@ def candidate_bulk_archive(request):
     if request.GET.get("is_active") == "False":
         is_active = False
         message = _("archived")
+    done = failed = 0
     for cand_id in ids:
         candidate_obj = Candidate.objects.filter(id=cand_id).first()
         if not candidate_obj:
-            messages.error(request, _("Candidate not found."))
+            failed += 1
             continue
         # Archive actions only need status flip; bypass model-level full save validation.
         Candidate.objects.filter(id=cand_id).update(is_active=is_active)
-        messages.success(
-            request,
-            _("{candidate} is {message}").format(
-                candidate=candidate_obj, message=message
-            ),
-        )
-    return JsonResponse({"message": "Success"})
+        done += 1
+    return with_bulk_result(JsonResponse({"message": "Success"}), done, failed)
 
 
 @login_required
@@ -395,11 +393,10 @@ def remove_stage_manager(request, mid, sid):
     notify.send(
         request.user.employee_get,
         recipient=manager.employee_user_id,
-        verb=f"You are removed from stage managers from stage {stage_obj}",
-        verb_ar=f"تمت إزالتك من مديري المرحلة من المرحلة {stage_obj}",
-        verb_de=f"Sie wurden als Bühnenmanager von der Stufe {stage_obj} entfernt",
-        verb_es=f"Has sido eliminado/a de los gerentes de etapa de la etapa {stage_obj}",
-        verb_fr=f"Vous avez été supprimé(e) en tant que responsable de l'étape {stage_obj}",
+        verb=gettext_noop(
+            "You are removed from stage managers from stage %(stage_obj)s"
+        ),
+        verb_params={"stage_obj": str(stage_obj)},
         icon="person-remove",
         redirect="",
     )
@@ -448,12 +445,10 @@ def remove_recruitment_manager(request, mid, rid):
     notify.send(
         request.user.employee_get,
         recipient=manager.employee_user_id,
-        verb=f"You are removed from recruitment manager from {recruitment_obj}",
-        verb_ar=f"تمت إزالتك من وظيفة مدير التوظيف في {recruitment_obj}",
-        verb_de=f"Sie wurden als Personalvermittler von {recruitment_obj} entfernt",
-        verb_es=f"Has sido eliminado/a como gerente de contratación de {recruitment_obj}",
-        verb_fr=f"Vous avez été supprimé(e) en tant que responsable\
-                du recrutement de {recruitment_obj}",
+        verb=gettext_noop(
+            "You are removed from recruitment manager from %(recruitment_obj)s"
+        ),
+        verb_params={"recruitment_obj": str(recruitment_obj)},
         icon="person-remove",
         redirect="",
     )
@@ -539,6 +534,7 @@ def get_template_hint(request, obj_id=None):
 
 
 @login_required
+@hx_request_required
 def get_mail_preview(request):
     """
     Returns the mail template preview as HTML.
@@ -583,10 +579,4 @@ def get_mail_preview(request):
             f"</p>{rendered_body}"
         )
 
-    # Wrap in styled div
-    textarea_field = (
-        f'<div class="oh-input oh-input--textarea" '
-        f'style="border: solid .1px #dbd7d7; padding:5px;">{rendered_body}</div>'
-    )
-
-    return HttpResponse(textarea_field, content_type="text/html")
+    return HttpResponse(rendered_body, content_type="text/html")

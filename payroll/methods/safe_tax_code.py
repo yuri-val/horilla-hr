@@ -30,22 +30,102 @@ imports, file access, attribute introspection, or I/O are permitted.
 """
 
 import ast
+import ctypes
 import re
+import threading
 
 __all__ = [
+    "PYTHON_FORMULAS_OFF_MESSAGE",
+    "python_formulas_enabled",
+    "same_formula",
     "TaxCodeValidationError",
+    "TaxFormulaTimeout",
     "validate_tax_code",
     "run_tax_code",
+    "run_tax_formula",
 ]
+
+# Wall-clock budget for one formula evaluation. Generous for arithmetic over a
+# handful of brackets; short enough that a runaway formula cannot hold a
+# payroll run open.
+DEFAULT_TIMEOUT_SECONDS = 2.0
+
+
+PYTHON_FORMULAS_OFF_MESSAGE = _(
+    "Python formulas are turned off on this server. Use tax slabs, or ask whoever "
+    "runs Horilla to set HORILLA_ALLOW_PYTHON_TAX_FORMULAS=True."
+)
+
+
+def python_formulas_enabled() -> bool:
+    """Whether new Python tax formulas may be created, saved or test-run.
+
+    Gates *new* code only. Evaluating a formula that is already stored does not
+    consult this, so switching it off cannot stop a payroll run.
+    """
+    from django.conf import settings
+
+    return bool(getattr(settings, "HORILLA_ALLOW_PYTHON_TAX_FORMULAS", False))
+
+
+def same_formula(first, second) -> bool:
+    """Whether two formula texts are the same, ignoring line endings and the
+    whitespace at either end. A browser submits a textarea with Windows line
+    endings, so a formula re-saved untouched would otherwise look edited."""
+
+    def normalise(text):
+        return (text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+
+    return normalise(first) == normalise(second)
 
 
 class TaxCodeValidationError(ValueError):
     """Raised when user-supplied tax code violates the sandbox policy."""
 
 
+class TaxFormulaTimeout(Exception):
+    """Raised when a tax formula exceeds its execution time budget."""
+
+
 # Builtins that are safe to expose to the formula. Deliberately minimal:
 # numeric/sequence helpers only, nothing that touches the filesystem,
 # imports, evaluation, or introspection.
+# Ceiling on anything that can manufacture a long iteration. A tax formula
+# walks a handful of brackets; nothing legitimate needs a million steps.
+#
+# This exists because the wall-clock timeout cannot stop a C-level builtin.
+# ``sum(range(10**9))`` holds the GIL inside a single bytecode operation, so
+# the watchdog thread never gets scheduled to notice its deadline — measured at
+# 17 seconds of full-core burn against a 2 second timeout. Capping the
+# iteration at the source is what actually bounds it.
+MAX_ITERATIONS = 1_000_000
+
+# Largest exponent allowed to ``pow``. Big enough for any rate maths, small
+# enough that the result cannot become a multi-megabyte integer.
+MAX_POW_EXPONENT = 64
+
+
+def _guarded_range(*args):
+    """``range`` that refuses to produce an absurd number of steps."""
+    result = range(*args)
+    if len(result) > MAX_ITERATIONS:
+        raise TaxCodeValidationError(
+            f"range() of {len(result):,} steps exceeds the {MAX_ITERATIONS:,} "
+            "allowed in a tax formula."
+        )
+    return result
+
+
+def _guarded_pow(base, exponent, *args):
+    """``pow`` that refuses exponents big enough to be a memory bomb."""
+    if isinstance(exponent, (int, float)) and abs(exponent) > MAX_POW_EXPONENT:
+        raise TaxCodeValidationError(
+            f"pow() exponent {exponent} exceeds the maximum of {MAX_POW_EXPONENT} "
+            "allowed in a tax formula."
+        )
+    return pow(base, exponent, *args)
+
+
 _SAFE_BUILTINS = {
     "abs": abs,
     "min": min,
@@ -53,7 +133,7 @@ _SAFE_BUILTINS = {
     "round": round,
     "sum": sum,
     "len": len,
-    "range": range,
+    "range": _guarded_range,
     "float": float,
     "int": int,
     "bool": bool,
@@ -66,22 +146,100 @@ _SAFE_BUILTINS = {
     "zip": zip,
     "map": map,
     "filter": filter,
-    "pow": pow,
+    "pow": _guarded_pow,
     "divmod": divmod,
 }
 
-# AST node types that are flat-out forbidden anywhere in the source.
-_FORBIDDEN_NODES = (
-    ast.Import,
-    ast.ImportFrom,
-    ast.Global,
-    ast.Nonlocal,
-    # Async constructs have no place in a synchronous tax formula and only add
-    # surface area.
-    ast.AsyncFunctionDef,
-    ast.Await,
-    ast.AsyncFor,
-    ast.AsyncWith,
+# AST node types a tax formula may contain. Anything not listed here is
+# rejected, so a construct nobody thought about is refused rather than allowed.
+#
+# This is an allow-list on purpose. The previous policy listed what was
+# forbidden, which meant every newly discovered way around it needed another
+# entry and the next one was always one report away. Classes, imports,
+# global/nonlocal, async, generators/yield, ``with`` and ``match`` are simply
+# absent: a federal-tax formula is arithmetic, branching and a loop over
+# brackets.
+_ALLOWED_NODES = (
+    ast.Module,
+    # Statements
+    ast.FunctionDef,
+    ast.Return,
+    ast.Assign,
+    ast.AugAssign,
+    ast.AnnAssign,
+    ast.If,
+    ast.For,
+    ast.While,
+    ast.Break,
+    ast.Continue,
+    ast.Pass,
+    ast.Expr,
+    ast.Try,
+    ast.ExceptHandler,
+    ast.Raise,
+    ast.Assert,
+    ast.Delete,
+    # Expressions
+    ast.BinOp,
+    ast.UnaryOp,
+    ast.BoolOp,
+    ast.Compare,
+    ast.IfExp,
+    ast.Call,
+    ast.keyword,
+    ast.Name,
+    ast.Constant,
+    ast.List,
+    ast.Tuple,
+    ast.Set,
+    ast.Dict,
+    ast.Subscript,
+    ast.Slice,
+    ast.Starred,
+    ast.Lambda,
+    ast.NamedExpr,
+    ast.JoinedStr,
+    ast.FormattedValue,
+    ast.ListComp,
+    ast.SetComp,
+    ast.DictComp,
+    ast.GeneratorExp,
+    ast.comprehension,
+    ast.Attribute,  # further restricted to _ALLOWED_ATTRIBUTES below
+    ast.arguments,
+    ast.arg,
+    # Contexts and operators carry no behaviour of their own.
+    ast.expr_context,
+    ast.operator,
+    ast.unaryop,
+    ast.boolop,
+    ast.cmpop,
+)
+
+# The only attribute names a formula may use. Plain container methods: they
+# cannot lead from a value to the interpreter, a frame, a module or a class.
+# Attribute access is the one construct that reaches *from* a value *to*
+# something else, so it is checked by name against this list rather than by
+# looking for known-bad names (dunders, ``format``, frame and generator
+# internals, and whatever turns up next).
+_ALLOWED_ATTRIBUTES = frozenset(
+    {
+        "append",
+        "extend",
+        "insert",
+        "pop",
+        "get",
+        "items",
+        "keys",
+        "values",
+        "update",
+        "setdefault",
+        "copy",
+        "count",
+        "index",
+        "sort",
+        "reverse",
+    }
 )
 
 # Names that must never appear as identifiers, calls, or string-built
@@ -128,27 +286,39 @@ class _PolicyVisitor(ast.NodeVisitor):
         self.errors.append(f"line {lineno}: {message}")
 
     def generic_visit(self, node):
-        if isinstance(node, _FORBIDDEN_NODES):
+        if not isinstance(node, _ALLOWED_NODES):
             self._fail(
                 node,
                 f"{type(node).__name__} is not allowed in tax code "
-                "(imports, async, and global/nonlocal are forbidden).",
+                "(only arithmetic, branching, loops and simple functions).",
             )
             return
         super().generic_visit(node)
 
+    def visit_FunctionDef(self, node):
+        if node.name.startswith("__"):
+            self._fail(node, f"function name '{node.name}' is not allowed.")
+        # Decorators and return annotations run arbitrary expressions at
+        # definition time; a tax formula needs neither.
+        if node.decorator_list:
+            self._fail(node, "decorators are not allowed in tax code.")
+        self.generic_visit(node)
+
+    def visit_arg(self, node):
+        if node.arg.startswith("__"):
+            self._fail(node, f"argument name '{node.arg}' is not allowed.")
+        self.generic_visit(node)
+
     def visit_Attribute(self, node):
-        # Block any dunder attribute access -- this is the route to
-        # __class__ / __subclasses__ / __globals__ sandbox escapes.
-        if isinstance(node.attr, str) and node.attr.startswith("__"):
-            self._fail(
-                node, f"access to dunder attribute '{node.attr}' is not allowed."
-            )
-        # str.format()/format_map() resolve "{0.attr.attr}" at runtime, which
-        # is a getattr primitive the AST walk cannot see through when the
-        # string is assembled dynamically. Tax formulas have no use for them.
-        if node.attr in ("format", "format_map"):
-            self._fail(node, f"'.{node.attr}()' is not allowed in tax code.")
+        # Attribute access is checked against a short allow-list of plain
+        # container methods. Everything else -- dunders, str.format, frame and
+        # generator internals, module members -- is refused by name, not by
+        # being on a list of known-bad names.
+        if node.attr not in _ALLOWED_ATTRIBUTES:
+            self._fail(node, f"attribute '.{node.attr}' is not allowed in tax code.")
+        # Assigning to or deleting an attribute is never needed.
+        if not isinstance(node.ctx, ast.Load):
+            self._fail(node, "assigning to an attribute is not allowed in tax code.")
         self.generic_visit(node)
 
     def visit_Constant(self, node):
@@ -205,12 +375,46 @@ def validate_tax_code(code: str) -> None:
     _check(code)
 
 
-def run_tax_code(code: str, yearly_income):
-    """Validate, sandbox-execute, and call the tax formula.
+def _stop_worker(worker, attempts: int = 20, wait: float = 0.05):
+    """Ask CPython to raise ``SystemExit`` inside a worker that outran its timeout.
+
+    Python cannot kill a thread, but it can raise an exception in one the next
+    time it runs bytecode, which is enough for ``while True: pass``. It is
+    repeated because a formula may catch the first one (``try/except`` around
+    its own loop). It cannot interrupt a single long C call, which is why
+    ``range()`` and ``**`` are capped at source instead.
+    """
+    for _ in range(attempts):
+        if not worker.is_alive():
+            return
+        ctypes.pythonapi.PyThreadState_SetAsyncExc(
+            ctypes.c_ulong(worker.ident), ctypes.py_object(SystemExit)
+        )
+        worker.join(wait)
+
+
+def run_tax_formula(code: str, yearly_income, timeout: float = DEFAULT_TIMEOUT_SECONDS):
+    """Validate, sandbox-execute, and call the tax formula under a time limit.
 
     Returns the numeric result of ``calculate_federal_tax(yearly_income)``.
     Raises :class:`TaxCodeValidationError` if the code violates the sandbox
-    policy. Any error raised by the formula itself propagates to the caller.
+    policy, :class:`TaxFormulaTimeout` if it does not finish within ``timeout``
+    seconds, or propagates whatever the formula itself raised.
+
+    The AST allow-list above bounds what the code may *reach*, but nothing in
+    it bounds how long the code may *run*: ``while True: pass`` passes every
+    policy check and then hangs whichever thread is generating payslips. Since
+    the code being run is operator-supplied and stored in the database, that is
+    a denial-of-service waiting to happen, and it used to be reachable through
+    ``run_tax_code``.
+
+    The work therefore happens on a daemon worker joined with a wall-clock
+    timeout. ``threading`` rather than ``signal.alarm`` because the latter is
+    POSIX-only and this project runs on Windows too. Joining does not stop a
+    stuck worker, so on timeout it is also told to raise inside itself
+    (:func:`_stop_worker`). Without that the abandoned thread kept spinning for
+    the life of the process: every bad formula leaked a busy thread, and the
+    test suite ended up 25 minutes slower in CI waiting on the ones it made.
     """
     _check(code)
 
@@ -226,19 +430,55 @@ def run_tax_code(code: str, yearly_income):
         "pass_print": _noop,
         "formated_result": _noop,
     }
-    local_vars = {}
+    result_box = {}
+    error_box = {}
 
-    # The AST check above has already guaranteed there are no imports, dunder
-    # escapes, or dangerous calls; execution happens with the restricted
-    # builtins only.
-    compiled = compile(code, "<tax_code>", "exec")
-    exec(
-        compiled, sandbox_globals, local_vars
-    )  # noqa: S102 - sandboxed; see module docstring
+    def _worker():
+        try:
+            # The AST check above has already guaranteed there are no imports,
+            # dunder escapes, or dangerous calls; execution happens with the
+            # restricted builtins only.
+            #
+            # One namespace, deliberately: exec() with separate globals and
+            # locals puts the author's top-level definitions in locals, while a
+            # function body resolves free names through globals. So a formula
+            # that defined a helper — or recursed — died with "name 'helper' is
+            # not defined", and the only formulas that worked were ones with
+            # every helper nested inside the entry point.
+            compiled = compile(code, "<tax_code>", "exec")
+            exec(
+                compiled, sandbox_globals
+            )  # noqa: S102 - sandboxed; see module docstring
+            func = sandbox_globals.get(ENTRY_POINT)
+            if not callable(func):
+                raise TaxCodeValidationError(
+                    f"Tax code did not define a callable '{ENTRY_POINT}'."
+                )
+            result_box["value"] = func(yearly_income)
+        except BaseException as exc:  # noqa: BLE001 - re-raised in the caller's thread
+            error_box["error"] = exc
 
-    func = local_vars.get(ENTRY_POINT) or sandbox_globals.get(ENTRY_POINT)
-    if not callable(func):
-        raise TaxCodeValidationError(
-            f"Tax code did not define a callable '{ENTRY_POINT}'."
+    worker = threading.Thread(target=_worker, name="tax-formula-worker", daemon=True)
+    worker.start()
+    worker.join(timeout=timeout)
+
+    if worker.is_alive():
+        _stop_worker(worker)
+        raise TaxFormulaTimeout(
+            f"Tax formula did not finish within {timeout}s and was abandoned."
         )
-    return func(yearly_income)
+    if "error" in error_box:
+        raise error_box["error"]
+    return result_box.get("value")
+
+
+def run_tax_code(code: str, yearly_income):
+    """Backwards-compatible alias for :func:`run_tax_formula`.
+
+    Deliberately delegates rather than keeping its own untimed ``exec``: an
+    unbounded runner that still exists is one a caller can still reach, and
+    this one was reachable from ``tax_calc.calculate_taxable_amount`` on every
+    payslip. There is now no code path that executes a formula without a
+    timeout.
+    """
+    return run_tax_formula(code, yearly_income)

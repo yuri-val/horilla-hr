@@ -37,6 +37,10 @@ NEW_COMPANY_RECRUITMENTS = [
             ("Vikram Singh", "male"),
             ("Kavya Nair", "female"),
             ("Rohan Gupta", "male"),
+            ("Ishaan Kapoor", "male"),
+            ("Diya Patel", "female"),
+            ("Aditya Verma", "male"),
+            ("Meera Iyer", "female"),
         ],
     ),
     (
@@ -50,20 +54,35 @@ NEW_COMPANY_RECRUITMENTS = [
             ("Amelia Clarke", "female"),
             ("George Foster", "male"),
             ("Isla Robertson", "female"),
+            ("Jack Sullivan", "male"),
+            ("Freya Mitchell", "female"),
+            ("Thomas Baker", "male"),
+            ("Poppy Edwards", "female"),
         ],
     ),
 ]
 
 # Index into each recruitment's candidate list -> which stage they land in,
 # mirroring the realistic mix the existing Company-1 recruitments already
-# show (a couple hired, one cancelled, the rest still moving through).
-STAGE_PLAN = ("applied", "initial", "interview", "interview", "hired", "cancelled")
+# show (a healthy chunk hired, one cancelled, the rest still moving through).
+STAGE_PLAN = (
+    "applied",
+    "initial",
+    "interview",
+    "interview",
+    "shortlisted",
+    "cancelled",
+    "shortlisted",
+    "shortlisted",
+    "interview",
+    "shortlisted",
+)
 
 EXTRA_STAGES = (
     # (stage title, stage_type, sequence) -- "Applied"/"Initial" already
     # exist from create_initial_stage()'s own post_save signal.
     ("Interview", "interview", 2),
-    ("Hired", "hired", 3),
+    ("Shortlisted", "shortlisted", 3),
     ("Cancelled", "cancelled", 4),
 )
 
@@ -88,7 +107,7 @@ def backfill_company_recruitment_pipelines(today: date | None = None) -> int:
         recruitment, _ = Recruitment._base_manager.get_or_create(
             title=title,
             defaults={
-                "description": f"Demo recruitment pipeline for company {company_id}.",
+                "description": "Open hiring pipeline.",
                 "job_position_id_id": job_position_id,
                 "company_id_id": company_id,
                 "vacancy": 2,
@@ -127,7 +146,7 @@ def backfill_company_recruitment_pipelines(today: date | None = None) -> int:
         for i, (name, gender) in enumerate(candidates):
             stage_type = STAGE_PLAN[i % len(STAGE_PLAN)]
             stage = stage_by_type.get(stage_type) or stage_by_type["applied"]
-            hired = stage_type == "hired"
+            hired = stage_type == "shortlisted"
             email_name = name.lower().replace(" ", ".")
             profile = (
                 "recruitment/profile/profile-pic-girl.jpg"

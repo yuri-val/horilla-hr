@@ -5,16 +5,19 @@ Custom decorators for permission and manager checks in the application.
 """
 
 from functools import wraps
+from urllib.parse import urlencode
 
 from django.conf import settings
 from django.contrib import messages
 from django.http import HttpResponse
 from django.shortcuts import redirect, render
+from django.urls import reverse
+from django.utils.translation import gettext_lazy as _
 
 from employee.models import Employee
 from horilla.config import logger
 from horilla.methods import handle_no_permission
-from recruitment.models import Recruitment, Stage
+from recruitment.models import Candidate, Recruitment, Stage
 
 
 def decorator_with_arguments(decorator):
@@ -75,6 +78,13 @@ def manager_can_enter(function, perm=None, perms=None):
 
     def _function(request, *args, **kwargs):
         user = request.user
+        if not user.is_authenticated:
+            login_url = reverse("login")
+            params = urlencode(request.GET)
+            url = f"{login_url}?next={request.path}"
+            if params:
+                url += f"&{params}"
+            return redirect(url)
         employee = Employee.objects.filter(employee_user_id=user).first()
 
         is_manager = (
@@ -198,8 +208,19 @@ def candidate_login_required(view_func):
                 ):
                     allow_func = True
 
+        staff_allowed = allow_func
         if "candidate_id" in request.session:
             allow_func = True
+
+        # A candidate who was archived after logging in loses portal access
+        # at once. Staff previewing a candidate's page are unaffected.
+        if not staff_allowed and "candidate_id" in request.session:
+            if not Candidate.objects.filter(
+                pk=request.session.get("candidate_id"), is_active=True
+            ).exists():
+                request.session.pop("candidate_id", None)
+                request.session.pop("candidate_email", None)
+                return redirect(reverse("candidate-login") + "?disabled=1")
 
         if allow_func:
             try:

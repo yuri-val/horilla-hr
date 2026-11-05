@@ -11,17 +11,18 @@ from django.shortcuts import render
 from django.urls import reverse, reverse_lazy
 from django.utils.decorators import method_decorator
 from django.utils.translation import gettext_lazy as _
+from django.utils.translation import gettext_noop
 
-from attendance.cbv.tab_shell import AttendanceTabContentShell
 from base.methods import choosesubordinates, filtersubordinates, is_reportingmanager
 from employee.cbv.employee_profile import EmployeeProfileView
 from employee.models import Employee
-from horilla_views.cbv_methods import login_required
+from horilla_views.cbv_methods import EmployeeScopeMixin, login_required
 from horilla_views.generic.cbv.views import (
     HorillaDetailedView,
     HorillaFormView,
     HorillaListView,
     HorillaNavView,
+    HorillaTabContentShell,
     HorillaTabView,
     TemplateView,
 )
@@ -164,10 +165,21 @@ class LeaveAllocationRequestTab(HorillaTabView):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.view_id = "leave-allocation"
+        # Pass the page's own filters on to each tab's shell/nav/list (minus the
+        # tab-picking params), so a deep link like ?status=requested applies
+        # regardless of HX-Current-Url.
+        extra_params = self.request.GET.copy()
+        extra_params.pop("open_tab", None)
+        extra_params.pop("view", None)
+        query_string = extra_params.urlencode()
+
+        def with_query(url):
+            return f"{url}?{query_string}" if query_string else url
+
         self.tabs = [
             {
-                "title": _("My Leave allocation request"),
-                "url": f"{reverse('my-leave-allocation-tab-shell')}",
+                "title": _("My Leave Allocation Request"),
+                "url": with_query(reverse("my-leave-allocation-tab-shell")),
             },
         ]
         if self.request.user.has_perm(
@@ -176,8 +188,8 @@ class LeaveAllocationRequestTab(HorillaTabView):
 
             self.tabs.append(
                 {
-                    "title": _("Leave allocation requests"),
-                    "url": f"{reverse('leave-allocation-requests-tab-shell')}",
+                    "title": _("Leave Allocation Requests"),
+                    "url": with_query(reverse("leave-allocation-requests-tab-shell")),
                 },
             )
 
@@ -305,20 +317,6 @@ class _LeaveAllocationTabNavBase(HorillaNavView):
                             hx-get="{reverse_lazy('leave-allocation-request-create')}"
                             """
 
-        if self.request.user.has_perm("leave.add_leaveallocationrequest"):
-            self.actions = [
-                {
-                    "action": _("Bulk Allocate Leave"),
-                    "attrs": f"""
-                            data-toggle="oh-modal-toggle"
-                            data-target="#genericModal"
-                            hx-target="#genericModalBody"
-                            hx-get="{reverse_lazy('leave-allocation-request-bulk-create')}"
-                            style="cursor: pointer;"
-                        """,
-                },
-            ]
-
 
 @method_decorator(login_required, name="dispatch")
 class MyLeaveAllocationNav(_LeaveAllocationTabNavBase):
@@ -342,15 +340,44 @@ class LeaveAllocationRequestsNav(_LeaveAllocationTabNavBase):
         super().__init__(**kwargs)
         self.search_url = reverse("leave-allocation-requests-tab-view")
         self.search_swap_target = "#allLeaveAllocationListContainer"
+        # Bulk actions act on the selected rows of this tab only; the dialogs and
+        # the in-place refresh live in leave_allocation_request/bulk_actions.js.
+        if self.request.user.has_perm(
+            "leave.delete_leaveallocationrequest"
+        ) or is_reportingmanager(self.request):
+            self.actions = [
+                {
+                    "action": _("Bulk Approve"),
+                    "attrs": """
+                        onclick="leaveAllocationBulkApprove();"
+                        style="cursor: pointer;"
+                    """,
+                },
+                {
+                    "action": _("Bulk Reject"),
+                    "attrs": """
+                        onclick="leaveAllocationBulkReject();"
+                        style="cursor: pointer;"
+                    """,
+                },
+                {
+                    "action": _("Delete"),
+                    "attrs": """
+                        onclick="leaveAllocationBulkDelete();"
+                        data-action="delete"
+                        style="cursor: pointer; color:red !important"
+                    """,
+                },
+            ]
 
 
-class MyLeaveAllocationTabShell(AttendanceTabContentShell):
+class MyLeaveAllocationTabShell(HorillaTabContentShell):
     nav_url_name = "my-leave-allocation-nav"
     container_id = "myLeaveAllocationListContainer"
     tabs_root_id = "leave-allocation"
 
 
-class LeaveAllocationRequestsTabShell(AttendanceTabContentShell):
+class LeaveAllocationRequestsTabShell(HorillaTabContentShell):
     nav_url_name = "leave-allocation-requests-nav"
     container_id = "allLeaveAllocationListContainer"
     tabs_root_id = "leave-allocation"
@@ -401,10 +428,13 @@ class LeaveAllocationsRequestsTabDetailView(LeaveAllocationRequestDetailView):
 
 
 @method_decorator(login_required, name="dispatch")
-class LeaveAllocationRequestFormView(HorillaFormView):
+class LeaveAllocationRequestFormView(EmployeeScopeMixin, HorillaFormView):
     """
     Form View
     """
+
+    scope_perm = "leave.add_leaveallocationrequest"
+    scope_include_self = True
 
     model = LeaveAllocationRequest
     form_class = LeaveAllocationRequestForm
@@ -447,11 +477,10 @@ class LeaveAllocationRequestFormView(HorillaFormView):
                     notify.send(
                         self.request.user.employee_get,
                         recipient=instance.employee_id.employee_work_info.reporting_manager_id.employee_user_id,
-                        verb=f"Leave allocation request updated for {instance.employee_id}.",
-                        verb_ar=f"تم تحديث طلب تخصيص الإجازة لـ {instance.employee_id}.",
-                        verb_de=f"Urlaubszuteilungsanforderung aktualisiert für {instance.employee_id}.",
-                        verb_es=f"Solicitud de asignación de licencia actualizada para {instance.employee_id}.",
-                        verb_fr=f"Demande d'allocation de congé mise à jour pour {instance.employee_id}.",
+                        verb=gettext_noop(
+                            "Leave allocation request updated for %(employee)s."
+                        ),
+                        verb_params={"employee": str(instance.employee_id)},
                         icon="people-cicle",
                         redirect=reverse("leave-allocation-request-view")
                         + f"?id={instance.id}",
@@ -462,11 +491,10 @@ class LeaveAllocationRequestFormView(HorillaFormView):
                     notify.send(
                         self.request.user.employee_get,
                         recipient=instance.employee_id.employee_work_info.reporting_manager_id.employee_user_id,
-                        verb=f"New leave allocation request created for {instance.employee_id}.",
-                        verb_ar=f"تم إنشاء طلب تخصيص إجازة جديد لـ {instance.employee_id}.",
-                        verb_de=f"Neue Anfrage zur Urlaubszuweisung erstellt für {instance.employee_id}.",
-                        verb_es=f"Nueva solicitud de asignación de permisos creada para {instance.employee_id}.",
-                        verb_fr=f"Nouvelle demande d'allocation de congé créée pour {instance.employee_id}.",
+                        verb=gettext_noop(
+                            "New leave allocation request created for %(employee)s."
+                        ),
+                        verb_params={"employee": str(instance.employee_id)},
                         icon="people-cicle",
                         redirect=reverse("leave-allocation-request-view")
                         + f"?id={instance.id}",
@@ -478,18 +506,48 @@ class LeaveAllocationRequestFormView(HorillaFormView):
 
 
 @method_decorator(login_required, name="dispatch")
-class LeaveAllocationBulkFormView(HorillaFormView):
+class LeaveAllocationBulkFormView(EmployeeScopeMixin, HorillaFormView):
     """
     Form view to bulk allocate (and optionally approve) leave for multiple
     employees at once.
     """
 
+    # The employees named must be the caller's reports unless they hold the
+    # permission to allocate leave to anyone.
+    scope_perm = "leave.add_leaveallocationrequest"
+
     model = LeaveAllocationRequest
     form_class = LeaveAllocationBulkForm
     new_display_title = _("Bulk Allocate Leave")
 
+    def can_approve_for(self, employee_ids):
+        """
+        Approving credits the balance at once, so it needs the same right as
+        approving a single request: the delete permission, or being the
+        reporting manager of every chosen employee.
+        """
+        user = self.request.user
+        if user.has_perm("leave.delete_leaveallocationrequest"):
+            return True
+        manager = getattr(user, "employee_get", None)
+        if manager is None:
+            return False
+        return not (
+            Employee.objects.filter(id__in=employee_ids)
+            .exclude(employee_work_info__reporting_manager_id=manager)
+            .exists()
+        )
+
     def form_valid(self, form: LeaveAllocationBulkForm) -> HttpResponse:
         if form.is_valid():
+            if form.cleaned_data.get("is_approved") and not self.can_approve_for(
+                self.request.POST.getlist("employee_id")
+            ):
+                form.add_error(
+                    "is_approved",
+                    _("Approval is limited to the managers of the chosen employees."),
+                )
+                return self.form_invalid(form)
             created_requests = form.save()
             messages.success(
                 self.request,

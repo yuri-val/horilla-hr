@@ -229,6 +229,8 @@ def normalize_log_entries(log_entries):
                 "change_count": len(changes),
                 "source": "auditlog",
                 "revert_history_id": None,
+                "object_pk": getattr(entry, "object_pk", None),
+                "log_id": getattr(entry, "pk", None),
             }
         )
     return entries
@@ -248,15 +250,18 @@ def group_history_entries(entries):
     return [{"label": label, "entries": grouped[label]} for label in group_order]
 
 
-def build_activity_history_feed(tracking=None, log_entries=None):
+def build_activity_history_feed(tracking=None, log_entries=None, entries=None):
     """
     Build the shared activity-history context used by templates / inclusion tags.
     Prefers simple-history tracking when present; otherwise uses auditlog entries.
+    ``entries`` bypasses normalization for callers that already merged and
+    normalized entries themselves (e.g. across several records of a model).
     """
-    if tracking:
-        entries = normalize_tracking_entries(tracking)
-    else:
-        entries = normalize_log_entries(log_entries)
+    if entries is None:
+        if tracking:
+            entries = normalize_tracking_entries(tracking)
+        else:
+            entries = normalize_log_entries(log_entries)
 
     history_groups = group_history_entries(entries)
     return {

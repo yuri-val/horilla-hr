@@ -13,6 +13,7 @@ from django.shortcuts import render
 from django.urls import reverse, reverse_lazy
 from django.utils.decorators import method_decorator
 from django.utils.translation import gettext_lazy as _
+from django.utils.translation import gettext_noop
 
 from employee.models import Employee
 from horilla_views.cbv_methods import login_required, permission_required
@@ -91,10 +92,10 @@ class StageList(HorillaListView):
     row_status_indications = [
         (
             "hired--dot",
-            _("Hired"),
+            _("Shortlisted"),
             """
             onclick="
-                $('#applyFilter').closest('form').find('[name=stage_type]').val('hired');
+                $('#applyFilter').closest('form').find('[name=stage_type]').val('shortlisted');
                 $('#applyFilter').click();
             "
             """,
@@ -215,6 +216,14 @@ class StageFormView(HorillaFormView):
         context = super().get_context_data(**kwargs)
         rec_id = self.request.GET.get("recruitment_id")
         self.form.fields["recruitment_id"].initial = rec_id
+        # Add Stage is opened from one recruitment's own pipeline tab
+        # (recruitment_pipeline_actions()'s hx-get always carries that
+        # recruitment's ?recruitment_id=) - only setting .initial left the
+        # field a fully open dropdown letting the user pick a DIFFERENT
+        # recruitment to add the stage to instead, defeating the point of
+        # opening the form from that tab. Lock it, mirroring
+        # OffboardingStageFormView's offboarding_id widget.
+        self.form.fields["recruitment_id"].widget = forms.HiddenInput()
         if self.form.instance.pk:
             self.form_class.verbose_name = _("Edit Stage")
             self.form_class(instance=self.form.instance)
@@ -260,18 +269,15 @@ class StageFormView(HorillaFormView):
                     notify.send(
                         self.request.user.employee_get,
                         recipient=users,
-                        verb=f"Stage {stage_obj} is updated on recruitment {stage_obj.recruitment_id},\
-                            You are chosen as one of the managers",
-                        verb_ar=f"تم تحديث المرحلة {stage_obj} في التوظيف\
-                            {stage_obj.recruitment_id}، تم اختيارك كأحد المديرين",
-                        verb_de=f"Stufe {stage_obj} wurde in der Rekrutierung {stage_obj.recruitment_id}\
-                            aktualisiert. Sie wurden als einer der Manager ausgewählt",
-                        verb_es=f"La etapa {stage_obj} ha sido actualizada en la contratación\
-                            {stage_obj.recruitment_id}. Has sido elegido/a como uno de los gerentes",
-                        verb_fr=f"L'étape {stage_obj} a été mise à jour dans le recrutement\
-                            {stage_obj.recruitment_id}. Vous avez été choisi(e) comme l'un des responsables",
+                        verb=gettext_noop(
+                            "Stage %(stage_obj)s is updated on recruitment %(recruitment_id)s. You are chosen as one of the managers."
+                        ),
+                        verb_params={
+                            "stage_obj": str(stage_obj),
+                            "recruitment_id": str(stage_obj.recruitment_id),
+                        },
                         icon="people-circle",
-                        redirect=reverse("pipeline"),
+                        redirect=reverse("cbv-pipeline"),
                     )
                 # Refresh pipeline tab content immediately after creating a stage.
                 targets_to_reload.append("#applyFilter")

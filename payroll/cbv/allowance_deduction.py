@@ -6,7 +6,9 @@ import operator
 from typing import Any
 
 from django.apps import apps
+from django.contrib import messages
 from django.http import HttpResponse
+from django.shortcuts import redirect
 from django.urls import reverse
 from django.utils.decorators import method_decorator
 from django.utils.translation import gettext_lazy as _
@@ -44,7 +46,8 @@ class AllowanceDeductionTabView(HorillaTabView):
 
     def dispatch(self, request, *args, **kwargs):
         if not Employee.objects.filter(id=kwargs.get("pk")).exists():
-            return HttpResponse()
+            messages.error(request, "Employee not found.")
+            return redirect("employee-view")
         return super().dispatch(request, *args, **kwargs)
 
     def get_context_data(self, **kwargs):
@@ -62,17 +65,21 @@ class AllowanceDeductionTabView(HorillaTabView):
             else None
         )
         if active_contract:
+            from payroll.methods.component_engine import group_targeted
+
             all_qs = (
                 Allowance.objects.filter(specific_employees=employee)
                 | Allowance.objects.filter(include_active_employees=True).exclude(
                     exclude_employees=employee
                 )
+                | group_targeted(employee, Allowance)
             ).distinct()
             ded_qs = (
                 Deduction.objects.filter(specific_employees=employee)
                 | Deduction.objects.filter(include_active_employees=True).exclude(
                     exclude_employees=employee
                 )
+                | group_targeted(employee, Deduction)
             ).distinct()
         else:
             all_qs = Allowance.objects.none()
@@ -108,6 +115,8 @@ class AllowanceTabList(AllowanceListView):
     list view for allowance tab
     """
 
+    show_saved_filters = False
+
     template_name = "cbv/allowance_deduction/allowance_deduction.html"
 
     def __init__(self, **kwargs: Any) -> None:
@@ -115,6 +124,8 @@ class AllowanceTabList(AllowanceListView):
         self.view_id = "allowance_tab_id"
         pk = self.request.resolver_match.kwargs.get("pk")
         self.search_url = reverse("allowance-tab-list", kwargs={"pk": pk})
+        if not self.request.user.has_perm("payroll.add_allowance"):
+            self.row_attrs = ""
 
     columns = [
         col
@@ -134,7 +145,8 @@ class AllowanceTabList(AllowanceListView):
     @method_decorator(login_required, name="dispatch")
     def dispatch(self, request, *args, **kwargs):
         if not Employee.objects.filter(id=kwargs.get("pk")).exists():
-            return HttpResponse()
+            messages.error(request, "Employee not found.")
+            return redirect("employee-view")
         return super(AllowanceListView, self).dispatch(request, *args, **kwargs)
 
     def get_context_data(self, **kwargs: Any):
@@ -185,8 +197,13 @@ class AllowanceTabList(AllowanceListView):
                 exclude_employees=employee
             )
 
+            from payroll.methods.component_engine import group_targeted
+
             combined_allowances = (
-                specific_allowances | conditional_allowances | active_employees
+                specific_allowances
+                | conditional_allowances
+                | active_employees
+                | queryset.filter(pk__in=group_targeted(employee, queryset.model))
             )
             combined_allowances = combined_allowances.distinct()
 
@@ -227,10 +244,13 @@ class DeductionTab(DeductionListView):
     list view for deduction tab
     """
 
+    show_saved_filters = False
+
     @method_decorator(login_required, name="dispatch")
     def dispatch(self, request, *args, **kwargs):
         if not Employee.objects.filter(id=kwargs.get("pk")).exists():
-            return HttpResponse()
+            messages.error(request, "Employee not found.")
+            return redirect("employee-view")
         return super(DeductionListView, self).dispatch(request, *args, **kwargs)
 
     def __init__(self, **kwargs: Any) -> None:
@@ -239,6 +259,8 @@ class DeductionTab(DeductionListView):
         pk = self.request.resolver_match.kwargs.get("pk")
         self.search_url = reverse("deduction-tab-list", kwargs={"pk": pk})
         self.row_status_indications = None
+        if not self.request.user.has_perm("payroll.add_deduction"):
+            self.row_attrs = "{diff_cell}"
 
     columns = [
         col

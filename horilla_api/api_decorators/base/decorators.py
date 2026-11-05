@@ -113,7 +113,8 @@ def manager_or_owner_permission_required(model_class, perm):
                 # Compare as text: a form-encoded body delivers the id as a
                 # string and JSON as an int, and an owner whose own id failed to
                 # match would previously fall through to the manager branch.
-                target_id = request.data.get("employee_id")
+                data = request.data if hasattr(request.data, "get") else {}
+                target_id = data.get("employee_id")
                 if target_id is not None and str(target_id) == str(employee.id):
                     return func(self, request, *args, **kwargs)
                 target = Employee.objects.filter(pk=target_id).first()
@@ -222,7 +223,7 @@ def check_approval_status(model, perm):
             if object.approved:
                 return Response(
                     {
-                        "error": _("Approved %(model)s can't preform this action ")
+                        "error": _("Approved %(model)s can't perform this action ")
                         % {"model": model.__name__}
                     },
                     status=400,
@@ -230,7 +231,7 @@ def check_approval_status(model, perm):
             if object.canceled:
                 return Response(
                     {
-                        "error": _("Canceled %(model)s can't preform this action ")
+                        "error": _("Canceled %(model)s can't perform this action ")
                         % {"model": model.__name__}
                     },
                     status=400,

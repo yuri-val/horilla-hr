@@ -1,11 +1,38 @@
-{% load i18n recruitmentfilters %}
+{% load i18n static recruitmentfilters %}
+{# No style overrides here on purpose: this view is meant to look like     #}
+{# /onboarding/onboarding-view/'s stage accordion, which keeps the shared #}
+{# .oh-tabs__movable card framing (1px #e6e6e6 border, tinted card       #}
+{# background) and the .oh-tabs__movable-body's 20px padding. An earlier  #}
+{# override stripped both to make the embedded candidate table sit flush; #}
+{# that is what made this view's open/close blocks differ from the        #}
+{# onboarding ones.                                                       #}
 <div id="{{view_id}}">
+  {% if not stages %}
+  <div class="oh-wrapper" align="center" style="margin-top: 7vh; margin-bottom: 7vh;">
+    <div align="center">
+      <img
+        src='{% static "images/ui/search.svg" %}'
+        class="oh-404__image"
+        alt="{% trans 'Page not found. 404.' %}"
+      >
+      <h1 class="oh-404__title">{% trans "No stages found" %}</h1>
+      <p class="oh-404__subtitle">
+        {% trans "This recruitment has no stages yet." %}
+      </p>
+    </div>
+  </div>
+  {% endif %}
   {% for stage in stages %}
   <div id="selectedCandidateRecords{{ stage.id }}" data-ids="[]"></div>
   <div class="oh-tabs__movable-area mb-2">
-    <div class="oh-tabs__movable">
-      <div class="oh-tabs__movable-header" style="cursor:pointer;"
-           onclick="$(this).parent().find('.oh-tabs__movable-body').toggleClass('d-none'); var foldIcon = this.querySelector('.oh-tabs__movable-fold-icon'); if(foldIcon){foldIcon.setAttribute('name', foldIcon.getAttribute('name') === 'chevron-up-outline' ? 'chevron-down-outline' : 'chevron-up-outline');}">
+    {# Header markup mirrors /onboarding/onboarding-view/'s stage accordion #}
+    {# (cbv/pipeline/onboarding/stages.html): the `group` class here is what #}
+    {# makes the header's `group-hover:bg-primary-200` work, and the tint/    #}
+    {# text colour are stated explicitly rather than left to index.html's    #}
+    {# global .oh-tabs__movable-header rule.                                 #}
+    <div class="oh-tabs__movable group">
+      <div class="oh-tabs__movable-header bg-primary-100 text-primary-600 group-hover:bg-primary-200" style="cursor:pointer;"
+           onclick="var icon = this.querySelector('.movable-toggle-icon'); if (icon) { var name = icon.getAttribute('name'); icon.setAttribute('name', name === 'chevron-down-outline' ? 'chevron-up-outline' : 'chevron-down-outline'); } $(this).parent().find('.oh-tabs__movable-body').toggleClass('d-none');">
         <span class="oh-tabs__movable-title" style="display:flex;align-items:center;gap:0.5rem;">
           {# Server-rendered count — accurate, no JS counting needed #}
           <span class="stage-count-badge w-6 h-6 bg-primary-600 rounded-full text-white flex items-center justify-center text-xs"
@@ -15,44 +42,41 @@
           {{stage.stage}}
         </span>
 
+        {# The per-stage actions (Add Candidate/Edit/Bulk mail/Delete) now   #}
+        {# render as their own "Actions" button inside this stage's own     #}
+        {# body (cbv/pipeline/candidate_list.html / empty.html), not here - #}
+        {# only the fold chevron (pure view state) stays in-header.         #}
         <div class="flex items-center gap-4">
-          <ion-icon name="chevron-up-outline" class="oh-tabs__movable-fold-icon me-2"></ion-icon>
-          <div onclick="event.stopPropagation()" class="relative inline-block dropdown-wrapper" role="button" title="{% trans 'Actions' %}">
-            <button class="cursor-pointer dropdown-toggle w-[20px]" onclick="event.stopPropagation(); var m = $(this).next('.dropdown-menu'); $('.dropdown-menu').not(m).addClass('hidden'); m.toggleClass('hidden');">
-              <i class="fa-solid fa-ellipsis-vertical text-black"></i>
-            </button>
-            <div class="dropdown-menu absolute right-0 min-w-[100px] bg-white rounded-lg shadow-card py-2 hidden z-50 transition-all duration-200" style="min-width:120px !important;">
-              <ul class="text-xs text-dark-600">
-                {% if perms.recruitment.add_candidate or request.user.employee_get in stage.stage_managers.all or request.user.employee_get in rec.recruitment_managers.all %}
-                <li>
-                  <a hx-target="#objectCreateModalTarget" hx-get="{% url 'add-candidate-to-stage'%}?stage_id={{ stage.id }}" data-toggle="oh-modal-toggle" data-target="#objectCreateModal" class="block w-full text-left px-3 py-1 text-dark-600 hover:text-primary-600 transition duration-300 cursor-pointer">{% trans 'Add Candidate' %}</a>
-                </li>
-                {% endif %}
-                {% if perms.recruitment.change_stage or request.user|recruitment_manages:rec or request.user.employee_get in stage.stage_managers.all %}
-                <li>
-                  <a hx-target="#genericModalBody" hx-get="{% url 'stage-update-pipeline' stage.id %}" data-toggle="oh-modal-toggle" data-target="#genericModal" class="block w-full text-left px-3 py-1 text-dark-600 hover:text-primary-600 transition duration-300 cursor-pointer">{% trans 'Edit' %}</a>
-                </li>
-                <li>
-                  <a hx-target="#objectCreateModalTarget" hx-get="{% url 'send-mail' %}?stage_id={{stage.id}}" data-toggle="oh-modal-toggle" data-target="#objectCreateModal" class="block w-full text-left px-3 py-1 text-dark-600 hover:text-primary-600 transition duration-300 cursor-pointer">{% trans 'Bulk mail' %}</a>
-                </li>
-                {% endif %}
-                {% if perms.recruitment.delete_stage %}
-                <li>
-                  <a data-toggle="oh-modal-toggle" data-target="#deleteConfirmation" hx-get="{% url 'generic-delete' %}?model=recruitment.Stage&pk={{stage.pk}}" hx-target="#deleteConfirmationBody" class="block w-full text-left px-3 py-1 text-dark-600 hover:text-primary-600 transition duration-300 cursor-pointer">{% trans 'Delete' %}</a>
-                </li>
-                {% endif %}
-              </ul>
-            </div>
-          </div>
+          {# Starts pointing the way this stage's body actually is: stages #}
+          {# with no candidates render collapsed (d-none below).           #}
+          <ion-icon name="{% if stage.candidate_count == 0 %}chevron-down-outline{% else %}chevron-up-outline{% endif %}" class="movable-toggle-icon icon text-lg"></ion-icon>
         </div>
       </div>
-      {# Collapse empty stages immediately on render #}
+      {# Collapse empty stages immediately on render, and don't fetch their  #}
+      {# body on `load` like every other stage: candidate_count already     #}
+      {# came from one aggregate query in GetStages, so on a recruitment    #}
+      {# with dozens of stages (most of them empty in practice), firing all  #}
+      {# of those fetches upfront is most of the page's load time for       #}
+      {# nothing anyone's looking at yet. Instead, fetch once - still        #}
+      {# through the real candidate-lists-cbv endpoint, so the Actions      #}
+      {# button (Add Candidate/Edit/Bulk mail/Delete) and empty.html's "No   #}
+      {# records found." both render exactly as they would have - the first  #}
+      {# time the user clicks this stage's header open. #}
+      {% if stage.candidate_count > 0 %}
       <div
-        class="oh-tabs__movable-body position-relative{% if stage.candidate_count == 0 %} d-none{% endif %}"
+        class="oh-tabs__movable-body position-relative"
         hx-get="{% url "candidate-lists-cbv" stage.pk stage.recruitment_id.pk %}?{{request.GET.urlencode}}"
         hx-trigger="load"
         data-count-loaded="1"
       ></div>
+      {% else %}
+      <div
+        class="oh-tabs__movable-body position-relative d-none"
+        hx-get="{% url "candidate-lists-cbv" stage.pk stage.recruitment_id.pk %}?{{request.GET.urlencode}}"
+        hx-trigger="click once from:previous .oh-tabs__movable-header"
+        data-count-loaded="1"
+      ></div>
+      {% endif %}
     </div>
   </div>
   {% endfor %}
@@ -60,17 +84,10 @@
     (function () {
       var VIEW_ID = "{{view_id}}";
 
-      // ── Fold icon for empty stages ─────────────────────────────────────────
-      // Stage bodies with count 0 already have d-none from the template.
-      // Flip their fold icon to chevron-down so the UI is consistent.
-      $("#" + VIEW_ID).find(".oh-tabs__movable").each(function () {
-        var $movable = $(this);
-        var $body = $movable.find(".oh-tabs__movable-body");
-        if ($body.hasClass("d-none")) {
-          var icon = $movable.find(".oh-tabs__movable-fold-icon")[0];
-          if (icon) icon.setAttribute("name", "chevron-down-outline");
-        }
-      });
+      // (The fold icon for empty stages used to be corrected here after
+      // render; the template now emits the right chevron directly from the
+      // same stage.candidate_count that decides the d-none, so there is
+      // nothing left to fix up.)
 
       // ── After-action refresh ───────────────────────────────────────────────
       // When a candidate is added/moved/removed inside this pipeline view,
@@ -91,6 +108,7 @@
               .attr("title", count);
           }
         });
+        syncTabBadge();
       }
 
       // Register per-view handler; remove stale one first.
@@ -107,6 +125,27 @@
         window.__legacyStageSyncHandler = null;
         window.stageCandidateCountSyncBound = false;
       }
+
+      // ── Job tab's own badge: total across every stage below ─────────────
+      // The tab bar (horilla_tabs.html) is rendered once, so its badge is
+      // patched here, found via the tab button whose data-target points at
+      // this content div's id. It is the sum of the stage counts, refreshed
+      // whenever a stage count changes (add / move / delete).
+      function syncTabBadge() {
+        var contentEl = document.getElementById(VIEW_ID);
+        var tabContent = contentEl && contentEl.closest(".oh-tabs__content");
+        if (!tabContent) return;
+        var tabButton = document.querySelector('[data-target="#' + tabContent.id + '"]');
+        var badge = tabButton && tabButton.querySelector(".tab-badge");
+        if (!badge) return;
+        var total = 0;
+        contentEl.querySelectorAll(".stage-count-badge").forEach(function (b) {
+          total += parseInt(b.textContent, 10) || 0;
+        });
+        badge.textContent = total > 999 ? "999+" : total;
+        badge.title = total + " " + (badge.getAttribute("data-badge-label") || "Items");
+      }
+      syncTabBadge();
     })();
   </script>
 </div>

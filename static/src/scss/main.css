@@ -8303,6 +8303,7 @@ body {
 .oh-btn--disabled {
   opacity: 0.6;
   cursor: not-allowed !important;
+  pointer-events: none;
 }
 .oh-btn--disabled:focus, .oh-btn--disabled:focus-visible {
   outline: none;
@@ -11320,6 +11321,11 @@ span.oh-activity-sidebar__a img {
   display: flex;
   align-items: center;
   color: hsl(0, 0%, 27%);
+}
+.oh-timeoff-modal__download-link ion-icon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
 }
 .oh-timeoff-modal__download-link:hover, .oh-timeoff-modal__download-link:focus, .oh-timeoff-modal__download-link:focus-visible {
   text-decoration: none;

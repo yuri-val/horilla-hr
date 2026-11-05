@@ -1,18 +1,5 @@
 {% load i18n static %}
 
-<a
-    class="oh-btn oh-btn--light-bkg oh-btn--secondary w-24 px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300"
-    onclick="event.stopPropagation()"
-    data-toggle="oh-modal-toggle"
-    data-target="#genericModal"
-    hx-get="{% url 'update-key-result' instance.id %}?instances_ids={{ request.GET.instance_ids }}"
-    hx-target="#genericModalBody"
-    title='{% trans "Edit" %}'
->
-    <ion-icon name="create-outline"></ion-icon>
-    {% trans "Edit" %}
-</a>
-
 {% if not instance.is_active %}
     <a
         class="oh-btn oh-btn--light-bkg w-24 px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300"
@@ -38,6 +25,19 @@
         {% trans "Archive" %}
     </a>
 {% endif %}
+
+<a
+    class="oh-btn oh-btn--light-bkg w-24 px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300"
+    onclick="event.stopPropagation()"
+    data-toggle="oh-modal-toggle"
+    data-target="#genericModal"
+    hx-get="{% url 'update-key-result' instance.id %}?instances_ids={{ request.GET.instance_ids }}"
+    hx-target="#genericModalBody"
+    title='{% trans "Edit" %}'
+>
+    <ion-icon name="create-outline"></ion-icon>
+    {% trans "Edit" %}
+</a>
 
 <a
     class="w-24 px-4 py-2 bg-danger text-white rounded-md text-xs flex items-center justify-center gap-2 hover:bg-danger-dark transition duration-300"

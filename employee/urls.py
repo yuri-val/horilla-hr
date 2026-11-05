@@ -5,6 +5,7 @@ This module is used to map url path with view methods.
 """
 
 from django.urls import path
+from django.utils.translation import gettext_lazy as _
 
 from base.templatetags.horillafilters import app_installed
 from base.views import object_delete, object_duplicate
@@ -146,7 +147,7 @@ urlpatterns = [
         "employee-view-update/<int:obj_id>/",
         views.employee_view_update,
         name="employee-view-update",
-        kwargs={"model": Employee},
+        kwargs={"model": Employee, "crumb_label": _("Edit")},
     ),
     path(
         "employee-create-personal-info/",
@@ -214,6 +215,26 @@ urlpatterns = [
         name="employee-bulk-archive",
     ),
     path(
+        "employee-reset-password-admin/<int:emp_id>/",
+        views.employee_reset_password_admin,
+        name="employee-reset-password-admin",
+    ),
+    path(
+        "employee-bulk-reset-password-admin/",
+        views.employee_bulk_reset_password_admin,
+        name="employee-bulk-reset-password-admin",
+    ),
+    path(
+        "employee-send-invitation/<int:emp_id>/",
+        views.employee_send_invitation,
+        name="employee-send-invitation",
+    ),
+    path(
+        "employee-bulk-send-invitation/",
+        views.employee_bulk_send_invitation,
+        name="employee-bulk-send-invitation",
+    ),
+    path(
         "employee-archive/<int:obj_id>/",
         views.employee_archive,
         name="employee-archive",
@@ -272,44 +293,39 @@ urlpatterns = [
         name="employee-dashboard-kpi",
     ),
     path(
+        "dashboard/api/work-type/",
+        emp_dashboard.employee_by_work_type,
+        name="employee-dashboard-work-type",
+    ),
+    path(
+        "dashboard/api/shift/",
+        emp_dashboard.employee_by_shift,
+        name="employee-dashboard-shift",
+    ),
+    path(
         "dashboard/api/departments/",
         emp_dashboard.employee_by_department,
         name="employee-dashboard-dept",
     ),
     path(
-        "dashboard/api/gender/",
-        emp_dashboard.employee_by_gender,
-        name="employee-dashboard-gender",
+        "dashboard/api/department-positions/",
+        emp_dashboard.employee_department_positions,
+        name="employee-dashboard-dept-positions",
     ),
     path(
-        "dashboard/api/type/",
-        emp_dashboard.employee_by_type,
-        name="employee-dashboard-type",
+        "dashboard/api/reporting-managers/",
+        emp_dashboard.employee_by_reporting_manager,
+        name="employee-dashboard-reporting-managers",
     ),
     path(
-        "dashboard/api/position/",
-        emp_dashboard.employee_by_job_position,
-        name="employee-dashboard-position",
+        "dashboard/api/new-joiners/",
+        emp_dashboard.employee_new_joiners,
+        name="employee-dashboard-new-joiners",
     ),
     path(
-        "dashboard/api/joining-trend/",
-        emp_dashboard.employee_joining_trend,
-        name="employee-dashboard-joining-trend",
-    ),
-    path(
-        "dashboard/api/headcount/",
-        emp_dashboard.employee_headcount_trend,
-        name="employee-dashboard-headcount",
-    ),
-    path(
-        "dashboard/api/recent/",
-        emp_dashboard.employee_recent_list,
-        name="employee-dashboard-recent",
-    ),
-    path(
-        "dashboard/api/birthdays/",
-        emp_dashboard.employee_upcoming_birthdays,
-        name="employee-dashboard-birthdays",
+        "dashboard/api/expired-documents/",
+        emp_dashboard.employee_expired_documents,
+        name="employee-dashboard-expired-documents",
     ),
     path(
         "total-employees-count/",
@@ -374,6 +390,16 @@ urlpatterns = [
         kwargs={"model": Employee},
     ),
     path("document-tab/<int:pk>/", views.document_tab, name="document-tab"),
+    path(
+        "employee-document-tab-shell/<int:pk>/",
+        document_request.DocumentIndividualTabShell.as_view(),
+        name="employee-document-tab-shell",
+    ),
+    path(
+        "employee-document-tab-nav/<int:pk>/",
+        document_request.DocumentIndividualNav.as_view(),
+        name="employee-document-tab-nav",
+    ),
     path(
         "employee-document-tab-list/<int:pk>/",
         document_request.DocumentIndividualTabList.as_view(),
@@ -455,9 +481,24 @@ urlpatterns = [
         name="policies-discipline-policies-tab",
     ),
     path(
+        "policies-discipline/faq-tab/",
+        policies.policies_discipline_faq_tab,
+        name="policies-discipline-faq-tab",
+    ),
+    path(
+        "policies-discipline/faq-view/<int:obj_id>/",
+        policies.policies_discipline_faq_view,
+        name="policies-discipline-faq-view",
+    ),
+    path(
         "policies-discipline/action-type-tab/",
         policies.policies_discipline_action_type_tab,
         name="policies-discipline-action-type-tab",
+    ),
+    path(
+        "policies-discipline/penalty-tab/",
+        policies.policies_discipline_penalty_tab,
+        name="policies-discipline-penalty-tab",
     ),
     path(
         "employee-settings-view/",
@@ -761,6 +802,21 @@ urlpatterns = [
         "encashment-condition-create/",
         views.encashment_condition_create,
         name="encashment-condition-create",
+    ),
+    path(
+        "toggle-leave-encashment/",
+        views.toggle_leave_encashment,
+        name="toggle-leave-encashment",
+    ),
+    path(
+        "toggle-encashment-apply-to-all/",
+        views.toggle_encashment_apply_to_all,
+        name="toggle-encashment-apply-to-all",
+    ),
+    path(
+        "encashment-eligibility-settings/",
+        views.encashment_eligibility_settings,
+        name="encashment-eligibility-settings",
     ),
     path("initial-prefix/", views.initial_prefix, name="initial-prefix"),
     path(

@@ -7,8 +7,9 @@
 				class="oh-btn oh-btn--light-bkg oh-btn--sq-sm"
 				href="#"
 				hx-get="{% url 'update-contract' instance.id %}"
-				hx-target="#listContainer"
-				hx-swap="innerHTML"
+				hx-target="#relatedObjectModalBody"
+				data-toggle="oh-modal-toggle"
+				data-target="#relatedObjectModal"
 				title="{% trans 'Update' %}"
 			>
 				<ion-icon
@@ -23,7 +24,7 @@
 				<ion-icon name="create-outline"></ion-icon>
 			</button>
 		{% endif %}
-		{% if perms.payroll.delete_contract %}
+		{% if perms.payroll.delete_contract and instance.contract_status == "draft" %}
 			<a
 				onclick="event.preventDefault();event.stopPropagation();"
 				class="oh-btn oh-btn--danger oh-btn--sq-sm"
@@ -41,7 +42,13 @@
 				></ion-icon>
 			</a>
 		{% else %}
-			<button class="oh-btn oh-btn--light-bkg oh-btn--sq-sm" disabled title="{% trans 'Delete' %}">
+			<button
+				type="button"
+				class="oh-btn oh-btn--danger oh-btn--sq-sm"
+				disabled
+				style="opacity: 0.5; cursor: not-allowed;"
+				title="{% trans 'Only a draft contract can be deleted' %}"
+			>
 				<ion-icon name="trash-outline"></ion-icon>
 			</button>
 		{% endif %}

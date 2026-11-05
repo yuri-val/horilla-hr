@@ -1,7 +1,7 @@
 {% load basefilters i18n static %}
 
 <a
-    class="oh-btn oh-btn--light-bkg oh-btn--secondary px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300"
+    class="oh-btn oh-btn--light-bkg px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300"
     data-target="#genericModal"
     hx-get="{% url 'update-time-sheet' instance.id %}"
     hx-target="#genericModalBody"

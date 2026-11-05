@@ -9,11 +9,26 @@ import contextlib
 import operator
 
 from django.apps import apps
+from django.db.models import Q
 
 # from attendance.models import Attendance
 from horilla.methods import get_horilla_model_class
+from payroll.methods.component_engine import (
+    EARNED,
+    GROSS_IS_FIXED,
+    accumulate,
+    component_applies_to,
+    eligible_allowances,
+    group_targeted,
+    new_context,
+    own_structure_only,
+    record,
+    structure_components,
+)
+from payroll.methods.contract_periods import forced_contract
 from payroll.methods.deductions import update_compensation_deduction
 from payroll.methods.limits import compute_limit
+from payroll.methods.proration import flat_amount
 from payroll.models import models
 from payroll.models.models import (
     Allowance,
@@ -276,9 +291,48 @@ def calculate_taxable_gross_pay(*_args, **kwargs):
         for deduction in pre_tax_deductions["pretax_deductions"]
         if deduction["is_pretax"]
     )
-    taxable_gross_pay = gross_pay - non_taxable_allowance_total - pretax_deduction_total
+    # Loss of pay, when the contract deducts it separately instead of taking
+    # it off basic pay. It is not a Deduction row -- the engine computes it --
+    # so it was in neither total above, and the employee was taxed on pay they
+    # did not receive. Whether it comes off here follows the "Loss of pay"
+    # standard component's own pre-tax setting, which is the only thing that
+    # setting controls.
+    #
+    # Zero when the contract takes it off basic pay: it is already out of
+    # gross, and subtracting it again would take the same days off twice.
+    loss_of_pay = float(kwargs.get("loss_of_pay_amount") or 0)
+    loss_of_pay_total = 0.0
+    if loss_of_pay:
+        # Read from the contract, not from a component: loss of pay is never a
+        # component row -- the engine works it out from attendance -- and the
+        # rest of how it behaves (what a day is a share of, how many days it
+        # is shared between, whether it comes off basic) is already decided
+        # per contract. One place, not two.
+        contract = (
+            forced_contract(kwargs.get("employee"))
+            or Contract.objects.filter(
+                employee_id=kwargs.get("employee"), contract_status="active"
+            ).first()
+            if kwargs.get("employee")
+            else None
+        )
+        if contract is None or contract.loss_of_pay_is_pretax:
+            loss_of_pay_total = loss_of_pay
+
+    # Taxable gross = taxable earnings - pre-tax deductions (- loss of pay when
+    # it is a separate pre-tax deduction). Taxable earnings are gross less the
+    # earnings that are not taxable. The payslip's tax panel and the edit form
+    # lay it out in exactly these terms.
+    taxable_earnings = gross_pay - non_taxable_allowance_total
+    taxable_gross_pay = taxable_earnings - pretax_deduction_total - loss_of_pay_total
+    # There is no such thing as negative taxable pay. Pre-tax deductions and
+    # loss of pay together can come to more than was earned -- most of a month
+    # unpaid against a part month worked -- and the raw subtraction then goes
+    # below zero. Left negative it is fed straight to the tax brackets, shown
+    # on the payslip as a negative "taxable gross", and summed into any report
+    # that totals it. Nothing was earned to tax, so the answer is zero.
     return {
-        "taxable_gross_pay": taxable_gross_pay,
+        "taxable_gross_pay": max(0.0, taxable_gross_pay),
     }
 
 
@@ -297,21 +351,26 @@ def calculate_allowance(**kwargs):
     end_date = kwargs["end_date"]
     basic_pay = kwargs["basic_pay"]
     day_dict = kwargs["day_dict"]
-    specific_allowances = Allowance.objects.filter(specific_employees=employee)
-    conditional_allowances = Allowance.objects.filter(is_condition_based=True).exclude(
-        exclude_employees=employee
-    )
-    active_employees = Allowance.objects.filter(include_active_employees=True).exclude(
-        exclude_employees=employee
-    )
+    # Ordered by (sequence, pk) so evaluation order is defined rather than
+    # whatever the database returns for a union of three querysets. The
+    # membership rules are unchanged; see component_engine.eligible_allowances.
+    allowances = eligible_allowances(employee, start_date, end_date)
 
-    allowances = specific_allowances | conditional_allowances | active_employees
+    # An earning marked as basic pay is skipped when the contract already
+    # states a wage: basic is then already in basic_pay, and paying the earning
+    # as well would put a second basic into gross. payroll_run decides which
+    # source wins and passes the loser here — see basic_pay_source.py.
+    skip = kwargs.get("skip_allowance")
+    if skip is not None:
+        allowances = allowances.exclude(pk=skip.pk)
 
-    allowances = (
-        allowances.exclude(one_time_date__lt=start_date)
-        .exclude(one_time_date__gt=end_date)
-        .distinct()
-    )
+    # Carried through the pass so a later component can be expressed in terms
+    # of an earlier one. kwargs is what every strategy function receives, so
+    # putting it there is what makes it reachable from them.
+    context = kwargs.get("component_context")
+    if context is None:
+        context = new_context(basic_pay)
+        kwargs["component_context"] = context
 
     employee_allowances = []
     tax_allowances = []
@@ -321,29 +380,7 @@ def calculate_allowance(**kwargs):
     # Append allowances based on condition, or unconditionally to employee
     for allowance in allowances:
         if allowance.is_condition_based:
-            conditions = list(
-                allowance.other_conditions.values_list("field", "condition", "value")
-            )
-            condition_field = allowance.field
-            condition_operator = allowance.condition
-            condition_value = allowance.value.lower().replace(" ", "_")
-            conditions.append((condition_field, condition_operator, condition_value))
-            applicable = True
-            for condition in conditions:
-                val = dynamic_attr(employee, condition[0])
-                if val is not None:
-                    operator_func = operator_mapping.get(condition[1])
-                    condition_value = type(val)(condition[2])
-                    if operator_func(val, condition_value):
-                        applicable = applicable * True
-                        continue
-                    else:
-                        applicable = False
-                        break
-                else:
-                    applicable = False
-                    break
-            if applicable:
+            if component_applies_to(allowance, employee):
                 employee_allowances.append(allowance)
         else:
             if allowance.based_on in filter_mapping:
@@ -358,21 +395,19 @@ def calculate_allowance(**kwargs):
                         employee_allowances.append(allowance)
             else:
                 employee_allowances.append(allowance)
-    # Filter and append taxable allowance and not taxable allowance
+    # One ordered pass. The amounts used to be computed in two separate loops
+    # (taxable, then non-taxable) and only paired with their components
+    # afterwards, which meant nothing was published until every amount already
+    # existed — so a component could never see one computed earlier in the
+    # same phase, only the seeded period figures. Recording as we go is what
+    # makes "50% of DA" work at all.
+    computed = []
+    in_structure = set(
+        structure_components(Allowance, employee).values_list("pk", flat=True)
+    )
     for allowance in employee_allowances:
-        if allowance.is_taxable:
-            tax_allowances.append(allowance)
-        else:
-            no_tax_allowances.append(allowance)
-    # Find and append the amount of tax_allowances
-    for allowance in tax_allowances:
         if allowance.is_fixed:
-            amount = allowance.amount
-            kwargs["amount"] = amount
-            kwargs["component"] = allowance
-
-            amount = if_condition_on(**kwargs)
-            tax_allowances_amt.append(amount)
+            amount = flat_amount(allowance, day_dict)
         else:
             calculation_function = calculation_mapping.get(allowance.based_on)
             amount = calculation_function(
@@ -385,58 +420,59 @@ def calculate_allowance(**kwargs):
                     "total_allowance": None,
                     "basic_pay": basic_pay,
                     "day_dict": day_dict,
-                },
-            )
-            kwargs["amount"] = amount
-            kwargs["component"] = allowance
-            amount = if_condition_on(**kwargs)
-            tax_allowances_amt.append(amount)
-    # Find and append the amount of not tax_allowances
-    for allowance in no_tax_allowances:
-        if allowance.is_fixed:
-            amount = allowance.amount
-            kwargs["amount"] = amount
-            kwargs["component"] = allowance
-            amount = if_condition_on(**kwargs)
-            no_tax_allowances_amt.append(amount)
-
-        else:
-            calculation_function = calculation_mapping.get(allowance.based_on)
-            amount = calculation_function(
-                **{
-                    "employee": employee,
-                    "start_date": start_date,
-                    "end_date": end_date,
-                    "component": allowance,
-                    "day_dict": day_dict,
-                    "basic_pay": basic_pay,
+                    # Forwarded so a component/formula strategy can see what
+                    # earlier components computed.
+                    "component_context": context,
+                    # Only a CTC Down run supplies this; the balance earning
+                    # takes the employer's contributions off the package.
+                    "employer_deductions": kwargs.get("employer_deductions"),
                 }
             )
-            kwargs["amount"] = amount
-            kwargs["component"] = allowance
-            amount = if_condition_on(**kwargs)
-            no_tax_allowances_amt.append(amount)
-    serialized_allowances = []
+        kwargs["amount"] = amount
+        kwargs["component"] = allowance
+        amount = if_condition_on(**kwargs)
 
-    # Serialize taxable allowances
-    for allowance, amount in zip(tax_allowances, tax_allowances_amt):
-        serialized_allowance = {
+        # Loss of pay comes off the earning that IS basic pay, before anything
+        # reads it -- so a percentage of BASIC and a deduction based on basic pay
+        # both see the adjusted figure. Never below zero.
+        lop_cut = float(kwargs.get("basic_lop_reduction") or 0)
+        if lop_cut and allowance.is_basic_pay and "_basic_lop" not in context:
+            cut = min(float(amount or 0), lop_cut)
+            amount = float(amount or 0) - cut
+            context["_basic_lop"] = cut
+
+        record(context, allowance, amount)
+        # Only where the structure lists its components. A structure that lists none leaves
+        # everything to direct targeting, and then every earning is part of the package.
+        outside = bool(in_structure) and allowance.pk not in in_structure
+        accumulate(context, amount, inside_ctc=not outside)
+        computed.append((allowance, amount, outside))
+
+    # Taxable first, then non-taxable — the order the two-list implementation
+    # produced and payslip templates render. Existing rows keep it through the
+    # sequence backfill (taxable 100, non-taxable 200); new ones order by their
+    # own sequence within each group.
+    notes = context.get("_allowance_notes") or {}
+    day_rows = context.get("_allowance_days") or {}
+    serialized_allowances = [
+        {
             "allowance_id": allowance.id,
             "title": allowance.title,
             "is_taxable": allowance.is_taxable,
             "amount": amount,
+            # Why an amount is what it is, when the engine had something to say.
+            **({"note": notes[allowance.id]} if allowance.id in notes else {}),
+            # Overtime, day by day: what the amount was made of.
+            **({"days": day_rows[allowance.id]} if day_rows.get(allowance.id) else {}),
+            # Paid on top of a CTC Down package rather than out of it; absent otherwise.
+            **(
+                {"outside_ctc": True} if outside and context.get(GROSS_IS_FIXED) else {}
+            ),
         }
-        serialized_allowances.append(serialized_allowance)
-
-    # Serialize no-taxable allowances
-    for allowance, amount in zip(no_tax_allowances, no_tax_allowances_amt):
-        serialized_allowance = {
-            "allowance_id": allowance.id,
-            "title": allowance.title,
-            "is_taxable": allowance.is_taxable,
-            "amount": amount,
-        }
-        serialized_allowances.append(serialized_allowance)
+        for taxable in (True, False)
+        for allowance, amount, outside in computed
+        if allowance.is_taxable is taxable
+    ]
     return {"allowances": serialized_allowances}
 
 
@@ -459,34 +495,65 @@ def calculate_tax_deduction(*_args, **kwargs):
     employee = kwargs["employee"]
     start_date = kwargs["start_date"]
     end_date = kwargs["end_date"]
-    specific_deductions = models.Deduction.objects.filter(
-        specific_employees=employee, is_pretax=False, is_tax=True
+    specific_deductions = own_structure_only(
+        models.Deduction.objects.filter(
+            specific_employees=employee, is_pretax=False, is_tax=True
+        ),
+        models.Deduction,
+        employee,
     )
     active_employee_deduction = models.Deduction.objects.filter(
         include_active_employees=True, is_pretax=False, is_tax=True
     ).exclude(exclude_employees=employee)
-    deductions = specific_deductions | active_employee_deduction
+    deductions = (
+        specific_deductions
+        | active_employee_deduction
+        | group_targeted(employee, models.Deduction).filter(
+            is_pretax=False, is_tax=True
+        )
+        | structure_components(models.Deduction, employee).filter(
+            is_pretax=False, is_tax=True
+        )
+    ).distinct()
     deductions = (
         deductions.exclude(one_time_date__lt=start_date)
         .exclude(one_time_date__gt=end_date)
         .exclude(update_compensation__isnull=False)
+        # Templates say how their kind behaves; they are never deducted. See
+        # payroll/system_components.py.
+        .exclude(is_system=True)
+        # (sequence, pk), as for allowances (component_engine): without it the
+        # order was whatever the database returned for the union, which
+        # changed between runs.
+        .order_by("sequence", "pk")
     )
     deductions_amt = []
     serialized_deductions = []
     for deduction in deductions:
-        calculation_function = calculation_mapping.get(deduction.based_on)
-        amount = calculation_function(
-            **{
-                "employee": employee,
-                "start_date": start_date,
-                "end_date": end_date,
-                "component": deduction,
-                "allowances": kwargs["allowances"],
-                "total_allowance": kwargs["total_allowance"],
-                "basic_pay": kwargs["basic_pay"],
-                "day_dict": kwargs["day_dict"],
-            }
-        )
+        # The is_fixed branch that calculate_pre_tax_deduction,
+        # calculate_post_tax_deduction and calculate_allowance all have, and
+        # this one was missing. Without it a fixed-amount tax deduction --
+        # ``is_fixed`` defaults to True and ``based_on`` has no default at all
+        # (null=True), so a flat Professional Tax is exactly this shape --
+        # reached calculation_mapping.get(None), and every payslip run died
+        # with "'NoneType' object is not callable".
+        if deduction.is_fixed:
+            amount = flat_amount(deduction, kwargs["day_dict"])
+        else:
+            calculation_function = calculation_mapping.get(deduction.based_on)
+            amount = calculation_function(
+                **{
+                    "employee": employee,
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "component": deduction,
+                    "allowances": kwargs["allowances"],
+                    "total_allowance": kwargs["total_allowance"],
+                    "basic_pay": kwargs["basic_pay"],
+                    "day_dict": kwargs["day_dict"],
+                    "component_context": kwargs.get("component_context"),
+                }
+            )
         kwargs["amount"] = amount
         kwargs["component"] = deduction
         amount = if_condition_on(**kwargs)
@@ -521,8 +588,12 @@ def calculate_pre_tax_deduction(*_args, **kwargs):
     start_date = kwargs["start_date"]
     end_date = kwargs["end_date"]
 
-    specific_deductions = models.Deduction.objects.filter(
-        specific_employees=employee, is_pretax=True, is_tax=False
+    specific_deductions = own_structure_only(
+        models.Deduction.objects.filter(
+            specific_employees=employee, is_pretax=True, is_tax=False
+        ),
+        models.Deduction,
+        employee,
     )
     conditional_deduction = models.Deduction.objects.filter(
         is_condition_based=True, is_pretax=True, is_tax=False
@@ -531,11 +602,28 @@ def calculate_pre_tax_deduction(*_args, **kwargs):
         include_active_employees=True, is_pretax=True, is_tax=False
     ).exclude(exclude_employees=employee)
 
-    deductions = specific_deductions | conditional_deduction | active_employee_deduction
+    deductions = (
+        specific_deductions
+        | conditional_deduction
+        | active_employee_deduction
+        | group_targeted(employee, models.Deduction).filter(
+            is_pretax=True, is_tax=False
+        )
+        | structure_components(models.Deduction, employee).filter(
+            is_pretax=True, is_tax=False
+        )
+    ).distinct()
     deductions = (
         deductions.exclude(one_time_date__lt=start_date)
         .exclude(one_time_date__gt=end_date)
         .exclude(update_compensation__isnull=False)
+        # Templates say how their kind behaves; they are never deducted. See
+        # payroll/system_components.py.
+        .exclude(is_system=True)
+        # (sequence, pk), as for allowances (component_engine): without it the
+        # order was whatever the database returned for the union, which
+        # changed between runs.
+        .order_by("sequence", "pk")
     )
     # Installment deductions
     installments = deductions.filter(is_installment=True)
@@ -546,37 +634,14 @@ def calculate_pre_tax_deduction(*_args, **kwargs):
 
     for deduction in deductions:
         if deduction.is_condition_based:
-            conditions = list(
-                deduction.other_conditions.values_list("field", "condition", "value")
-            )
-            condition_field = deduction.field
-            condition_operator = deduction.condition
-            condition_value = deduction.value.lower().replace(" ", "_")
-            conditions.append((condition_field, condition_operator, condition_value))
-            operator_func = operator_mapping.get(condition_operator)
-            applicable = True
-            for condition in conditions:
-                val = dynamic_attr(employee, condition[0])
-                if val is not None:
-                    operator_func = operator_mapping.get(condition[1])
-                    condition_value = type(val)(condition[2])
-                    if operator_func(val, condition_value):
-                        applicable = applicable * True
-                        continue
-                    else:
-                        applicable = False
-                        break
-                else:
-                    applicable = False
-                    break
-            if applicable:
+            if component_applies_to(deduction, employee):
                 pre_tax_deductions.append(deduction)
         else:
             pre_tax_deductions.append(deduction)
 
     for deduction in pre_tax_deductions:
         if deduction.is_fixed:
-            kwargs["amount"] = deduction.amount
+            kwargs["amount"] = flat_amount(deduction, kwargs["day_dict"])
             kwargs["component"] = deduction
             pre_tax_deductions_amt.append(if_condition_on(**kwargs))
         else:
@@ -591,6 +656,7 @@ def calculate_pre_tax_deduction(*_args, **kwargs):
                     "total_allowance": kwargs["total_allowance"],
                     "basic_pay": kwargs["basic_pay"],
                     "day_dict": kwargs["day_dict"],
+                    "component_context": kwargs.get("component_context"),
                 }
             )
             kwargs["amount"] = amount
@@ -629,8 +695,12 @@ def calculate_post_tax_deduction(*_args, **kwargs):
     total_allowance = kwargs["total_allowance"]
     basic_pay = kwargs["basic_pay"]
     day_dict = kwargs["day_dict"]
-    specific_deductions = models.Deduction.objects.filter(
-        specific_employees=employee, is_pretax=False, is_tax=False
+    specific_deductions = own_structure_only(
+        models.Deduction.objects.filter(
+            specific_employees=employee, is_pretax=False, is_tax=False
+        ),
+        models.Deduction,
+        employee,
     )
     conditional_deduction = models.Deduction.objects.filter(
         is_condition_based=True, is_pretax=False, is_tax=False
@@ -638,11 +708,29 @@ def calculate_post_tax_deduction(*_args, **kwargs):
     active_employee_deduction = models.Deduction.objects.filter(
         include_active_employees=True, is_pretax=False, is_tax=False
     ).exclude(exclude_employees=employee)
-    deductions = specific_deductions | conditional_deduction | active_employee_deduction
+    # .distinct(): see calculate_pre_tax_deduction's identical fan-out note.
+    deductions = (
+        specific_deductions
+        | conditional_deduction
+        | active_employee_deduction
+        | group_targeted(employee, models.Deduction).filter(
+            is_pretax=False, is_tax=False
+        )
+        | structure_components(models.Deduction, employee).filter(
+            is_pretax=False, is_tax=False
+        )
+    ).distinct()
     deductions = (
         deductions.exclude(one_time_date__lt=start_date)
         .exclude(one_time_date__gt=end_date)
         .exclude(update_compensation__isnull=False)
+        # Templates say how their kind behaves; they are never deducted. See
+        # payroll/system_components.py.
+        .exclude(is_system=True)
+        # (sequence, pk), as for allowances (component_engine): without it the
+        # order was whatever the database returned for the union, which
+        # changed between runs.
+        .order_by("sequence", "pk")
     )
     # Installment deductions
     installments = deductions.filter(is_installment=True)
@@ -654,57 +742,66 @@ def calculate_post_tax_deduction(*_args, **kwargs):
 
     for deduction in deductions:
         if deduction.is_condition_based:
-            condition_field = deduction.field
-            condition_operator = deduction.condition
-            condition_value = deduction.value.lower().replace(" ", "_")
-            employee_value = dynamic_attr(employee, condition_field)
-            operator_func = operator_mapping.get(condition_operator)
-            if employee_value is not None:
-                condition_value = type(employee_value)(condition_value)
-                if operator_func(employee_value, condition_value):
-                    post_tax_deductions.append(deduction)
+            # This copy previously ignored other_conditions entirely, so a
+            # deduction with extra conditions applied on the strength of its
+            # first one alone.
+            if component_applies_to(deduction, employee):
+                post_tax_deductions.append(deduction)
         else:
             post_tax_deductions.append(deduction)
+    # Each deduction belongs to exactly one phase, and its amount is produced
+    # in the same step that records it.
+    #
+    # It used to append the component to one list and the amount to another,
+    # then re-pair them with zip() -- which only holds while both are appended
+    # in lockstep, and a net_pay-based deduction appended a component and no
+    # amount. With one sitting before two others, the payslip recorded the
+    # second deduction's amount against the first, the third's against the
+    # second, and dropped the third entirely; the net_pay one was then charged
+    # a second time by the net-pay phase, which also emitted it. Misattributed,
+    # short by one line, and double-counted at once.
     for deduction in post_tax_deductions:
-        if deduction.is_fixed:
-            amount = deduction.amount
-            kwargs["amount"] = amount
-            kwargs["component"] = deduction
-            amount = if_condition_on(**kwargs)
-            post_tax_deductions_amt.append(amount)
-        else:
-            if deduction.based_on != "net_pay":
-                calculation_function = calculation_mapping.get(deduction.based_on)
-                amount = calculation_function(
-                    **{
-                        "employee": employee,
-                        "start_date": start_date,
-                        "end_date": end_date,
-                        "component": deduction,
-                        "allowances": allowances,
-                        "total_allowance": total_allowance,
-                        "basic_pay": basic_pay,
-                        "day_dict": day_dict,
-                    }
-                )
-                kwargs["amount"] = amount
-                kwargs["component"] = deduction
-                amount = if_condition_on(**kwargs)
-                post_tax_deductions_amt.append(amount)
+        # A percentage of net pay cannot be computed until net pay exists, so
+        # it belongs solely to the net-pay phase. is_fixed wins over based_on:
+        # a fixed amount is a fixed amount whatever the field says, and is an
+        # ordinary post-tax line.
+        if not deduction.is_fixed and deduction.based_on == "net_pay":
+            serialized_net_pay_deductions.append({"deduction": deduction})
+            continue
 
-    for deduction, amount in zip(post_tax_deductions, post_tax_deductions_amt):
-        serialized_deduction = {
-            "deduction_id": deduction.id,
-            "title": deduction.title,
-            "is_pretax": deduction.is_pretax,
-            "amount": amount,
-            "employer_contribution_rate": deduction.employer_rate,
-        }
-        serialized_deductions.append(serialized_deduction)
-    for deduction in post_tax_deductions:
-        if deduction.based_on == "net_pay":
-            serialized_net_pay_deduction = {"deduction": deduction}
-            serialized_net_pay_deductions.append(serialized_net_pay_deduction)
+        if deduction.is_fixed:
+            amount = flat_amount(deduction, day_dict)
+        else:
+            calculation_function = calculation_mapping.get(deduction.based_on)
+            amount = calculation_function(
+                **{
+                    "employee": employee,
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "component": deduction,
+                    "allowances": allowances,
+                    "total_allowance": total_allowance,
+                    "basic_pay": basic_pay,
+                    "day_dict": day_dict,
+                    # Forwarded so a component/formula strategy can see what
+                    # earlier components computed.
+                    "component_context": kwargs.get("component_context"),
+                }
+            )
+        kwargs["amount"] = amount
+        kwargs["component"] = deduction
+        amount = if_condition_on(**kwargs)
+
+        record(kwargs.get("component_context") or {}, deduction, amount)
+        serialized_deductions.append(
+            {
+                "deduction_id": deduction.id,
+                "title": deduction.title,
+                "is_pretax": deduction.is_pretax,
+                "amount": amount,
+                "employer_contribution_rate": deduction.employer_rate,
+            }
+        )
     return {
         "post_tax_deductions": serialized_deductions,
         "net_pay_deduction": serialized_net_pay_deductions,
@@ -766,23 +863,128 @@ def if_condition_on(*_args, **kwargs):
         _type_: _description_
     """
     component = kwargs["component"]
-    basic_pay = kwargs["basic_pay"]
-    amount = kwargs["amount"]
-    gross_pay = 0
-    amount = float(amount)
-    if not isinstance(component, Allowance):
-        gross_pay = calculate_gross_pay(
-            **kwargs,
-        )["gross_pay"]
-    condition_value = basic_pay if component.if_choice == "basic_pay" else gross_pay
-    if component.if_condition == "range":
-        if not component.start_range <= condition_value <= component.end_range:
-            amount = 0
-    else:
-        operator_func = operator_mapping.get(component.if_condition)
-        if not operator_func(condition_value, component.if_amount):
-            amount = 0
+    amount = float(kwargs["amount"])
+
+    measure = _apply_measures(component, kwargs)
+
+    # The rule on the component itself, then any extra rows. All of them have
+    # to hold: a component with two conditions is being narrowed by both, not
+    # offered two ways to qualify.
+    #
+    # With one exception. Every component carries a default "basic pay > 0"
+    # rule, which asks whether the employee is being paid at all — but the
+    # earning that DEFINES basic pay cannot be asked that. It only runs when
+    # the contract states no wage, so basic is 0 at that moment by definition,
+    # and the gate would zero the very component that was about to set it.
+    # Any rule someone actually configured still applies.
+    rules = []
+    if not (getattr(component, "is_basic_pay", False) and _is_default_gate(component)):
+        rules.append(component)
+    rules.extend(_extra_apply_conditions(component))
+    for rule in rules:
+        if not _apply_rule_holds(rule, measure):
+            return 0
     return amount
+
+
+def _is_default_gate(component):
+    """
+    Whether the component's own rule is the untouched default, rather than
+    something a person chose. "basic pay > 0" is what every component starts
+    with.
+    """
+    return (
+        (getattr(component, "if_choice", "") or "") == "basic_pay"
+        and (getattr(component, "if_condition", "") or "") == "gt"
+        and (getattr(component, "if_amount", None) in (0, 0.0, None))
+    )
+
+
+def _extra_apply_conditions(component):
+    """The extra rows, or nothing on a component that predates them."""
+    related = getattr(component, "apply_conditions", None)
+    if related is None or not getattr(component, "pk", None):
+        return []
+    return related.all()
+
+
+def _apply_measures(component, kwargs):
+    """
+    What each "when it applies" choice is measured against, for this component.
+
+    Returns a callable so nothing is computed that no rule asks for — gross is
+    a full pass over the components, and the default rule on every component
+    only ever looks at basic pay.
+    """
+    context = kwargs.get("component_context") or {}
+    basic_pay = kwargs["basic_pay"]
+    cache = {}
+
+    def gross():
+        # An allowance is part of gross, so gross does not exist yet while one
+        # is being worked out. In a CTC Down structure the wage IS the gross and
+        # is known up front, which the context carries; in a Gross Up structure
+        # there is no answer to give and the rule cannot be offered.
+        if isinstance(component, Allowance):
+            return float(context.get("GROSS") or 0)
+        return calculate_gross_pay(**kwargs)["gross_pay"]
+
+    def taxable_gross():
+        if isinstance(component, Allowance):
+            return float(context.get("GROSS") or 0)
+        return calculate_taxable_gross_pay(**kwargs)["taxable_gross_pay"]
+
+    sources = {
+        # Every component carries a hidden "basic pay > 0" rule by default,
+        # which is really asking "is this employee being paid this period". In
+        # a CTC Down run basic is derived FROM the components, so it is still 0
+        # while they are being computed and the rule would zero every one of
+        # them. Fall back to the basic computed so far, then to the CTC the
+        # structure started from.
+        "basic_pay": lambda: (
+            basic_pay
+            or float(context.get("BASIC") or 0)
+            or float(context.get("CTC") or 0)
+        ),
+        "ctc": lambda: float(context.get("CTC") or 0),
+        "gross_pay": gross,
+        "taxable_gross_pay": taxable_gross,
+    }
+
+    def measure(choice, code=""):
+        if choice == "component":
+            return float(context.get((code or "").strip().upper(), 0) or 0)
+        if choice not in cache:
+            cache[choice] = float(sources.get(choice, sources["basic_pay"])() or 0)
+        return cache[choice]
+
+    return measure
+
+
+def _apply_rule_holds(rule, measure):
+    """
+    One comparison. `rule` is either the component itself, whose rule lives in
+    if_choice / if_condition / if_amount, or an ApplyCondition row.
+    """
+    choice = getattr(rule, "if_choice", None) or getattr(rule, "choice", "basic_pay")
+    condition = getattr(rule, "if_condition", None) or getattr(rule, "condition", "gt")
+    code = getattr(rule, "if_component_code", "") or getattr(rule, "component_code", "")
+    value = measure(choice, code)
+
+    if condition == "range":
+        start = rule.start_range
+        end = rule.end_range
+        if start is None or end is None:
+            return True
+        return start <= value <= end
+
+    target = getattr(rule, "if_amount", None)
+    if target is None:
+        target = getattr(rule, "amount", 0)
+    operator_func = operator_mapping.get(condition)
+    if operator_func is None:
+        return True
+    return bool(operator_func(value, target or 0))
 
 
 def calculate_based_on_basic_pay(*_args, **kwargs):
@@ -805,6 +1007,9 @@ def calculate_based_on_basic_pay(*_args, **kwargs):
     basic_pay = kwargs["basic_pay"]
     day_dict = kwargs["day_dict"]
     rate = component.rate
+    # Under CTC Down basic_pay is 0; the basic is the structure's flagged component.
+    if not basic_pay:
+        basic_pay = float((kwargs.get("component_context") or {}).get("BASIC") or 0)
     amount = basic_pay * rate / 100
     amount = compute_limit(component, amount, day_dict)
 
@@ -881,6 +1086,35 @@ def calculate_based_on_net_pay(component, net_pay, day_dict):
     return amount
 
 
+def _attendance_units(employee, start_date, end_date, component, **filters):
+    """
+    Attendances paid for: one each, or a half for a half day when the component
+    prorates. Half days are the ones HR resolved as half present or a split day.
+    """
+    Attendance = get_horilla_model_class(app_label="attendance", model="attendance")
+    rows = list(
+        Attendance.objects.filter(
+            employee_id=employee,
+            attendance_date__range=(start_date, end_date),
+            attendance_validated=True,
+            **filters,
+        ).values_list("attendance_date", flat=True)
+    )
+    if not getattr(component, "prorate_partial_days", False):
+        return len(rows)
+    from attendance.models import AttendanceConflictResolution
+
+    half_dates = set(
+        AttendanceConflictResolution.objects.filter(
+            Q(resolution__in=("half_present", "half_absent"))
+            | Q(resolution__startswith="split:"),
+            employee_id=employee,
+            date__range=(start_date, end_date),
+        ).values_list("date", flat=True)
+    )
+    return sum(0.5 if day in half_dates else 1 for day in rows)
+
+
 def calculate_based_on_attendance(*_args, **kwargs):
     """
     Calculates the amount of an allowance or deduction based on the attendance of an employee.
@@ -906,11 +1140,7 @@ def calculate_based_on_attendance(*_args, **kwargs):
     component = kwargs["component"]
     day_dict = kwargs["day_dict"]
 
-    count = Attendance.objects.filter(
-        employee_id=employee,
-        attendance_date__range=(start_date, end_date),
-        attendance_validated=True,
-    ).count()
+    count = _attendance_units(employee, start_date, end_date, component)
     amount = count * component.per_attendance_fixed_amount
     amount = compute_limit(component, amount, day_dict)
     return amount
@@ -941,21 +1171,18 @@ def calculate_based_on_shift(*_args, **kwargs):
     day_dict = kwargs["day_dict"]
 
     shift_id = component.shift_id.id
-    count = Attendance.objects.filter(
-        employee_id=employee,
-        shift_id=shift_id,
-        attendance_date__range=(start_date, end_date),
-        attendance_validated=True,
-    ).count()
+    count = _attendance_units(
+        employee, start_date, end_date, component, shift_id=shift_id
+    )
     amount = count * component.shift_per_attendance_amount
 
     amount = compute_limit(component, amount, day_dict)
     return amount
 
 
-def _classify_approved_overtime_seconds(employee, start_date, end_date):
+def _approved_overtime_by_day(employee, start_date, end_date):
     """
-    Splits APPROVED overtime attendance in the period into three mutually
+    Splits APPROVED (or regularized) overtime attendance in the period into three mutually
     exclusive buckets, so "Regular Overtime", "Week Off Overtime", and
     "Holiday Overtime" allowances never double-pay the same hours:
       - regular:  overtime_second on a normal scheduled working day
@@ -969,8 +1196,9 @@ def _classify_approved_overtime_seconds(employee, start_date, end_date):
     the monthly attendance summary displays for that day.
     """
     if not apps.is_installed("attendance"):
-        return 0, 0, 0
+        return {}, {}, {}
 
+    from attendance.methods.utils import real_overtime_seconds
     from attendance.models import AttendanceConflictResolution
     from base.methods import get_holiday_dates, get_working_days
 
@@ -979,29 +1207,155 @@ def _classify_approved_overtime_seconds(employee, start_date, end_date):
         get_working_days(start_date, end_date, employee)["working_days_on"]
     )
     holiday_dates = set(get_holiday_dates(start_date, end_date, employee))
+    from django.db.models import Q
+
     regularized_dates = set(
         AttendanceConflictResolution.objects.filter(
+            # Worked days, including a split day with a present half ("split:P+A", "split:A+P").
+            Q(resolution__in=("full_present", "half_present", "half_absent"))
+            | Q(resolution__regex=r"^split:(P\+|.+\+P$)"),
             employee_id=employee,
             date__range=(start_date, end_date),
-            resolution__in=("full_present", "half_present"),
         ).values_list("date", flat=True)
     )
 
     attendances = Attendance.objects.filter(
         employee_id=employee,
         attendance_date__range=(start_date, end_date),
-        attendance_overtime_approve=True,
+    ).filter(
+        # Approved overtime, or a day HR regularized: the same rule as the attendance summary.
+        Q(attendance_overtime_approve=True)
+        | Q(attendance_date__in=regularized_dates)
     )
-    regular_ot = week_off_ot = holiday_ot = 0
+    regular_days, week_off_days, holiday_days = {}, {}, {}
     for attendance in attendances:
         att_date = attendance.attendance_date
         if att_date in working_day_dates or att_date in regularized_dates:
-            regular_ot += attendance.overtime_second or 0
+            seconds = real_overtime_seconds(
+                attendance.at_work_second,
+                attendance.minimum_hour,
+                attendance.overtime_second,
+            )
+            bucket = regular_days
         elif att_date in holiday_dates:
-            holiday_ot += attendance.at_work_second or 0
+            seconds = attendance.at_work_second or 0
+            bucket = holiday_days
         else:
-            week_off_ot += attendance.at_work_second or 0
-    return regular_ot, week_off_ot, holiday_ot
+            seconds = attendance.at_work_second or 0
+            bucket = week_off_days
+        bucket[att_date] = bucket.get(att_date, 0) + seconds
+    return regular_days, week_off_days, holiday_days
+
+
+def _classify_approved_overtime_seconds(employee, start_date, end_date):
+    """The same three buckets as _approved_overtime_by_day, as totals of seconds."""
+    return tuple(
+        sum(days.values())
+        for days in _approved_overtime_by_day(employee, start_date, end_date)
+    )
+
+
+def _contract_hourly_rate(employee):
+    """The contract's pay for one regular hour, or 0 when it states none."""
+    contract = (
+        forced_contract(employee)
+        or Contract.objects.filter(
+            employee_id=employee, contract_status="active"
+        ).first()
+    )
+    return float(getattr(contract, "hourly_wage", 0) or 0)
+
+
+def slab_hours_breakdown(hours, slabs, rate):
+    """[(hours in the band, multiplier, pay)] for one day's overtime, each hour paid at its band."""
+    parts = []
+    for slab in slabs:
+        top = hours if slab.to_hours is None else min(hours, slab.to_hours)
+        span = max(0.0, top - slab.from_hours)
+        if span:
+            parts.append((span, slab.multiplier, span * rate * slab.multiplier))
+    return parts
+
+
+def slab_hours_pay(hours, slabs, rate):
+    """Pay for one day's overtime hours, each hour paid at the band it falls in."""
+    return sum(
+        pay for _span, _multiplier, pay in slab_hours_breakdown(hours, slabs, rate)
+    )
+
+
+def _note(kwargs, component, text):
+    """Leaves a plain-words reason beside a component's amount for the payslip."""
+    context = kwargs.get("component_context")
+    if isinstance(context, dict):
+        # Underscore keys are dropped when the context is stored on the payslip,
+        # so this carries a sentence without ever being read as an amount.
+        context.setdefault("_allowance_notes", {})[component.pk] = text
+
+
+def _record_days(kwargs, component, rows):
+    """Keeps the day-by-day working for the payslip line, which saves it beside the amount."""
+    context = kwargs.get("component_context")
+    if isinstance(context, dict):
+        context.setdefault("_allowance_days", {})[component.pk] = rows
+
+
+def _day_key(day):
+    return day.isoformat() if hasattr(day, "isoformat") else str(day)
+
+
+def _overtime_amount(kwargs, days):
+    """Amount of an overtime allowance from {date: seconds}, flat or by slab."""
+    component = kwargs["component"]
+    day_dict = kwargs["day_dict"]
+    if component.overtime_calc != "slab":
+        rate = float(component.amount_per_one_hr or 0)
+        _record_days(
+            kwargs,
+            component,
+            [
+                {
+                    "date": _day_key(day),
+                    "seconds": seconds,
+                    "rate": rate,
+                    "amount": round(seconds / 3600 * rate, 2),
+                }
+                for day, seconds in sorted(
+                    days.items(), key=lambda item: _day_key(item[0])
+                )
+                if seconds
+            ],
+        )
+        return _amount_from_seconds(sum(days.values()), component, day_dict)
+    rate = _contract_hourly_rate(kwargs["employee"])
+    if not rate:
+        _note(
+            kwargs,
+            component,
+            "Overtime slabs pay a multiple of the regular hourly wage, and this "
+            "employee's contract has no hourly wage stated, so nothing is paid.",
+        )
+        return 0
+    slabs = list(component.slabs.all())
+    rows = []
+    for day, seconds in sorted(days.items(), key=lambda item: _day_key(item[0])):
+        if not seconds:
+            continue
+        parts = slab_hours_breakdown(seconds / 3600, slabs, rate)
+        rows.append(
+            {
+                "date": _day_key(day),
+                "seconds": seconds,
+                "rate": rate,
+                "bands": [
+                    [round(span, 4), multiplier] for span, multiplier, _pay in parts
+                ],
+                "amount": round(sum(pay for _span, _multiplier, pay in parts), 2),
+            }
+        )
+    _record_days(kwargs, component, rows)
+    amount = round(sum(row["amount"] for row in rows), 2)
+    return compute_limit(component, amount, day_dict)
 
 
 def _amount_from_seconds(seconds, component, day_dict):
@@ -1037,10 +1391,8 @@ def calculate_based_on_overtime(*_args, **kwargs):
     component = kwargs["component"]
     day_dict = kwargs["day_dict"]
 
-    regular_ot, _week_off_ot, _holiday_ot = _classify_approved_overtime_seconds(
-        employee, start_date, end_date
-    )
-    return _amount_from_seconds(regular_ot, component, day_dict)
+    days = _approved_overtime_by_day(employee, start_date, end_date)[0]
+    return _overtime_amount(kwargs, days)
 
 
 def calculate_based_on_week_off_overtime(*_args, **kwargs):
@@ -1058,10 +1410,8 @@ def calculate_based_on_week_off_overtime(*_args, **kwargs):
     component = kwargs["component"]
     day_dict = kwargs["day_dict"]
 
-    _regular_ot, week_off_ot, _holiday_ot = _classify_approved_overtime_seconds(
-        employee, start_date, end_date
-    )
-    return _amount_from_seconds(week_off_ot, component, day_dict)
+    days = _approved_overtime_by_day(employee, start_date, end_date)[1]
+    return _overtime_amount(kwargs, days)
 
 
 def calculate_based_on_holiday_overtime(*_args, **kwargs):
@@ -1079,10 +1429,8 @@ def calculate_based_on_holiday_overtime(*_args, **kwargs):
     component = kwargs["component"]
     day_dict = kwargs["day_dict"]
 
-    _regular_ot, _week_off_ot, holiday_ot = _classify_approved_overtime_seconds(
-        employee, start_date, end_date
-    )
-    return _amount_from_seconds(holiday_ot, component, day_dict)
+    days = _approved_overtime_by_day(employee, start_date, end_date)[2]
+    return _overtime_amount(kwargs, days)
 
 
 def calculate_based_on_work_type(*_args, **kwargs):
@@ -1112,12 +1460,9 @@ def calculate_based_on_work_type(*_args, **kwargs):
     day_dict = kwargs["day_dict"]
 
     work_type_id = component.work_type_id.id
-    count = Attendance.objects.filter(
-        employee_id=employee,
-        work_type_id=work_type_id,
-        attendance_date__range=(start_date, end_date),
-        attendance_validated=True,
-    ).count()
+    count = _attendance_units(
+        employee, start_date, end_date, component, work_type_id=work_type_id
+    )
     amount = count * component.work_type_per_attendance_amount
 
     amount = compute_limit(component, amount, day_dict)
@@ -1148,6 +1493,88 @@ def calculate_based_on_children(*_args, **kwargs):
     return amount
 
 
+def calculate_based_on_balance(*_args, **kwargs):
+    """
+    Whatever is left of CTC after every earning that ran before this one.
+
+    This is what makes a CTC Down structure add up: the employer states a total
+    cost, named components take their defined shares, and this absorbs the
+    remainder so the parts sum exactly to the whole rather than to whatever the
+    percentages happen to total.
+
+    It must be the last earning in the order — it can only see what has already
+    run — and it never goes negative: if the named components already exceed
+    CTC, this contributes nothing rather than paying the difference back.
+
+    CTC is the whole cost to the employer, so what is left means after the
+    employer's own contributions too (Deduction.employer_rate / formula), not
+    only after the earnings. Without that the package always overshot by the
+    employer's share: gross came to exactly CTC and the contributions went on
+    top. They are taken off here, through payroll.methods.employer_cost, when
+    the caller supplies the deductions that apply.
+    """
+    from payroll.methods.employer_cost import balance_after_employer_cost
+
+    component = kwargs["component"]
+    day_dict = kwargs["day_dict"]
+    context = kwargs.get("component_context") or {}
+
+    employer_deductions = kwargs.get("employer_deductions")
+    if employer_deductions is None:
+        remaining = (
+            float(context.get("CTC", 0) or 0)
+            - float(context.get("_basic_lop", 0) or 0)
+            - float(context.get(EARNED, 0) or 0)
+        )
+    else:
+        remaining = balance_after_employer_cost(employer_deductions, context)
+    return compute_limit(component, max(remaining, 0.0), day_dict)
+
+
+def calculate_based_on_component(*_args, **kwargs):
+    """
+    A percentage of another component's already-computed amount.
+
+    This is what "HRA = 50% of BASIC" needs and what the legacy strategies
+    could not express: every one of them was hardwired to a fixed aggregate
+    (basic pay for an allowance; basic/gross/taxable/net for a deduction), so
+    one component could never be stated in terms of another.
+
+    The target must have run earlier in the pass. An unknown or not-yet-run
+    code contributes 0 rather than raising — the same choice the formula
+    evaluator makes, for the same reason: a component referring to something
+    absent from this employee's structure should add nothing, not abort their
+    payslip.
+    """
+    component = kwargs["component"]
+    day_dict = kwargs["day_dict"]
+    context = kwargs.get("component_context") or {}
+
+    target = (component.percentage_of_code or "").strip().upper()
+    base = float(context.get(target, 0) or 0)
+    amount = base * (component.rate or 0) / 100
+    return compute_limit(component, amount, day_dict)
+
+
+def calculate_based_on_formula(*_args, **kwargs):
+    """
+    An arithmetic expression over the components that ran before this one.
+
+    A broken formula raises through to payroll_calculation, which reports it
+    against this component and refuses the payslip — the same stance the tax
+    formula takes. Silently contributing 0 is what made the old tax path pay
+    people the wrong amount without saying so.
+    """
+    from payroll.methods.component_formula import run_component_formula
+
+    component = kwargs["component"]
+    day_dict = kwargs["day_dict"]
+    context = kwargs.get("component_context") or {}
+
+    amount = run_component_formula(component.formula, context)
+    return compute_limit(component, amount, day_dict)
+
+
 calculation_mapping = {
     "basic_pay": calculate_based_on_basic_pay,
     "gross_pay": calculate_based_on_gross_pay,
@@ -1160,4 +1587,7 @@ calculation_mapping = {
     "holiday_overtime": calculate_based_on_holiday_overtime,
     "work_type_id": calculate_based_on_work_type,
     "children": calculate_based_on_children,
+    "component": calculate_based_on_component,
+    "formula": calculate_based_on_formula,
+    "balance": calculate_based_on_balance,
 }

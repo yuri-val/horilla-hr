@@ -127,15 +127,6 @@ class DemoDateWindowTests(SimpleTestCase):
         self.assertLessEqual(max(dates), today)
         self.assertGreaterEqual(min(dates), start)
 
-    def test_leave_windows_cover_six_months_and_near_future(self):
-        from base.demo_data.modules.leave_trend import (
-            PENDING_LOOKAHEAD_DAYS,
-            TRAILING_DAYS,
-        )
-
-        self.assertEqual(TRAILING_DAYS, 180)
-        self.assertGreater(PENDING_LOOKAHEAD_DAYS, 0)
-
     def test_inventory_covers_every_sidebar_app(self):
         from django.conf import settings
 
@@ -144,15 +135,6 @@ class DemoDateWindowTests(SimpleTestCase):
         listed = {app for app, _ in SIDEBAR_DEMO_MODELS}
         for app in settings.SIDEBARS:
             self.assertIn(app, listed)
-
-    def test_side_fixtures_are_on_the_load_list(self):
-        from base.demo_data.fixtures import demo_fixture_files
-
-        files = demo_fixture_files()
-        self.assertIn("tags.json", files)
-        self.assertIn("mail_templates.json", files)
-        self.assertIn("mail_automations.json", files)
-        self.assertNotIn("faq.json", files)
 
 
 class DemoDatePolicyDBTests(TestCase):

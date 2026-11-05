@@ -48,6 +48,29 @@ class AssetCategory(HorillaModel):
         return f"{self.asset_category_name}"
 
 
+class AssetGeneralSetting(HorillaModel):
+    """
+    Company-scoped general settings for the asset app.
+    """
+
+    enable_asset_fine = models.BooleanField(
+        default=False,
+        verbose_name=_("Enable Asset Fine"),
+        help_text=_(
+            "Enabling this allows adding a fine for an employee when an asset is returned."
+        ),
+    )
+    company_id = models.ForeignKey(
+        Company, on_delete=models.CASCADE, null=True, blank=True
+    )
+    objects = HorillaCompanyManager()
+
+    def company_col(self):
+        if self.company_id:
+            return self.company_id.company
+        return "All Company"
+
+
 class AssetLot(HorillaModel):
     """
     Represents a lot associated with a collection of assets.
@@ -150,7 +173,7 @@ class Asset(HorillaModel):
         null=True, blank=True, max_length=255, verbose_name=_("Description")
     )
     asset_tracking_id = models.CharField(
-        max_length=30, null=False, unique=True, verbose_name=_("Tracking Id")
+        max_length=30, null=False, unique=True, verbose_name=_("Serial No.")
     )
     asset_purchase_date = models.DateField(verbose_name=_("Purchase Date"))
     asset_purchase_cost = models.DecimalField(
@@ -173,7 +196,9 @@ class Asset(HorillaModel):
         verbose_name=_("Batch No"),
     )
     quantity = models.IntegerField(default=1, verbose_name=_("Quantity"))
-    expiry_date = models.DateField(null=True, blank=True, verbose_name=_("Expiry Date"))
+    expiry_date = models.DateField(
+        null=True, blank=True, verbose_name=_("Warranty Expiry Date")
+    )
     notify_before = models.IntegerField(
         default=1, null=True, verbose_name=_("Notify Before (days)")
     )
@@ -375,7 +400,7 @@ class AssetItem(HorillaModel):
         verbose_name=_("Asset"),
     )
     tracking_id = models.CharField(
-        max_length=30, unique=True, verbose_name=_("Tracking Id")
+        max_length=30, unique=True, verbose_name=_("Serial No.")
     )
     status = models.CharField(
         choices=STATUS,
@@ -478,6 +503,7 @@ class AssetAssignment(HorillaModel):
         ("Minor damage", _("Minor damage")),
         ("Major damage", _("Major damage")),
         ("Healthy", _("Healthy")),
+        ("Lost", _("Lost")),
     ]
     asset_id = models.ForeignKey(
         Asset, on_delete=models.PROTECT, verbose_name=_("Asset")
@@ -648,16 +674,41 @@ class AssetAssignment(HorillaModel):
         url = reverse("asset-allocation-detail-view", kwargs={"pk": self.pk})
         return url
 
+    def open_service_request(self):
+        """
+        Returns this allocation's currently open (Requested/In Progress)
+        service request, if any.
+        """
+
+        return (
+            self.service_requests.filter(status__in=["Requested", "In Progress"])
+            .order_by("-id")
+            .first()
+        )
+
+    def service_history_display(self):
+        """
+        Custom column rendering every service request ever raised against
+        this allocation, newest first. Read-only -- editing a request's
+        status happens on that request's own detail view.
+        """
+
+        return render_template(
+            path="cbv/request_and_allocation/service_request_history.html",
+            context={
+                "assignment": self,
+                "service_requests": self.service_requests.all(),
+            },
+        )
+
     def asset_detail_status(self):
         """
         Asset tab detail status
         """
 
         return (
-            format_lazy(
-                '<span class="link-primary">{}</span>', _("Requested to return")
-            )
-            if self.return_request
+            format_lazy('<span class="link-primary">{}</span>', _("Service Requested"))
+            if self.open_service_request()
             else format_lazy(
                 '<span style = "color : yellowgreen;">{}</span>', _("In use")
             )
@@ -671,9 +722,9 @@ class AssetAssignment(HorillaModel):
             status = format_lazy(
                 '<span style = "color : red;" >{}</span>', _("Returned")
             )
-        elif self.return_request:
+        elif self.open_service_request():
             status = format_lazy(
-                '<span class="link-primary">{}</span>', _("Requested to return")
+                '<span class="link-primary">{}</span>', _("Service Requested")
             )
         else:
             status = format_lazy(
@@ -858,6 +909,23 @@ class AssetRequest(HorillaModel):
         url = reverse("asset-request-detail-view", kwargs={"pk": self.pk})
         return url
 
+
+class AssetRequestComment(HorillaModel):
+    """
+    A reason left on an asset request, currently only written on reject --
+    the request had no way to record why, unlike leave and shift requests.
+    """
+
+    request_id = models.ForeignKey(AssetRequest, on_delete=models.CASCADE)
+    employee_id = models.ForeignKey(Employee, on_delete=models.CASCADE)
+    comment = models.TextField(null=True, verbose_name=_("Comment"), max_length=255)
+    created_at = models.DateTimeField(
+        auto_now_add=True, verbose_name=_("Created At"), null=True
+    )
+
+    def __str__(self) -> str:
+        return f"{self.comment}"
+
     def status_html_class(self):
         COLOR_CLASS = {
             "Approved": "oh-dot--success",
@@ -875,3 +943,180 @@ class AssetRequest(HorillaModel):
             "color": COLOR_CLASS.get(status),
             "link": LINK_CLASS.get(status),
         }
+
+
+class AssetServiceRequest(HorillaModel):
+    """
+    A service complaint an employee raises against an asset allocation.
+    """
+
+    STATUS = [
+        ("Requested", _("Requested")),
+        ("In Progress", _("In Progress")),
+        ("Completed", _("Completed")),
+        ("Rejected", _("Rejected")),
+        ("Returned", _("Returned")),
+    ]
+    # Status stepper shown on the detail view.
+    STEPPER_STATUS = [
+        ("Requested", "Requested"),
+        ("In Progress", "In Progress"),
+        ("Completed", "Completed"),
+        ("Rejected", "Rejected"),
+    ]
+    assignment_id = models.ForeignKey(
+        AssetAssignment,
+        on_delete=models.CASCADE,
+        related_name="service_requests",
+        verbose_name=_("Asset Allocation"),
+    )
+    requested_employee_id = models.ForeignKey(
+        Employee,
+        on_delete=models.PROTECT,
+        related_name="asset_service_requests",
+        verbose_name=_("Requested By"),
+    )
+    request_date = models.DateField(auto_now_add=True)
+    issue_description = models.TextField(max_length=255, verbose_name=_("Description"))
+    status = models.CharField(max_length=30, choices=STATUS, default="Requested")
+    resolved_by_employee_id = models.ForeignKey(
+        Employee,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="resolved_service_requests",
+        verbose_name=_("Resolved By"),
+    )
+    resolved_date = models.DateField(
+        null=True, blank=True, verbose_name=_("Resolved Date")
+    )
+    objects = HorillaCompanyManager(
+        "requested_employee_id__employee_work_info__company_id"
+    )
+
+    class Meta:
+        """Meta class for AssetServiceRequest model"""
+
+        ordering = ["-id"]
+        verbose_name = _("Asset Service Request")
+        verbose_name_plural = _("Asset Service Requests")
+
+    def __str__(self):
+        return f"{self.assignment_id.asset_id} --- {self.requested_employee_id} --- {self.status}"
+
+    def row_status_class(self):
+        """
+        Row colour class matching the status legend on the service request list.
+        """
+
+        return {
+            "Requested": "row-status--blue",
+            "In Progress": "row-status--orange",
+            "Completed": "row-status--yellow",
+            "Rejected": "row-status--red",
+            "Returned": "row-status--gray",
+        }.get(self.status, "")
+
+    def status_col(self):
+        """
+        This method for get custom column for status.
+        """
+
+        return render_template(
+            path="cbv/request_and_allocation/service_request_status.html",
+            context={"instance": self},
+        )
+
+    def status_edit_display(self):
+        """
+        Custom column for the detail view's status stepper -- editable
+        for managers (self-submits back to the detail view), a read-only
+        badge for everyone else.
+        """
+
+        return render_template(
+            path="cbv/request_and_allocation/forms/service_request_status_edit.html",
+            context={"instance": self},
+        )
+
+    def notes_display(self):
+        """
+        Custom column for the detail view's notes log -- every note ever
+        added on this request, newest first.
+        """
+
+        return render_template(
+            path="cbv/request_and_allocation/forms/service_request_notes.html",
+            context={"instance": self, "notes": self.notes.all()},
+        )
+
+    def list_action_col(self):
+        """
+        Custom column for the Service Request list's action buttons --
+        History, Add Note, and Return.
+        """
+
+        return render_template(
+            path="cbv/request_and_allocation/service_request_list_action.html",
+            context={"instance": self},
+        )
+
+    def service_request_subtitle(self):
+        """
+        Return subtitle containing both department and job position information.
+        """
+        return f"{self.requested_employee_id.get_department()} / {self.requested_employee_id.get_job_position()}"
+
+    def detail_view_url(self):
+        """
+        URL to this request's own detail view.
+        """
+        return reverse("asset-service-request-detail-view", kwargs={"pk": self.id})
+
+    def history_view_url(self):
+        """
+        URL to the full service-request history of the allocation this
+        request belongs to.
+        """
+        return reverse(
+            "asset-service-request-history", kwargs={"pk": self.assignment_id_id}
+        )
+
+    def add_note_url(self):
+        """
+        URL to the standalone add-note modal for this request.
+        """
+        return reverse("asset-service-request-add-note", kwargs={"pk": self.id})
+
+    def return_url(self):
+        """
+        URL to the existing manager return form for the allocation this
+        request belongs to.
+        """
+        return reverse(
+            "asset-allocate-return", kwargs={"assignment_id": self.assignment_id_id}
+        )
+
+
+class AssetServiceRequestNote(HorillaModel):
+    """
+    A note left on a service request. There can be several over its
+    lifetime -- e.g. one added while In Progress, another on Completed.
+    """
+
+    request_id = models.ForeignKey(
+        AssetServiceRequest, on_delete=models.CASCADE, related_name="notes"
+    )
+    employee_id = models.ForeignKey(Employee, on_delete=models.CASCADE)
+    note = models.TextField(verbose_name=_("Note"))
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        """Meta class for AssetServiceRequestNote model"""
+
+        ordering = ["-created_at"]
+        verbose_name = _("Service Request Note")
+        verbose_name_plural = _("Service Request Notes")
+
+    def __str__(self):
+        return f"{self.note}"

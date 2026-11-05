@@ -2,18 +2,6 @@
 
 {% if request.user.id|stringformat:"d" == instance.anonymous_feedback_id or request.user.is_superuser %}
     <div class="flex items-center gap-2 flex-wrap">
-        <button
-            type="button"
-            class="oh-btn oh-btn--light-bkg px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300"
-            data-toggle="oh-modal-toggle"
-            data-target="#genericModal"
-            hx-get="{% url 'edit-anonymous-feedback' instance.id %}?instance_ids={{instance.ordered_ids}}"
-            title="{% trans 'Edit' %}"
-            hx-target="#genericModalBody"
-        >
-            <ion-icon name="create-outline"></ion-icon>
-            {% trans "Edit" %}
-        </button>
         <form
             action="{% url 'archive-anonymous-feedback' obj_id=instance.id %}"
             method="post"
@@ -30,6 +18,18 @@
                 {% if instance.archive == True %}{% trans "Un-archive" %}{% else %}{% trans "Archive" %}{% endif %}
             </button>
         </form>
+        <button
+            type="button"
+            class="oh-btn oh-btn--light-bkg px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300"
+            data-toggle="oh-modal-toggle"
+            data-target="#genericModal"
+            hx-get="{% url 'edit-anonymous-feedback' instance.id %}?instance_ids={{instance.ordered_ids}}"
+            title="{% trans 'Edit' %}"
+            hx-target="#genericModalBody"
+        >
+            <ion-icon name="create-outline"></ion-icon>
+            {% trans "Edit" %}
+        </button>
         <form
             action="{% url 'delete-anonymous-feedback' obj_id=instance.id %}"
             method="post"

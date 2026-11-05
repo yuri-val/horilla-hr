@@ -32,6 +32,7 @@ from pms.models import (
     Meetings,
     Objective,
     Period,
+    Question,
     QuestionTemplate,
 )
 
@@ -313,6 +314,7 @@ class FeedbackFilter(HorillaFilterSet):
     )
 
     search = django_filters.CharFilter(method="search_method")
+    search_field = django_filters.CharFilter(method="search_in")
     review_cycle = django_filters.CharFilter(lookup_expr="icontains")
     created_at_date_range = DateRangeFilter(
         field_name="created_at",
@@ -427,6 +429,8 @@ class FeedbackFilter(HorillaFilterSet):
         """
         Search Method
         """
+        if self.data.get("search_field"):
+            return queryset
         parts = value.split()
         first_name = parts[0]
         last_name = " ".join(parts[1:]) if len(parts) > 1 else ""
@@ -745,6 +749,16 @@ class EmployeeObjectiveFilter(HorillaFilterSet):
     )
     kr_progress_percentage__gte = django_filters.NumberFilter(method="kr_progress_gte")
     kr_progress_percentage__lte = django_filters.NumberFilter(method="kr_progress_lte")
+    employee_id__employee_work_info__department_id = django_filters.NumberFilter(
+        field_name="employee_id__employee_work_info__department_id"
+    )
+    exclude_status = django_filters.CharFilter(method="exclude_status_method")
+
+    def exclude_status_method(self, queryset, name, value):
+        """
+        Hide employee objectives having the given status
+        """
+        return queryset.exclude(status=value)
 
     def kr_start_date_from_method(self, queryset, name, value):
         """
@@ -834,9 +848,43 @@ class EmployeeObjectiveFilter(HorillaFilterSet):
         return empty.distinct()
 
 
+class EmployeeKeyResultListFilter(HorillaFilterSet):
+    """
+    Filter through EmployeeKeyResult model for the standalone list page
+    """
+
+    search = django_filters.CharFilter(method="search_method")
+
+    class Meta:
+        model = EmployeeKeyResult
+        fields = ["status"]
+
+    def search_method(self, queryset, _, value: str):
+        """
+        This method is used to search key result, employee and objective
+        """
+        values = value.split(" ")
+        empty = queryset.model.objects.none()
+        for split in values:
+            empty = (
+                empty
+                | queryset.filter(key_result__icontains=split)
+                | queryset.filter(
+                    employee_objective_id__employee_id__employee_first_name__icontains=split
+                )
+                | queryset.filter(
+                    employee_objective_id__employee_id__employee_last_name__icontains=split
+                )
+                | queryset.filter(employee_objective_id__objective__icontains=split)
+            )
+
+        return empty.distinct()
+
+
 class MeetingsFilter(HorillaFilterSet):
 
     search = django_filters.CharFilter(field_name="title", lookup_expr="icontains")
+    id = django_filters.NumberFilter(field_name="id")
     date = django_filters.DateFilter(
         field_name="date",
         lookup_expr="date",
@@ -1060,6 +1108,18 @@ class QuestionTemplateFilter(FilterSet):
         fields = [
             "question_template",
         ]
+
+
+class QuestionFilter(FilterSet):
+    """
+    Filter through Question model
+    """
+
+    search = django_filters.CharFilter(field_name="question", lookup_expr="icontains")
+
+    class Meta:
+        model = Question
+        fields = ["question", "question_type"]
 
 
 class PeriodFilter(HorillaFilterSet):

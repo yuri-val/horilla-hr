@@ -9,12 +9,14 @@ from django.http import HttpResponse
 from django.urls import reverse, reverse_lazy
 from django.utils.decorators import method_decorator
 from django.utils.translation import gettext_lazy as _
+from django.views.generic import FormView
 
 from base.filters import HolidayFilter
 from base.forms import HolidayForm, HolidaysColumnExportForm
 from base.methods import has_export_access
 from base.models import Holidays
 from horilla_views.cbv_methods import (
+    AddOrChangePermissionMixin,
     hx_request_required,
     login_required,
     permission_required,
@@ -63,6 +65,8 @@ class HolidayListView(HorillaListView):
         (_("Start Date"), "start_date"),
         (_("End Date"), "end_date"),
         (_("Recurring"), "get_recurring_status"),
+        (_("Available for All"), "get_available_for_all_status"),
+        (_("Company"), "get_company_name"),
     ]
 
     header_attrs = {
@@ -121,7 +125,6 @@ class HolidayNavView(HorillaNavView):
                         data-target = "#genericModal"
                         hx-target="#genericModalBody"
                         hx-get ="{reverse('holiday-nav-export')}"
-                        hx-vals='js:{{"has_selection": (JSON.parse(document.getElementById("selectedInstances")?.getAttribute("data-ids")||"[]").length>0)}}'
                         style="cursor: pointer;"
                     """,
                 }
@@ -167,7 +170,10 @@ class HolidayDetailView(HorillaDetailedView):
         (_("Start Date"), "start_date"),
         (_("End Date"), "end_date"),
         (_("Recurring"), "get_recurring_status"),
-        (_("Company"), "company_id"),
+        (_("Available for All"), "get_available_for_all_status"),
+        (_("Department"), "get_department_names"),
+        (_("Job Position"), "get_job_position_names"),
+        (_("Company"), "get_company_name"),
     ]
 
     action_method = "detail_view_actions"
@@ -193,20 +199,24 @@ class HolidayExport(TemplateView):
         context = super().get_context_data(**kwargs)
         context["export_column"] = export_column
         context["export_filter"] = export_filter
-        context["hide_export_filters"] = self.request.GET.get("has_selection") == "true"
         return context
 
 
 @method_decorator(login_required, name="dispatch")
-class HolidayFormView(HorillaFormView):
+class HolidayFormView(AddOrChangePermissionMixin, HorillaFormView):
     """
     form view for create button
     """
 
+    add_perm = "base.add_holidays"
+    change_perm = "base.change_holidays"
     form_class = HolidayForm
     model = Holidays
     new_display_title = _("Create Holiday")
     template_name = "holiday/holiday_cbv_form.html"
+    # Company is optional here (empty = all companies), so the base view must
+    # not force it to the session company.
+    restrict_company_field = False
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -226,3 +236,54 @@ class HolidayFormView(HorillaFormView):
             messages.success(self.request, _(message))
             return self.HttpResponse()
         return super().form_valid(form)
+
+
+@method_decorator(login_required, name="dispatch")
+class HolidayDuplicateFormView(HolidayFormView):
+    """
+    Create form pre-filled from an existing holiday.
+    """
+
+    new_display_title = _("Duplicate Holiday")
+
+    def get_required_permission(self):
+        # The duplicate route carries a pk but always creates a new record.
+        return self.add_perm
+
+    def get_queryset(self):
+        # the form always creates a new record (an unsaved blank instance)
+        return Holidays()
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        self.form.verbose_name = self.new_display_title
+        return context
+
+    def get(self, request, *args, pk=None, **kwargs):
+        return FormView.get(self, request, *args, **kwargs)
+
+    def post(self, request, *args, pk=None, **kwargs):
+        return FormView.post(self, request, *args, **kwargs)
+
+    def init_form(self, *args, data=None, files=None, instance=None, **kwargs):
+        initial = self.get_initial()
+        original = Holidays.objects.filter(pk=self.kwargs.get("pk")).first()
+        if original and data is None:
+            initial.update(
+                {
+                    "name": f"{original.name} (copy)"[:30],
+                    "start_date": original.start_date,
+                    "end_date": original.end_date,
+                    "recurring": original.recurring,
+                    "available_for_all": not original.is_specific,
+                    "department": list(
+                        original.department.values_list("pk", flat=True)
+                    ),
+                    "job_position": list(
+                        original.job_position.values_list("pk", flat=True)
+                    ),
+                    "employees": list(original.employees.values_list("pk", flat=True)),
+                    "company_id": original.company_id_id,
+                }
+            )
+        return self.form_class(data, files, initial=initial)

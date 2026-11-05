@@ -1,0 +1,26 @@
+{% load i18n %}
+
+<div class="oh-modal__dialog-header">
+	<h2 class="text-md font-semibold" id="createTitle">
+		{{ modal_title|default:_("Edit") }}
+	</h2>
+	<button
+		class="oh-modal__close--custom"
+		type="button"
+		aria-label="{% trans 'Close' %}"
+		onclick="
+			$(this).closest('.oh-modal--show').removeClass('oh-modal--show')
+		"
+	>
+		<ion-icon name="close-outline"></ion-icon>
+	</button>
+</div>
+
+<div class="oh-modal__dialog-body oh-modal__dialog-relative">
+	{% if form.contract_status %}
+	<div class="flex justify-end mb-3">
+		<div style="min-width: 160px">{{ form.contract_status }}</div>
+	</div>
+	{% endif %}
+    {% include "payroll/common/form_fragment.html" %}
+</div>

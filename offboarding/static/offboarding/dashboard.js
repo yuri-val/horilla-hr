@@ -67,7 +67,7 @@ $(document).ready(function () {
                         labels: data.labels,
                         datasets: [
                             {
-                                label: "Employees",
+                                label: gettext("Employees"),
                                 data: data.items,
                             },
                         ],

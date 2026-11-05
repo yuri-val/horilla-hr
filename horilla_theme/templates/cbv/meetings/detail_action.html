@@ -100,28 +100,6 @@
         </button>
     {% endif %}
 
-    {# Edit #}
-    {% if perms.pms.change_meetings or request.user.employee_get in instance.manager.all %}
-        <a
-            onclick="event.preventDefault();event.stopPropagation()"
-            hx-get="{% url 'update-meeting' instance.id %}?instance_ids={{instance.ordered_ids}}"
-            hx-target="#genericModalBody"
-            hx-swap="innerHTML"
-            data-toggle="oh-modal-toggle"
-            data-target="#genericModal"
-            class="oh-btn oh-btn--light-bkg px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300"
-            title="{% trans 'Edit' %}"
-        >
-            <ion-icon name="create-outline"></ion-icon>
-            {% trans "Edit" %}
-        </a>
-    {% else %}
-        <button class="oh-btn oh-btn--light-bkg px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300" disabled title="{% trans 'Edit' %}">
-            <ion-icon name="create-outline"></ion-icon>
-            {% trans "Edit" %}
-        </button>
-    {% endif %}
-
     {# Archive / Un-archive #}
     {% if perms.pms.delete_meetings %}
         {% if not instance.is_active %}
@@ -169,6 +147,28 @@
         >
             <ion-icon name="archive"></ion-icon>
             {% trans "Archive" %}
+        </button>
+    {% endif %}
+
+    {# Edit #}
+    {% if perms.pms.change_meetings or request.user.employee_get in instance.manager.all %}
+        <a
+            onclick="event.preventDefault();event.stopPropagation()"
+            hx-get="{% url 'update-meeting' instance.id %}?instance_ids={{instance.ordered_ids}}"
+            hx-target="#genericModalBody"
+            hx-swap="innerHTML"
+            data-toggle="oh-modal-toggle"
+            data-target="#genericModal"
+            class="oh-btn oh-btn--light-bkg px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300"
+            title="{% trans 'Edit' %}"
+        >
+            <ion-icon name="create-outline"></ion-icon>
+            {% trans "Edit" %}
+        </a>
+    {% else %}
+        <button class="oh-btn oh-btn--light-bkg px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300" disabled title="{% trans 'Edit' %}">
+            <ion-icon name="create-outline"></ion-icon>
+            {% trans "Edit" %}
         </button>
     {% endif %}
 

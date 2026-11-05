@@ -5,6 +5,7 @@ This module is used to map url path with view methods.
 """
 
 from django.urls import path
+from django.views.generic import RedirectView
 
 from base.views import add_remove_dynamic_fields, object_duplicate
 from recruitment import cbvs
@@ -33,11 +34,6 @@ from recruitment.views import linkedin, search, surveys, views
 urlpatterns = [
     path(
         "interview-view/", interview.InterviewViewPage.as_view(), name="interview-view"
-    ),
-    path(
-        "get-cand-tasks/<int:pk>/",
-        candidate_profile.CandidateProfileTasks.as_view(),
-        name="get-cand-task",
     ),
     path(
         "interview-nav-view/",
@@ -121,7 +117,21 @@ urlpatterns = [
         views.recruitment_reopen_pipeline,
         name="recruitment-reopen-pipeline",
     ),
-    path("pipeline/", views.recruitment_pipeline, name="pipeline"),
+    # The pre-CBV pipeline page (views.recruitment_pipeline +
+    # templates/pipeline/*.html) was superseded by PipelineView at
+    # `cbv-pipeline/` but never retired, and it no longer renders correctly:
+    # its Bootstrap-era markup now inherits the Tailwind-restyled global
+    # chrome, so it came up as a broken mix of both. Anything still holding
+    # this url - notifications created before their `redirect` was repointed
+    # (the url is frozen into each row's data at send time), bookmarks, the
+    # post-action `redirect(recruitment_pipeline)` calls in views.py - is
+    # sent to the working page instead. `query_string` keeps `?closed=...`
+    # and friends, which the CBV page reads too.
+    path(
+        "pipeline/",
+        RedirectView.as_view(pattern_name="cbv-pipeline", query_string=True),
+        name="pipeline",
+    ),
     path("pipeline-search/", views.filter_pipeline, name="pipeline-search"),
     path(
         "pipeline-stages-component/<str:view>/",
@@ -623,6 +633,11 @@ urlpatterns = [
         recruitment_survey.SurveyTemplateFormView.as_view(),
         name="survey-template-create",
     ),
+    path(
+        "survey-template-duplicate/<int:obj_id>/",
+        recruitment_survey.SurveyTemplateDuplicateFormView.as_view(),
+        name="survey-template-duplicate",
+    ),
     # path(
     #     "survey-template-create",
     #     surveys.create_template,
@@ -793,6 +808,11 @@ urlpatterns = [
         name="candidate-self-tracking-rating-option",
     ),
     path(
+        "default-probation-period/",
+        views.default_probation_period,
+        name="default-probation-period",
+    ),
+    path(
         "candidate-self-status-tracking/",
         views.candidate_self_status_tracking,
         name="candidate-self-status-tracking",
@@ -806,6 +826,16 @@ urlpatterns = [
         "candidate-login/",
         views.candidate_login,
         name="candidate-login",
+    ),
+    path(
+        "candidate-send-invitation/<int:cand_id>/",
+        views.candidate_send_invitation,
+        name="candidate-send-invitation",
+    ),
+    path(
+        "candidate-logout/",
+        views.candidate_logout,
+        name="candidate-logout",
     ),
     path(
         "create-reject-reason/", views.create_reject_reason, name="create-reject-reason"
@@ -854,11 +884,6 @@ urlpatterns = [
         "recruitment-settings-skill-tab/",
         settings_tabs.RecruitmentSettingsSkillTab.as_view(),
         name="recruitment-settings-skill-tab",
-    ),
-    path(
-        "recruitment-settings-stage-tab/",
-        settings_tabs.RecruitmentSettingsStageTab.as_view(),
-        name="recruitment-settings-stage-tab",
     ),
     path(
         "resume-completion/",
@@ -966,6 +991,11 @@ urlpatterns = [
         name="matching-resumes",
     ),
     path(
+        "resume-application-form/",
+        views.resume_application_form,
+        name="resume-application-form",
+    ),
+    path(
         "matching-resume-completion/",
         views.matching_resume_completion,
         name="matching-resume-completion",
@@ -1022,6 +1052,11 @@ urlpatterns = [
         name="candidate-document-delete",
     ),
     path(
+        "candidate-tracking-items/<int:cand_id>/<str:section>/",
+        views.candidate_tracking_items,
+        name="candidate-tracking-items",
+    ),
+    path(
         "candidate-add-notes/<int:cand_id>/",
         views.candidate_add_notes,
         name="candidate-add-notes",
@@ -1067,6 +1102,11 @@ urlpatterns = [
         "recruitment-pipeline-shell/<int:rec_id>/",
         pipeline.RecruitmentPipelineContentShell.as_view(),
         name="recruitment-pipeline-shell",
+    ),
+    path(
+        "recruitment-pipeline-tab-nav/<int:rec_id>/",
+        pipeline.RecruitmentCandidateNav.as_view(),
+        name="recruitment-pipeline-tab-nav",
     ),
     path(
         "cbv-change-stage/<int:pk>/",
@@ -1144,6 +1184,16 @@ urlpatterns = [
         name="recruitment-dashboard-source-quality",
     ),
     path(
+        "dashboard/api/vacancy-vs-hired/",
+        rec_dashboard.recruitment_vacancy_vs_hired,
+        name="recruitment-dashboard-vacancy-hired",
+    ),
+    path(
+        "dashboard/api/talent-pool/",
+        rec_dashboard.recruitment_talent_pool,
+        name="recruitment-dashboard-talent-pool",
+    ),
+    path(
         "dashboard/api/time-to-hire/",
         rec_dashboard.recruitment_time_to_hire,
         name="recruitment-dashboard-time-to-hire",
@@ -1177,6 +1227,11 @@ urlpatterns = [
         "dashboard/api/source-conversion/",
         rec_dashboard.recruitment_source_conversion,
         name="recruitment-dashboard-source-conv",
+    ),
+    path(
+        "dashboard/api/rejection-reasons/",
+        rec_dashboard.recruitment_rejection_reasons,
+        name="recruitment-dashboard-rejection-reasons",
     ),
     path(
         "dashboard/api/joinings/",

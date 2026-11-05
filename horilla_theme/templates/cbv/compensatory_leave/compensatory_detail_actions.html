@@ -1,0 +1,106 @@
+{% load i18n basefilters %}
+{% is_manager_of request.user instance as can_manage %}
+
+{% if perms.leave.change_compensatoryleaverequest or can_manage %}
+<div class="flex items-center gap-2 flex-wrap">
+	{% if instance.status == 'requested' %}
+        <a
+            type="submit"
+            hx-confirm="{% trans 'Are you sure you want to approve ?' %}"
+            hx-post="{% url 'approve-compensatory-leave' instance.id %}?instances_ids={{request.GET.instance_ids}}"
+            hx-target="#genericModalBody"
+            title="{% trans 'Approve' %}"
+            class="oh-btn oh-btn--success flex-1 px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300"
+        >
+            <ion-icon name="checkmark-outline"></ion-icon>
+            {% trans "Approve" %}
+        </a>
+	{% else %}
+        <button
+            title="{% trans 'Approve' %}"
+            class="oh-btn oh-btn--success opacity-50 cursor-not-allowed flex-1 px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300"
+            disabled
+        >
+            <ion-icon name="checkmark-outline"></ion-icon>
+            {% trans "Approve" %}
+        </button>
+	{% endif %}
+
+    {% if instance.status == 'requested' or instance.status == 'approved' %}
+        <a
+            type="submit"
+            data-toggle="oh-modal-toggle"
+            data-target="#rejectModal"
+            hx-get="{% url 'reject-compensatory-leave' instance.id %}"
+            hx-target="#rejectTarget"
+            title="{% trans 'Reject' %}"
+            class="oh-btn oh-btn--danger flex-1 px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300"
+        >
+            <ion-icon name="close-circle-outline"></ion-icon>
+            {% trans "Reject" %}
+        </a>
+	{% else %}
+        <button
+            title="{% trans 'Reject' %}"
+            class="oh-btn oh-btn--danger opacity-50 cursor-not-allowed flex-1 px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300"
+            disabled
+        >
+            <ion-icon name="close-circle-outline"></ion-icon>
+            {% trans "Reject" %}
+        </button>
+	{% endif %}
+
+    {% if instance.status == 'requested' %}
+        <button
+            class="oh-btn oh-btn--light-bkg flex-1 px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300"
+            title="{% trans 'Edit' %}"
+            data-toggle="oh-modal-toggle"
+            data-target="#genericModal"
+            hx-get="{% url 'update-compensatory-leave' instance.id %}?instance_ids={{instance.ordered_ids}}"
+            hx-target="#genericModalBody"
+        >
+            <ion-icon name="create-outline"></ion-icon>
+            {% trans "Edit" %}
+        </button>
+    {% else %}
+        <button
+            class="oh-btn oh-btn--light-bkg flex-1 px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300"
+            title="{% trans 'Edit' %}"
+            disabled
+        >
+            <ion-icon name="create-outline"></ion-icon>
+            {% trans "Edit" %}
+        </button>
+    {% endif %}
+
+    {% if instance.status != 'approved' %}
+        <button
+            class="oh-btn oh-btn--danger flex-1 px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300"
+            id="delete-link"
+            hx-confirm="{% trans 'Are you sure you want to delete ?' %}"
+            hx-post="{% url 'delete-compensatory-leave' instance.id %}?instances_ids={{request.GET.instance_ids}}"
+            hx-target="#genericModalBody"
+            title="{% trans 'Delete' %}"
+        >
+            <ion-icon name="trash-outline"></ion-icon>
+            {% trans "Delete" %}
+        </button>
+    {% else %}
+        <button
+            class="oh-btn oh-btn--danger opacity-50 cursor-not-allowed flex-1 px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300"
+            title="{% trans 'Delete' %}"
+            disabled
+        >
+            <ion-icon name="trash-outline"></ion-icon>
+            {% trans "Delete" %}
+        </button>
+    {% endif %}
+</div>
+{% endif %}
+
+{% if request.GET.deleted %}
+<script>
+	$(".reload-record").click();
+	$("#reloadMessagesButton").click();
+</script>
+{% endif %}

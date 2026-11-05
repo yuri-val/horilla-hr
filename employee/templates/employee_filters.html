@@ -21,6 +21,7 @@
         </div>
     </div>
 
+    {% if not hide_work_info_filters %}
     <div class="oh-accordion">
         <div class="oh-accordion-header">{% trans "Work Info" %}</div>
         <div class="oh-accordion-body">
@@ -106,7 +107,9 @@
             </div>
         </div>
     </div>
+    {% endif %}
 
+    {% if not hide_advanced_filters %}
     <div class="oh-accordion">
         <div class="oh-accordion-header">{% trans "Advanced" %}</div>
         <div class="oh-accordion-body">
@@ -138,7 +141,7 @@
                 {% endcomment %}
                 <div class="col-sm-12 col-md-12 col-lg-6">
                     <div class="oh-input-group">
-                        <label class="oh-label">{% trans "Is Active" %}?</label>
+                        <label class="oh-label">{% trans "Active" %}?</label>
                         <div class="oh-segmented">
                             {% for radio in f.form.is_active %}
                                 <label class="oh-segmented__item" for="{{radio.id_for_label}}">
@@ -152,5 +155,6 @@
             </div>
         </div>
     </div>
+    {% endif %}
 </div>
 <script src="{% static '/base/filter.js' %}"></script>

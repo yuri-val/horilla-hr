@@ -41,6 +41,7 @@ from horilla.filters import (
     filter_name_or_badge_terms,
 )
 from horilla.horilla_middlewares import _thread_locals
+from horilla.methods import get_accessibility_cache_key
 from horilla_documents.models import Document, DocumentRequest
 from horilla_views.templatetags.generic_template_filters import getattribute
 from horilla_widgets.generic_ajax import register_ajax_field
@@ -53,6 +54,57 @@ class EmployeeFilter(HorillaFilterSet):
     Args:
         FilterSet (class): custom filter set class to apply styling
     """
+
+    # People who left in a window, by the same exit sources the turnover report
+    # uses (archived offboarding, approved resignation, inactive with an end date).
+    joined_from = django_filters.DateFilter(
+        field_name="employee_work_info__date_joining",
+        lookup_expr="gte",
+        label=_("Joined from"),
+    )
+    joined_till = django_filters.DateFilter(
+        field_name="employee_work_info__date_joining",
+        lookup_expr="lte",
+        label=_("Joined till"),
+    )
+    exited_from = django_filters.DateFilter(
+        method="filter_exited", label=_("Exited from")
+    )
+    exited_till = django_filters.DateFilter(
+        method="filter_exited", label=_("Exited till")
+    )
+
+    def filter_exited(self, queryset, name, value):
+        # Both ends arrive together; the first call does the work.
+        if getattr(self, "_exit_ids_applied", False):
+            return queryset
+        self._exit_ids_applied = True
+        from datetime import date
+
+        from report.engine import ReportFilters
+        from report.metrics._exits import iter_exits
+
+        def parse(key):
+            raw = self.data.get(key)
+            try:
+                return date.fromisoformat(str(raw)) if raw else None
+            except ValueError:
+                return None
+
+        start, end = parse("exited_from"), parse("exited_till")
+        if not (start or end):
+            return queryset
+        start = start or date.min
+        end = end or date.max
+        ids = [
+            row["employee_id"]
+            for row in iter_exits(
+                ReportFilters(from_date=start, to_date=end),
+                from_date=start,
+                to_date=end,
+            )
+        ]
+        return queryset.filter(pk__in=ids)
 
     search = django_filters.CharFilter(method="filter_by_name")
     search_field = django_filters.CharFilter(method="search_in")
@@ -76,6 +128,7 @@ class EmployeeFilter(HorillaFilterSet):
     )
     employee_first_name = django_filters.CharFilter(lookup_expr="icontains")
     employee_last_name = django_filters.CharFilter(lookup_expr="icontains")
+    badge_id = django_filters.CharFilter(lookup_expr="icontains")
 
     # Modern filter panel's single "Employee" search box (filter_employee.html)
     # -- replaces separate First Name / Last Name inputs with one field that
@@ -88,13 +141,23 @@ class EmployeeFilter(HorillaFilterSet):
     # AJAX-searched "pick specific employee(s)" combobox (see ajax_fields
     # below) -- employee_filters.html's Employee section (First/Last
     # Name, Email, Phone, Country, Gender) for the classic filter
-    # dropdowns. field_name="id" since this filters the Employee model
-    # itself by primary key, not a related field.
+    # dropdowns. Custom method instead of field_name="id": django-filter's
+    # default MultipleChoiceFilter builds Q(id=<Employee instance>) per
+    # selected value (OR'd together) rather than a single id__in=[...] --
+    # fine for a real FK field (Django resolves the instance to its pk
+    # there), but "id" is the model's own plain AutoField, which can't
+    # accept a model instance, so ANY value here raised a TypeError.
     employee_id = django_filters.ModelMultipleChoiceFilter(
-        field_name="id",
         queryset=Employee.objects.all(),
         label=_("Employee"),
+        method="filter_by_employee_ids",
     )
+
+    def filter_by_employee_ids(self, queryset, name, value):
+        if not value:
+            return queryset
+        return queryset.filter(id__in=[emp.pk for emp in value])
+
     country = django_filters.CharFilter(lookup_expr="icontains")
     department = django_filters.CharFilter(
         field_name="employee_work_info__department_id__department",
@@ -148,10 +211,26 @@ class EmployeeFilter(HorillaFilterSet):
         queryset=JobPosition.objects.all(),
         label=_("Job Position"),
     )
+    # Active employees whose work info has no job position (dashboard drill-down)
+    no_job_position = django_filters.BooleanFilter(
+        field_name="employee_work_info__job_position_id",
+        lookup_expr="isnull",
+        label=_("No Job Position"),
+    )
+    employee_work_info__basic_salary__gte = django_filters.NumberFilter(
+        field_name="employee_work_info__basic_salary",
+        lookup_expr="gte",
+        label=_("Basic Salary (from)"),
+    )
+    employee_work_info__basic_salary__lt = django_filters.NumberFilter(
+        field_name="employee_work_info__basic_salary",
+        lookup_expr="lt",
+        label=_("Basic Salary (till)"),
+    )
 
     is_active = django_filters.ChoiceFilter(
         field_name="is_active",
-        label="Is Active",
+        label="Active",
         # Segmented Any/Yes/No toggle in the modern filter panel -- the
         # empty leading choice (rendered as "Any") is what lets the field
         # be cleared back to unfiltered; a plain 2-choice Yes/No couldn't
@@ -168,13 +247,12 @@ class EmployeeFilter(HorillaFilterSet):
         # as a second, redundant empty-value radio alongside the "Any"
         # option declared above.
         empty_label=None,
-        initial=True,
         widget=forms.RadioSelect,
     )
 
     is_from_onboarding = django_filters.ChoiceFilter(
         field_name="is_from_onboarding",
-        label="Is From Onboarding",
+        label="From Onboarding",
         choices=[
             (True, "Yes"),
             (False, "No"),
@@ -182,7 +260,7 @@ class EmployeeFilter(HorillaFilterSet):
     )
     is_directly_converted = django_filters.ChoiceFilter(
         field_name="is_directly_converted",
-        label="Is Directly Converted",
+        label="Directly Converted",
         choices=[
             (True, "Yes"),
             (False, "No"),
@@ -466,6 +544,12 @@ class EmployeeFilter(HorillaFilterSet):
                 "label": str(_("Job Role")),
                 "type": "choice",
             },
+            {
+                "key": "date_joining",
+                "field": "employee_work_info__date_joining",
+                "label": str(_("Date Joining")),
+                "type": "date_range",
+            },
         ]
         for entry in fields:
             entry["lookups"] = [
@@ -571,7 +655,7 @@ class EmployeeFilter(HorillaFilterSet):
         request = getattr(_thread_locals, "request", None)
         if request:
             employee = getattr(request.user, "employee_get", None)
-            cache_key = request.session.session_key + "accessibility_filter"
+            cache_key = get_accessibility_cache_key(request)
             accessible = check_is_accessible("employee_view", cache_key, employee)
             if not accessible and employee.reporting_manager.exists():
                 queryset = filtersubordinatesemployeemodel(
@@ -666,6 +750,13 @@ class DocumentRequestFilter(HorillaFilterSet):
     # against it can never narrow a group down to one employee. Search by the
     # employee's name/badge instead, like every other request list in the app.
     search = CharFilter(method=filter_by_name)
+    # Expiry window, used by the Employee dashboard's "Documents to Expire" link.
+    expiry_from = django_filters.DateFilter(
+        field_name="expiry_date", lookup_expr="gte", label=_("Expires from")
+    )
+    expiry_till = django_filters.DateFilter(
+        field_name="expiry_date", lookup_expr="lte", label=_("Expires till")
+    )
     # Dedicated comma-separated "Name or Badge ID" search, alongside the
     # AJAX employee_id picker below rather than instead of it -- same
     # field/behavior as EmployeeFilter.name_or_badge; see

@@ -46,6 +46,7 @@ class MyAttendancesListView(HorillaListView):
         (_("At Work"), "attendance_worked_hour"),
         (_("Pending Hour"), "hours_pending"),
         (_("Overtime"), "attendance_overtime"),
+        (_("Penalties"), "penalty_col"),
     ]
     default_columns = [
         (_("Employee"), "employee_id", "employee_id__get_avatar"),
@@ -54,6 +55,7 @@ class MyAttendancesListView(HorillaListView):
         (_("Check-Out"), "attendance_clock_out"),
         (_("Shift"), "shift_id"),
         (_("At Work"), "attendance_worked_hour"),
+        (_("Penalties"), "penalty_col"),
     ]
 
     row_attrs = """
@@ -168,6 +170,13 @@ class MyAttendanceList(MyAttendancesListView):
     ]
 
     row_status_class = "validated-{attendance_validated}  requested-{is_validate_request} approved-request-{is_validate_request_approved}"
+
+    show_quick_date_filters = True
+    quick_date_fields = (
+        "attendance_date",
+        "attendance_date__gte",
+        "attendance_date__lte",
+    )
 
     def get_queryset(self):
         queryset = super().get_queryset()

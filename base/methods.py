@@ -16,7 +16,7 @@ from django.apps import apps
 from django.conf import settings
 from django.contrib.auth.models import Group
 from django.contrib.staticfiles import finders
-from django.core.exceptions import ObjectDoesNotExist
+from django.core.exceptions import FieldDoesNotExist, ObjectDoesNotExist
 from django.core.paginator import Paginator
 from django.db import models
 from django.db.models import ForeignKey, ManyToManyField, OneToOneField, Q
@@ -637,6 +637,31 @@ def get_subordinate_employee_ids(
         return direct_sub_ids
 
 
+def employees_in_scope(request, employee_ids, perm, include_self=False):
+    """
+    Whether the caller may act on every employee in ``employee_ids``.
+
+    True when the caller holds ``perm``, or every id is one of the caller's
+    subordinates (or the caller, with ``include_self``). It is the same rule
+    ``choosesubordinates`` applies to an employee dropdown, enforced on the
+    server for the ids that were actually submitted.
+    """
+    if request.user.has_perm(perm):
+        return True
+    employee = getattr(request.user, "employee_get", None)
+    if employee is None:
+        return False
+    allowed = {
+        str(pk)
+        for pk in get_subordinate_employee_ids(
+            request, nested=settings.NESTED_SUBORDINATE_VISIBILITY
+        )
+    }
+    if include_self:
+        allowed.add(str(employee.id))
+    return all(str(pk) in allowed for pk in employee_ids)
+
+
 def choosesubordinatesemployeemodel(request, form, perm):
     user = request.user
     if user.has_perm(perm):
@@ -744,7 +769,7 @@ def generate_colors(num_colors):
     return colors
 
 
-def get_key_instances(model, data_dict):
+def get_key_instances(model, data_dict, filter_class=None):
     # Get all the models in the Django project
     all_models = apps.get_models()
 
@@ -817,6 +842,59 @@ def get_key_instances(model, data_dict):
         except (ObjectDoesNotExist, ValueError):
             pass
 
+    # A FilterSet field can alias a foreign key under a query param name
+    # that doesn't match the model's field name (e.g. AssetFilter's
+    # "category" -> field_name="asset_category_id", kept short for
+    # dashboard-style deep links). Such a param is invisible to the
+    # field-name match above, so its filter tag would otherwise be left
+    # showing the raw id instead of the related instance's name.
+    if filter_class is not None:
+        for filter_name, filter_instance in filter_class.base_filters.items():
+            field_name = getattr(filter_instance, "field_name", None)
+            if not field_name or field_name == filter_name:
+                continue
+            if filter_name not in data_dict or field_name in data_dict:
+                continue
+            try:
+                field = model._meta.get_field(field_name)
+            except Exception:
+                continue
+            if not isinstance(field, (ForeignKey, OneToOneField)):
+                continue
+            try:
+                field_values = [int(value) for value in data_dict[filter_name]]
+                related_model = field.remote_field.model
+                related_instances = related_model.objects.filter(id__in=field_values)
+                data_dict[filter_name] = [
+                    str(instance) for instance in related_instances
+                ]
+            except (ObjectDoesNotExist, ValueError):
+                pass
+
+    # A param can also reach a foreign key through relations
+    # (e.g. "employee_work_info__job_position_id"), which the direct
+    # field-name match above never sees, leaving the raw id in its filter tag.
+    for key in list(data_dict):
+        if "__" not in key:
+            continue
+        try:
+            field = model
+            for part in key.split("__"):
+                field = (
+                    field._meta
+                    if hasattr(field, "_meta")
+                    else field.related_model._meta
+                ).get_field(part)
+            if not isinstance(field, (ForeignKey, OneToOneField)):
+                continue
+            ids = [int(value) for value in data_dict[key]]
+            data_dict[key] = [
+                str(instance)
+                for instance in field.remote_field.model.objects.filter(id__in=ids)
+            ]
+        except Exception:
+            continue
+
     # Create a list of field names that are ManyToManyField
     many_to_many_field_names = [
         field.name for field in model_fields if isinstance(field, ManyToManyField)
@@ -886,6 +964,7 @@ def get_key_instances(model, data_dict):
             "assign_sortby",
             "request_sortby",
             "asset_under",
+            "breadcrumb_nav",
         ]
         or "dynamic_page" in key
     ]
@@ -947,19 +1026,22 @@ def closest_numbers(numbers: list, input_number: int) -> tuple:
     return (previous_number, next_number)
 
 
-def format_export_value(value, employee):
-    work_info = EmployeeWorkInformation.objects.filter(employee_id=employee).first()
-    time_format = (
-        work_info.company_id.time_format
-        if work_info and work_info.company_id
-        else "HH:mm"
-    )
-    date_format = (
-        work_info.company_id.date_format
-        if work_info and work_info.company_id
-        else "MMM. D, YYYY"
-    )
+def export_field_label(verbose_name):
+    """
+    Django derives a boolean field's default verbose name by just replacing
+    the underscores in its field name (e.g. "is_holiday" -> "is holiday"),
+    so export column pickers built from model fields show flags like that
+    in lowercase with a stray leading "is", unlike the other, explicitly
+    labelled columns in the same list. Drop that "is " and title-case the
+    rest so it reads like the rest of the list.
+    """
+    label = str(verbose_name)
+    if label[:3].lower() == "is ":
+        label = label[3:].strip().title()
+    return label
 
+
+def format_export_value(value, time_format, date_format):
     if isinstance(value, time):
         # Convert the string to a datetime.time object
         check_in_time = datetime.strptime(str(value).split(".")[0], "%H:%M:%S").time()
@@ -1073,6 +1155,7 @@ def export_data(request, model, form_class, filter_class, file_name, perm=None):
         "second_half": _("Second Half"),
         "requested": _("Requested"),
         "approved": _("Approved"),
+        "cancel_requested": _("Cancel Requested"),
         "cancelled": _("Cancelled"),
         "rejected": _("Rejected"),
         "cancelled_and_rejected": _("Cancelled & Rejected"),
@@ -1080,12 +1163,23 @@ def export_data(request, model, form_class, filter_class, file_name, perm=None):
         "early_out": _("Early Departure"),
     }
     employee = request.user.employee_get
+    work_info = EmployeeWorkInformation.objects.filter(employee_id=employee).first()
+    time_format = (
+        work_info.company_id.time_format
+        if work_info and work_info.company_id
+        else "HH:mm"
+    )
+    date_format = (
+        work_info.company_id.date_format
+        if work_info and work_info.company_id
+        else "MMM. D, YYYY"
+    )
 
     from horilla.http.response import HorillaRedirect
 
     if not has_export_access(request, model):
         return HorillaRedirect(
-            request, message=_("You dont have access to export this data")
+            request, message=_("You don't have access to export this data")
         )
 
     selected_columns = []
@@ -1095,9 +1189,18 @@ def export_data(request, model, form_class, filter_class, file_name, perm=None):
 
     form = form_class()
     model_fields = model._meta.get_fields()
+    # An export of per-employee records is limited to the requester's own and
+    # their team's unless they hold the model's view permission, which is the
+    # default for callers that name no `perm`. Models with no employee_id
+    # (holidays, candidates) have nothing to scope by here.
+    if perm is None and any(f.name == "employee_id" for f in model._meta.fields):
+        perm = f"{model._meta.app_label}.view_{model._meta.model_name}"
     export_objects = filter_class(request.GET).qs
+    # What a request may select by id: the scoped set, not the whole model.
+    selectable_objects = model.objects.all()
     if perm:
         export_objects = filtersubordinates(request, export_objects, perm)
+        selectable_objects = filtersubordinates(request, selectable_objects, perm)
 
     # If the caller selected specific rows in the list view (instance_ids),
     # export exactly those - not whatever the filter fields happen to match -
@@ -1110,7 +1213,7 @@ def export_data(request, model, form_class, filter_class, file_name, perm=None):
         with contextlib.suppress(ValueError, SyntaxError):
             instance_ids = ast.literal_eval(instance_ids)
             if instance_ids:
-                export_objects = model.objects.filter(pk__in=instance_ids)
+                export_objects = selectable_objects.filter(pk__in=instance_ids)
                 has_instance_ids = True
 
     selected_fields = request.GET.getlist("selected_fields")
@@ -1120,13 +1223,34 @@ def export_data(request, model, form_class, filter_class, file_name, perm=None):
         if not has_instance_ids:
             ids = request.GET.get("ids", "[]")
             id_list = json.loads(ids)
-            export_objects = model.objects.filter(id__in=id_list)
+            export_objects = selectable_objects.filter(id__in=id_list)
 
-    for field in form.fields["selected_fields"].choices:
-        value = field[0]
-        key = field[1]
-        if value in selected_fields:
-            selected_columns.append((value, key))
+    choices_map = dict(form.fields["selected_fields"].choices)
+    for value in selected_fields:
+        if value in choices_map:
+            selected_columns.append((value, choices_map[value]))
+
+    select_related_paths = set()
+    for field_name in selected_fields:
+        parts = field_name.split("__")
+        relation_parts = parts[:-1] if len(parts) > 1 else parts
+        valid_parts = []
+        current_model = model
+        for part in relation_parts:
+            try:
+                field = current_model._meta.get_field(part)
+            except FieldDoesNotExist:
+                valid_parts = []
+                break
+            if not field.is_relation:
+                valid_parts = []
+                break
+            valid_parts.append(part)
+            current_model = field.related_model
+        if valid_parts:
+            select_related_paths.add("__".join(valid_parts))
+    if select_related_paths:
+        export_objects = export_objects.select_related(*select_related_paths)
 
     for field_name, verbose_name in selected_columns:
         if field_name in selected_fields:
@@ -1150,7 +1274,7 @@ def export_data(request, model, form_class, filter_class, file_name, perm=None):
                     value = _(value.title())
 
                 # Check if the type of 'value' is time
-                value = format_export_value(value, employee)
+                value = format_export_value(value, time_format, date_format)
                 # Employee-entered text reaching a spreadsheet cell can
                 # execute when the file is opened (=HYPERLINK(...) will
                 # exfiltrate neighbouring cells), so guard every value at the
@@ -1328,6 +1452,32 @@ def link_callback(uri, rel):
 #         return HttpResponse("We had some errors <pre>" + html + "</pre>")
 
 #     return response
+
+
+def pdfkit_configuration():
+    """
+    pdfkit pointed at wkhtmltopdf, found even when it is not on PATH.
+
+    pdfkit looks the program up on PATH (``where`` on Windows) and fails with
+    'No wkhtmltopdf executable found: b""' when the installer did not add it, as the
+    Windows installer by default does not. WKHTMLTOPDF_PATH, then the usual
+    install folders, are tried before leaving it to pdfkit's own search.
+    """
+    import os
+    import shutil
+
+    candidates = [
+        os.environ.get("WKHTMLTOPDF_PATH"),
+        shutil.which("wkhtmltopdf"),
+        "C:/Program Files/wkhtmltopdf/bin/wkhtmltopdf.exe",
+        "C:/Program Files (x86)/wkhtmltopdf/bin/wkhtmltopdf.exe",
+        "/usr/local/bin/wkhtmltopdf",
+        "/usr/bin/wkhtmltopdf",
+    ]
+    for path in candidates:
+        if path and os.path.isfile(path):
+            return pdfkit.configuration(wkhtmltopdf=path)
+    return None
 
 
 def generate_pdf(template_path, context, path=True, title=None, html=True):
@@ -1615,6 +1765,18 @@ def get_next_month_same_date(date_obj):
     return date(day=day, month=month, year=year)
 
 
+def get_nth_month_same_date(start_date, months):
+    """
+    Date `months` months after `start_date`, keeping the start day where the
+    month has it and clamping to the month's last day where it does not.
+    """
+    month_index = start_date.month - 1 + months
+    year = start_date.year + month_index // 12
+    month = month_index % 12 + 1
+    day = min(start_date.day, calendar.monthrange(year, month)[1])
+    return date(day=day, month=month, year=year)
+
+
 def get_subordinates(request):
     """
     This method is used to filter out subordinates queryset element.
@@ -1716,7 +1878,12 @@ def template_pdf(template, context={}, html=False, filename="payslip.pdf"):
             "footer-center": "[page]/[topage]",
         }
 
-        pdf = pdfkit.from_string(html_content, False, options=pdf_options)
+        pdf = pdfkit.from_string(
+            html_content,
+            False,
+            options=pdf_options,
+            configuration=pdfkit_configuration(),
+        )
 
         response = HttpResponse(pdf, content_type="application/pdf")
         response["Content-Disposition"] = f"inline; filename={filename}"
@@ -1732,3 +1899,109 @@ def generate_otp():
         str: A 6-digit random OTP as a string.
     """
     return str(random.randint(100000, 999999))
+
+
+class FriendlyTagText(str):
+    """Marks a filter-tag label/value that is already display-ready, so the
+    `tag_label`/`tag_value` template filters don't re-derive it from the raw
+    query key (which would expose lookups like `gte`/`lte`)."""
+
+
+# Query values that mean something specific to attendance and read better as
+# the label users see elsewhere in the UI than as the raw choice key.
+_ATTENDANCE_CONDITION_LABELS = {
+    "late_come": "Late Arrival",
+    "early_out": "Early Departure",
+    "on_time": "On Time",
+}
+_RANGE_SUFFIXES = {"__gte": "From", "__lte": "To"}
+
+
+def _friendly_date(value):
+    try:
+        return date.fromisoformat(str(value)).strftime("%d %b %Y")
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def humanize_filter_tags(data_dict):
+    """
+    Display-only pass over the filter-tag dict built for the active-filter
+    tags. The query string and FilterSet are untouched -- this only changes
+    what is shown:
+
+    * a `<field>__gte` / `<field>__lte` pair becomes ONE tag carrying a
+      readable date or date range, stored under the `__gte` key (the `__lte`
+      key is reported in `extras` so removing the tag clears both);
+    * `type` / `attendance_status` choices show "Late Arrival" /
+      "Early Departure" / "On Time", and `attendance_on_time` shows
+      "On Time" / "Late Arrival" under an "Attendance" label.
+
+    Returns (data_dict, labels, extras): `labels` maps tag key -> label,
+    `extras` maps tag key -> the extra key(s) its clear (x) must also clear.
+    """
+    labels, extras = {}, {}
+
+    for key in list(data_dict):
+        if not key.endswith("__gte"):
+            continue
+        base = key[: -len("__gte")]
+        lte_key = f"{base}__lte"
+        start = data_dict[key][0] if data_dict.get(key) else None
+        end = data_dict[lte_key][0] if data_dict.get(lte_key) else None
+        if not _is_date_like(start) or (end and not _is_date_like(end)):
+            continue
+        if start and end and start != end:
+            text = f"{_friendly_date(start)} – {_friendly_date(end)}"
+        elif start and end:
+            text = _friendly_date(start)
+        elif start:
+            text = _("From %(d)s") % {"d": _friendly_date(start)}
+        else:
+            continue
+        data_dict[key] = [FriendlyTagText(text)]
+        labels[key] = FriendlyTagText(_range_base_label(base))
+        if lte_key in data_dict:
+            data_dict.pop(lte_key)
+            extras[key] = lte_key
+
+    for key in list(data_dict):
+        if key.endswith("__lte") and _is_date_like(data_dict[key][0]):
+            # lone "until" date (no matching __gte left in the dict)
+            base = key[: -len("__lte")]
+            data_dict[key] = [
+                FriendlyTagText(
+                    _("Until %(d)s") % {"d": _friendly_date(data_dict[key][0])}
+                )
+            ]
+            labels[key] = FriendlyTagText(_range_base_label(base))
+
+    for key in ("type", "attendance_status"):
+        values = data_dict.get(key)
+        if values and all(v in _ATTENDANCE_CONDITION_LABELS for v in values):
+            data_dict[key] = [
+                FriendlyTagText(_(_ATTENDANCE_CONDITION_LABELS[v])) for v in values
+            ]
+            labels[key] = FriendlyTagText(_("Attendance"))
+
+    on_time = data_dict.get("attendance_on_time")
+    if on_time and on_time[0] in ("True", "False"):
+        data_dict["attendance_on_time"] = [
+            FriendlyTagText(_("On Time") if on_time[0] == "True" else _("Late Arrival"))
+        ]
+        labels["attendance_on_time"] = FriendlyTagText(_("Attendance"))
+
+    return data_dict, labels, extras
+
+
+def _is_date_like(value):
+    try:
+        date.fromisoformat(str(value))
+        return True
+    except (TypeError, ValueError):
+        return False
+
+
+def _range_base_label(base):
+    name = base.split("__")[-1]
+    return name.replace("_", " ").capitalize()

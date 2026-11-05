@@ -305,6 +305,10 @@ input[type="file"] {
   height: 35px;
 }
 
+textarea.oh-input {
+  height: auto;
+}
+
 .oh-input::placeholder,
 .oh-select::placeholder {
   font-size: 0.75rem;
@@ -424,6 +428,10 @@ input[type="file"] {
 
 .hired--dot {
   background-color: green;
+}
+
+.cancel_requested--dot {
+  background-color: #8b5cf6;
 }
 
 .cancelled--dot,
@@ -1509,6 +1517,10 @@ table .oh-btn-group a {
 .oh-btn--disabled {
   opacity: 0.5;
   cursor: not-allowed !important;
+  /* Stays hoverable so the not-allowed cursor shows; clicks are swallowed by
+     the guard in static/index/index.js (a link must not navigate, and a click
+     must not fall through to the row behind it). */
+  pointer-events: auto;
 }
 
 .oh-btn--disabled:focus,
@@ -1555,6 +1567,9 @@ table .oh-btn-group a {
   content: "";
   width: 22px;
   height: 22px;
+  background-position: center;
+  background-size: contain;
+  background-repeat: no-repeat;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='18' height='18'%3E%3Cpath fill='none' d='M0 0h24v24H0z'%3E%3C/path%3E%3Cpath d='M14.8287 7.75737L9.1718 13.4142C8.78127 13.8047 8.78127 14.4379 9.1718 14.8284C9.56232 15.219 10.1955 15.219 10.586 14.8284L16.2429 9.17158C17.4144 8.00001 17.4144 6.10052 16.2429 4.92894C15.0713 3.75737 13.1718 3.75737 12.0002 4.92894L6.34337 10.5858C4.39075 12.5384 4.39075 15.7042 6.34337 17.6569C8.29599 19.6095 11.4618 19.6095 13.4144 17.6569L19.0713 12L20.4855 13.4142L14.8287 19.0711C12.095 21.8047 7.66283 21.8047 4.92916 19.0711C2.19549 16.3374 2.19549 11.9053 4.92916 9.17158L10.586 3.51473C12.5386 1.56211 15.7045 1.56211 17.6571 3.51473C19.6097 5.46735 19.6097 8.63317 17.6571 10.5858L12.0002 16.2427C10.8287 17.4142 8.92916 17.4142 7.75759 16.2427C6.58601 15.0711 6.58601 13.1716 7.75759 12L13.4144 6.34316L14.8287 7.75737Z' fill='rgba(169,169,169,1)'%3E%3C/path%3E%3C/svg%3E");
 }
 
@@ -1713,6 +1728,11 @@ table .oh-btn-group a {
   align-items: center;
 }
 
+td .oh-profile {
+  max-width: 100%;
+  overflow: hidden;
+}
+
 .oh-profile__avatar {
   border-radius: 50%;
   flex-shrink: 0;
@@ -1741,6 +1761,32 @@ table .oh-btn-group a {
   object-position: center;
 }
 
+.oh-timeoff-modal__download-link {
+  width: fit-content;
+  background: hsl(213, 22%, 93%);
+  padding: 0.5rem 1rem;
+  margin-top: 1.25rem;
+  border-radius: 0.375rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.9rem;
+  color: hsl(0, 0%, 27%);
+}
+
+.oh-timeoff-modal__download-link ion-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.oh-timeoff-modal__download-link:hover,
+.oh-timeoff-modal__download-link:focus,
+.oh-timeoff-modal__download-link:focus-visible {
+  text-decoration: none;
+  background-color: hsl(213, 22%, 84%);
+}
+
 .oh-history_user-img {
   width: 40px;
   height: 40px;
@@ -1755,13 +1801,13 @@ table .oh-btn-group a {
 }
 
 .oh-view-btn--active {
-  background-color: var(--primary-600, #E54F38) !important;
+  background-color: #fff !important;
   border: 1px solid var(--primary-600, #E54F38) !important;
-  color: #fff !important;
+  color: var(--primary-600, #E54F38) !important;
 }
 
 .oh-view-btn--active ion-icon {
-  color: #fff;
+  color: var(--primary-600, #E54F38);
 }
 
 .swal2-styled.swal2-confirm {
@@ -1871,11 +1917,13 @@ table .oh-btn-group a {
   height: 2rem;
   gap: 0.125rem;
   background-color: #fff;
-  border: 1px solid #e6e6e6;
   border-radius: 0.375rem;
   padding: 0 0.25rem;
   flex-shrink: 0;
   line-height: 1;
+  /* Border color comes from the template's own border-primary-500 utility
+     class (matches the Actions button's border) - this file loads after
+     tailwind.css, so a border set here would always beat that utility. */
 }
 
 .hlv-pagination button {
@@ -1918,6 +1966,15 @@ table .oh-btn-group a {
   outline: none;
   vertical-align: middle;
   box-sizing: border-box;
+}
+
+/* This file loads after tailwind.css, so its plain, always-on border above
+   wins the cascade over that file's `.focus\:border-primary-600:focus`
+   utility even at :focus (same specificity, later source order) - the
+   input just never visibly changed color on click. Restated here, after
+   the base rule, so the themed color actually wins when focused. */
+.hlv-pagination input[type="number"]:focus {
+  border-color: var(--primary-600, #E54F38);
 }
 
 .hlv-pagination span {
@@ -2910,6 +2967,11 @@ ul.errorlist ul.errorlist {
 
 .oh-alert--animated {
   animation: slide-right-in-pop-animation 3.5s 0s ease-in-out forwards;
+  pointer-events: auto;
+}
+
+.oh-alert--animated:hover {
+  animation-play-state: paused;
 }
 
 @keyframes slide-right-in-pop-animation {
@@ -3027,31 +3089,184 @@ ul.errorlist ul.errorlist {
   align-items: center;
   justify-content: center;
   width: 100%;
-  height: 100px;
-  border: 1px dashed hsl(213, 22%, 84%);
+  min-height: 6.5rem;
+  border: 2px dashed hsl(213, 22%, 80%);
+  border-radius: 0.5rem;
   padding: 1rem;
-  background: rgba(233.223, 236.7573, 241.077, 0.2);
+  background: #f9fafb;
+  text-align: center;
   cursor: pointer;
+  transition: border-color 0.2s, background-color 0.2s;
 }
 
-.oh-dropdown__import-label:hover {
-  background: rgba(233.223, 236.7573, 241.077, 0.4);
+.oh-dropdown__import-label:hover,
+.oh-dropdown__import-label.oh-import-drag {
+  border-color: var(--primary-600, #e54f38);
+  background: var(--primary-100, #fff5f1);
+}
+
+.oh-dropdown__import-label.oh-import-has-file {
+  border-style: solid;
+  border-color: var(--primary-600, #e54f38);
 }
 
 .oh-dropdown__import-form-icon {
-  font-size: 4rem;
-  color: rgba(28.05, 28.05, 28.05, 0.85);
+  font-size: 2.5rem;
+  color: var(--primary-600, #e54f38);
+  margin-bottom: 0.25rem;
 }
 
 .oh-dropdown__import-form-title {
-  font-size: 1rem;
-  font-weight: bold;
-  color: rgba(28.05, 28.05, 28.05, 0.85);
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #374151;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .oh-dropdown__import-form-text {
-  font-size: 0.85rem;
-  color: hsl(0, 0%, 45%);
+  font-size: 0.75rem;
+  color: #6b7280;
+}
+
+/* The drop zone replaces the native file control; keep the input in the
+   form (so `required` and submission still work) but visually hidden. */
+.oh-dropdown__import-form input[type="file"],
+.oh-dropdown__import-label ~ input[type="file"],
+form input[type="file"].oh-import-input {
+  position: absolute;
+  width: 1px !important;
+  height: 1px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* Import modals: same layout as the Employee import modal --
+   drop zone, outlined "Download Template" button on the left under it,
+   a divider, then a brand-coloured "Upload" button on the right. */
+form:has(.oh-dropdown__import-label) .float-end {
+  float: none !important;
+  display: flex !important;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  margin: 0.75rem 0 0 !important;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+form:has(.oh-dropdown__import-label) .float-end .oh-dropdown__link {
+  display: inline-flex !important;
+  width: auto !important;
+  height: auto !important;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--primary-600, #e54f38);
+  border-radius: 0.375rem;
+  color: var(--primary-600, #e54f38) !important;
+  font-size: 0.75rem;
+  text-decoration: none;
+  transition: background-color 0.3s, color 0.3s;
+}
+
+form:has(.oh-dropdown__import-label) .float-end .oh-dropdown__link:hover {
+  background: var(--primary-800, #b3331f);
+  color: #fff !important;
+}
+
+form:has(.oh-dropdown__import-label) .float-end .oh-dropdown__link ion-icon {
+  font-size: 16px !important;
+}
+
+form:has(.oh-dropdown__import-label) :is(button[type="submit"], input[type="submit"]) {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: auto !important;
+  margin-left: auto;
+  margin-top: 1rem;
+  padding: 0.5rem 1.25rem;
+  border: 0;
+  border-radius: 0.375rem;
+  background: var(--primary-600, #e54f38);
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 500;
+  transition: background-color 0.3s;
+}
+
+form:has(.oh-dropdown__import-label) :is(button[type="submit"], input[type="submit"]):hover {
+  background: var(--primary-800, #b3331f);
+}
+
+/* Import modals' "Uploading..." loader. Hidden until htmx marks it as the
+   request indicator (hx-indicator="#uploading"), which also hides the form. */
+.oh-upload-loader {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 1.5rem 0;
+  text-align: center;
+}
+
+.oh-upload-loader.htmx-request {
+  display: flex;
+}
+
+form:has(.oh-upload-loader.htmx-request) #uploadContainer,
+form:has(.oh-upload-loader.htmx-request) :is(button[type="submit"], input[type="submit"]) {
+  display: none;
+}
+
+.oh-upload-loader__title {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--primary-600, #e54f38);
+}
+
+.oh-upload-loader__hint {
+  margin: 0;
+  font-size: 0.75rem;
+  color: #6b7280;
+}
+
+.oh-upload-loader__bar {
+  position: relative;
+  width: 14rem;
+  height: 0.25rem;
+  margin-top: 0.75rem;
+  overflow: hidden;
+  border-radius: 9999px;
+  background: var(--primary-100, #fff5f1);
+}
+
+.oh-upload-loader__bar span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 40%;
+  border-radius: 9999px;
+  background: var(--primary-600, #e54f38);
+  animation: oh-upload-slide 1.2s ease-in-out infinite;
+}
+
+@keyframes oh-upload-slide {
+  0% {
+    transform: translateX(-100%);
+  }
+
+  100% {
+    transform: translateX(250%);
+  }
 }
 
 .oh-dropdown__menu--top-100 {
@@ -3412,9 +3627,9 @@ ul.errorlist ul.errorlist {
 
 .oh-sticky-dropdown_btn.is-column-config-trigger:hover,
 .oh-sticky-dropdown_btn.is-column-config-trigger[aria-expanded="true"] {
-  color: #e54f38;
-  border-color: #f0c4bc;
-  background: #fff5f3;
+  color: var(--primary-600, #e54f38);
+  border-color: var(--primary-500, #f0c4bc);
+  background: var(--primary-100, #fff5f3);
 }
 
 .oh-sticky-dropdown_btn {
@@ -3526,8 +3741,7 @@ ul.errorlist ul.errorlist {
   background-color: hsl(0, 0%, 100%);
   height: 100%;
   min-height: 100vh;
-  width: 50%;
-  max-width: 1000px;
+  width: clamp(420px, 40%, 700px);
   box-shadow: rgba(0, 0, 0, 0.1) -4px 9px 25px -6px;
   padding: 1rem;
   display: none;
@@ -3554,6 +3768,22 @@ ul.errorlist ul.errorlist {
 
   to {
     transform: translate3d(0, 0, 0);
+  }
+}
+
+.oh-activity-sidebar--closing {
+  display: block;
+  pointer-events: none;
+  animation: slide-right-out-animation 0.3s 0s ease-in-out forwards;
+}
+
+@keyframes slide-right-out-animation {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+
+  to {
+    transform: translate3d(100%, 0, 0);
   }
 }
 
@@ -3633,6 +3863,7 @@ span.oh-activity-sidebar__a img {
   max-width: 300px;
   width: auto;
   position: absolute;
+  pointer-events: none;
 }
 
 .ui-helper-hidden-accessible {
@@ -4652,4 +4883,458 @@ th[id$="mail_indication-header"] {
 /* Summernote hide-bug workaround */
 textarea[data-summernote]:has(+ .note-editor) {
   display: none !important;
+}
+
+/* Summernote rich-text editor */
+.note-editor.note-frame {
+  border: 1px solid var(--primary-500, #f7c8c1);
+  border-radius: 10px;
+  box-shadow: none;
+  background: #fff;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+.note-editor.note-frame:focus-within {
+  border-color: var(--primary-600, #e54f38);
+  box-shadow: 0 0 0 3px var(--primary-300, #fcedeb);
+}
+.note-editor.note-frame.fullscreen {
+  border-radius: 0;
+}
+.note-editor.note-frame .note-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 0;
+  padding: 4px 6px;
+  margin: 0;
+  background: var(--primary-300, #fcedeb);
+  border: 0;
+  border-bottom: 1px solid var(--primary-500, #f7c8c1);
+  border-radius: 10px 10px 0 0;
+}
+.note-editor.note-frame .note-toolbar > .note-btn-group {
+  display: inline-flex;
+  align-items: center;
+  margin: 0 1px 0 0;
+  padding-right: 2px;
+  border-right: 1px solid var(--primary-500, #f7c8c1);
+}
+.note-editor.note-frame .note-toolbar > .note-btn-group:last-child {
+  border-right: 0;
+  padding-right: 0;
+}
+.note-editor.note-frame .note-toolbar .note-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 4px;
+  margin: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: #4b5563;
+  font-size: 13px;
+  box-shadow: none;
+  transition:
+    background-color 0.12s ease,
+    color 0.12s ease;
+}
+.note-editor.note-frame .note-toolbar .note-btn:hover,
+.note-editor.note-frame .note-toolbar .note-btn:focus {
+  background: var(--primary-500, #f7c8c1);
+  border-color: transparent;
+  color: #111827;
+}
+.note-editor.note-frame .note-toolbar .note-btn.active,
+.note-editor.note-frame .note-toolbar .note-btn:active {
+  background: transparent;
+  border-color: transparent;
+  color: var(--primary-600, #e54f38);
+}
+.note-editor.note-frame .note-toolbar .note-btn [class^="note-icon-"] {
+  font-size: 13px;
+}
+.note-editor.note-frame .note-dropdown-menu {
+  padding: 6px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  box-shadow: 0 10px 25px rgba(16, 24, 40, 0.12);
+}
+.note-editor.note-frame .note-dropdown-menu .note-dropdown-item {
+  border-radius: 6px;
+}
+.note-editor.note-frame .note-dropdown-menu .note-dropdown-item:hover {
+  background: #f1f3f6;
+}
+.note-editor.note-frame .note-editing-area .note-editable {
+  padding: 14px 16px;
+  background: #fff;
+  color: #1f2937;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.note-editor.note-frame .note-editing-area .note-placeholder {
+  padding: 14px 16px;
+  color: #9ca3af;
+  font-size: 14px;
+}
+.note-editor.note-frame .note-editing-area .note-codable {
+  padding: 14px 16px;
+}
+.note-editor.note-frame .note-statusbar {
+  background: transparent;
+  border-top: 0;
+  border-radius: 0 0 10px 10px;
+}
+.note-editor.note-frame .note-statusbar .note-resizebar {
+  height: 8px;
+  padding: 0;
+  border-radius: 0 0 10px 10px;
+  transition: background-color 0.15s ease;
+}
+.note-editor.note-frame .note-statusbar .note-resizebar:hover {
+  background: var(--primary-300, #fcedeb);
+}
+.note-editor.note-frame .note-statusbar .note-icon-bar {
+  display: none;
+}
+.note-editor.note-frame.fullscreen .note-statusbar {
+  border-radius: 0;
+}
+
+.note-modal-backdrop {
+  background: #0f172a;
+  opacity: 0.45;
+}
+.note-modal .note-modal-content {
+  overflow: hidden;
+  margin-top: 8vh;
+  border: 0;
+  border-radius: 12px;
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.25);
+}
+.note-modal .note-modal-header {
+  padding: 16px 24px;
+  border: 0;
+  border-bottom: 1px solid #eef0f3;
+}
+.note-modal .note-modal-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #111827;
+}
+.note-modal .note-modal-body {
+  padding: 20px 24px;
+}
+.note-modal .note-form-label {
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #374151;
+}
+.note-modal .note-input {
+  padding: 9px 12px;
+  border: 1px solid #d5dae1;
+  border-radius: 8px;
+  font-size: 14px;
+  color: #1f2937;
+  background: #fff;
+  box-shadow: none;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+.note-modal .note-input:focus {
+  outline: 0;
+  border-color: var(--primary-600, #e54f38);
+  box-shadow: 0 0 0 3px var(--primary-300, #fcedeb);
+}
+.note-modal .note-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  height: auto;
+  padding: 14px 24px;
+  background: #f8f9fb;
+  border-top: 1px solid #eef0f3;
+}
+.note-modal .note-modal-footer .note-btn,
+.note-modal .note-btn-primary {
+  float: none;
+  height: auto;
+  padding: 8px 18px;
+  border: 1px solid var(--primary-600, #e54f38);
+  border-radius: 8px;
+  background: var(--primary-600, #e54f38);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 500;
+}
+.note-modal .note-modal-footer .note-btn:hover,
+.note-modal .note-btn-primary:hover,
+.note-modal .note-btn-primary:focus {
+  background: var(--primary-700, #ce4732);
+  border-color: var(--primary-700, #ce4732);
+  color: #fff;
+}
+.note-modal .note-modal-footer .note-btn.disabled,
+.note-modal .note-modal-footer .note-btn[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+body.dark .note-editor.note-frame {
+  background: #1b1b1b;
+  border-color: #444;
+}
+body.dark .note-editor.note-frame .note-toolbar .note-btn {
+  background: transparent;
+  border-color: transparent !important;
+  color: #cbd5e1 !important;
+}
+body.dark .note-editor.note-frame .note-toolbar .note-btn:hover,
+body.dark .note-editor.note-frame .note-toolbar .note-btn:focus {
+  background: #2d2d2d;
+  color: #fff !important;
+}
+body.dark .note-editor.note-frame .note-toolbar .note-btn.active,
+body.dark .note-editor.note-frame .note-toolbar .note-btn:active {
+  background: transparent;
+  color: var(--primary-600, #e54f38) !important;
+}
+body.dark .note-editor.note-frame .note-toolbar > .note-btn-group {
+  border-right-color: #3a3a3a;
+}
+body.dark .note-editor.note-frame .note-dropdown-menu {
+  background: #1b1b1b;
+  border-color: #444;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+}
+body.dark .note-editor.note-frame .note-dropdown-menu .note-dropdown-item {
+  color: #dfdfdf;
+}
+body.dark .note-editor.note-frame .note-dropdown-menu .note-dropdown-item:hover {
+  background: #2d2d2d;
+}
+body.dark .note-editor.note-frame .note-editing-area .note-editable {
+  background: #242424;
+  color: #e5e7eb;
+}
+body.dark .note-editor.note-frame .note-statusbar {
+  background: transparent;
+}
+body.dark .note-editor.note-frame .note-statusbar .note-resizebar:hover {
+  background: #2d2d2d;
+}
+body.dark .note-modal .note-modal-content {
+  background: #1b1b1b;
+  color: #dfdfdf;
+}
+body.dark .note-modal .note-modal-header,
+body.dark .note-modal .note-modal-footer {
+  border-color: #333;
+}
+body.dark .note-modal .note-modal-footer {
+  background: #151515;
+}
+body.dark .note-modal .note-modal-title {
+  color: #f3f4f6;
+}
+body.dark .note-modal .note-form-label {
+  color: #cbd5e1;
+}
+body.dark .note-modal .note-input {
+  background: #111;
+  border-color: #444;
+  color: #e5e7eb;
+}
+body.dark .note-modal .note-modal-footer .note-btn,
+body.dark .note-modal .note-btn-primary {
+  background: var(--primary-600, #e54f38);
+  border-color: var(--primary-600, #e54f38) !important;
+  color: #fff !important;
+}
+
+/* Write / Preview tab toggle (e.g. recruitment send-mail modal) */
+.oh-tabs__view-buttons {
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+  max-width: 260px;
+}
+.oh-tabs__view-buttons .tab-btn {
+  flex: 1 1 0%;
+  min-width: 0;
+  opacity: 0.6;
+}
+.oh-tabs__view-buttons .tab-btn.active {
+  opacity: 1;
+}
+.oh-tabs__view {
+  display: none;
+}
+.oh-tabs__view.active {
+  display: block;
+}
+
+/* Rendered mail-body preview pane (recruitment send-mail modal) */
+.oh-mail-preview {
+  min-height: 150px;
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 1rem 1.25rem;
+  border: 1px solid #e6e6e6;
+  border-radius: 0.375rem;
+  background-color: white;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  color: hsl(0, 0%, 11%);
+}
+.oh-mail-preview :first-child {
+  margin-top: 0;
+}
+.oh-mail-preview :last-child {
+  margin-bottom: 0;
+}
+.oh-mail-preview img {
+  max-width: 100%;
+}
+
+/* Legacy titlebar (onboarding/onboarding_view_nav.html and similar pages
+   still on the old .oh-main__topbar layout): only the "-title" and other
+   sub-element rules survived into this theme's stylesheet, not the base
+   .oh-main__titlebar--right/.oh-view-types layout rules, so the search
+   box + view-type buttons + filter button stacked vertically instead of
+   in a row, inflating the topbar height and pushing all page content
+   down. Restored verbatim from the pre-theme stylesheet
+   (static/src/scss/main.css). */
+.oh-main__titlebar--right {
+  display: flex;
+  align-items: center;
+}
+.oh-view-types {
+  list-style-type: none;
+  padding-left: 0px;
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 0px;
+}
+
+/* ---- "Dynamic create" entry of a select ----
+   Every form that lets a select create a new option (asset category, batch number,
+   ...) ends the list with a "dynamic_create" entry. It is an action, not a value, so
+   it is set apart from the real choices: a divider above, the theme colour, and a
+   plus badge, instead of reading like one more option. Select2 gives each result an
+   id ending in the option's value, which is what is matched. */
+.select2-results__option[id$="-dynamic_create"] {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 9px 12px;
+  border-top: 1px dashed rgba(128, 128, 128, 0.35);
+  font-weight: 600;
+  color: var(--primary-600, #e54f38);
+  /* Pinned to the bottom of the dropdown, so it is in view without scrolling a
+     long list of real choices to find it. */
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  background: #fff;
+}
+
+.dark .select2-results__option[id$="-dynamic_create"] {
+  background: #242424;
+}
+
+.select2-results__option[id$="-dynamic_create"]::before {
+  content: "+";
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--primary-600, #e54f38);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.select2-container--default .select2-results__option--highlighted[id$="-dynamic_create"] {
+  background-color: var(--primary-600, #e54f38) !important;
+  color: #fff !important;
+}
+
+.select2-container--default .select2-results__option--highlighted[id$="-dynamic_create"]::before {
+  background: #fff;
+  color: var(--primary-600, #e54f38);
+}
+
+/* The plain <select> (no Select2): the same entry, as far as <option> can be styled. */
+option[value="dynamic_create"] {
+  font-weight: 600;
+  color: var(--primary-600, #e54f38);
+}
+
+/* Compact SweetAlert2 dialogs (confirmations, results, warnings). The library
+   defaults (32em wide, 5em icon, 1.875em title, large gaps) left a lot of empty
+   white space around a one-line message. Toasts are excluded; a Swal that sets
+   its own width/padding inline still wins. */
+.swal2-container .swal2-popup:not(.swal2-toast) {
+  width: 26rem;
+  padding: 0 0 1rem;
+}
+.swal2-popup:not(.swal2-toast) .swal2-icon {
+  font-size: 0.7rem;
+  margin: 1.1rem auto 0.4rem;
+}
+.swal2-popup:not(.swal2-toast) .swal2-icon.oh-hlv-result-icon {
+  font-size: 0.7rem !important;
+  margin: 1.1rem auto 0.4rem !important;
+}
+.swal2-popup:not(.swal2-toast) .swal2-title {
+  font-size: 1.1rem;
+  padding: 0.2rem 1rem 0;
+  margin: 0;
+}
+.swal2-popup:not(.swal2-toast) .swal2-html-container {
+  font-size: 0.9rem;
+  line-height: 1.4;
+  margin: 0.6rem 1.2rem 0;
+  padding: 0;
+}
+.swal2-popup:not(.swal2-toast) .swal2-actions {
+  margin: 1rem auto 0;
+}
+.swal2-popup:not(.swal2-toast) .swal2-styled {
+  padding: 0.45rem 1.2rem;
+  font-size: 0.85rem;
+  margin: 0 0.3rem;
+}
+
+.swal2-popup.oh-swal-stack .swal2-actions {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0 1.2rem;
+  box-sizing: border-box;
+}
+
+.swal2-popup.oh-swal-stack .swal2-styled {
+  width: 100%;
+  margin: 0;
+}
+
+.swal2-popup.oh-swal-stack .swal2-styled.swal2-deny {
+  background-color: #475569;
 }

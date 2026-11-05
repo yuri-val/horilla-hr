@@ -94,7 +94,7 @@ class LateComeAndEarlyOutList(HorillaListView):
         (_("Out Date"), "attendance_id__attendance_clock_out_date"),
         (_("Min Hour"), "attendance_id__minimum_hour"),
         (_("At Work"), "attendance_id__attendance_worked_hour"),
-        (_("Penalities"), "penalities_column"),
+        (_("Penalties"), "penalties_column"),
     ]
 
     default_columns = [
@@ -105,7 +105,7 @@ class LateComeAndEarlyOutList(HorillaListView):
         (_("Check-Out"), "attendance_id__attendance_clock_out"),
     ]
 
-    header_attrs = {"penalities_column": """ style ="width:170px !important" """}
+    header_attrs = {"penalties_column": """ style ="width:170px !important" """}
 
     sortby_mapping = [
         (_("Employee"), "employee_id__get_full_name", "employee_id__get_avatar"),
@@ -172,7 +172,6 @@ class LateComeAndEarlyOutListNav(HorillaNavView):
                 data-target="#attendanceExport"
                 hx-get="{reverse('late-come-and-early-out-export')}"
                 hx-target="#attendanceExportForm"
-                hx-vals='js:{{"has_selection": (JSON.parse(document.getElementById("selectedInstances")?.getAttribute("data-ids")||"[]").length>0)}}'
                 style="cursor: pointer;"
                 """,
                 }
@@ -286,7 +285,6 @@ class LateEarlyExportView(TemplateView):
         export = LateComeEarlyOutFilter(queryset=data)
         context["export_form"] = export_form
         context["export"] = export
-        context["hide_export_filters"] = self.request.GET.get("has_selection") == "true"
         return context
 
 
@@ -317,7 +315,7 @@ class LateComeEarlyOutDetailView(HorillaDetailedView):
         (_("Shift"), "attendance_id__shift_id"),
         (_("Work Type"), "attendance_id__work_type_id"),
         (_("Attendance Validated"), "attendance_validated_check"),
-        (_("Penalities"), "penalities_column"),
+        (_("Penalties"), "penalties_column"),
     ]
 
     action_method = "detail_actions"

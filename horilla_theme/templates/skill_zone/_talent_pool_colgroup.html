@@ -1,0 +1,15 @@
+{% comment %}
+Same fixed column widths for the one shared header (skill_zone_list.html)
+and every talent pool's own table, so columns line up across all of them
+even though only the header carries labels. Reason takes the leftover
+width.
+{% endcomment %}
+<colgroup>
+    <col style="width:220px">
+    <col>
+    <col style="width:140px">
+    <col style="width:100px">
+    {% if perms.recruitment.change_skillzonecandidate or perms.recruitment.delete_skillzonecandidate %}
+        <col style="width:100px">
+    {% endif %}
+</colgroup>

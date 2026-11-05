@@ -6,29 +6,51 @@ Accessible at /payroll/dashboard/modern/ alongside the existing dashboard.
 
 from datetime import date, timedelta
 
-from django.contrib.auth.decorators import login_required
 from django.db.models import Count, FloatField, Q, Sum
 from django.db.models.functions import Coalesce
 from django.http import JsonResponse
 from django.shortcuts import render
 from django.utils.translation import gettext as _
 
-from horilla.decorators import permission_required
+from horilla.decorators import login_required, permission_required
+
+
+def _current_month_bounds(today=None):
+    """Return (first_day, last_day) of the given date's calendar month."""
+    today = today or date.today()
+    first_day = today.replace(day=1)
+    if first_day.month == 12:
+        last_day = first_day.replace(year=first_day.year + 1, month=1) - timedelta(
+            days=1
+        )
+    else:
+        last_day = first_day.replace(month=first_day.month + 1) - timedelta(days=1)
+    return first_day, last_day
+
+
+def _last_month_bounds(today=None):
+    """Return (first_day, last_day) of the calendar month before ``today``."""
+    today = today or date.today()
+    last_day = today.replace(day=1) - timedelta(days=1)
+    return last_day.replace(day=1), last_day
 
 
 def _parse_period(request):
-    """Parse from_date and to_date from GET params. Defaults to current month."""
-    today = date.today()
+    """
+    Parse from_date and to_date from GET params. Defaults to the last full
+    month: it is the latest one whose payslips are complete.
+    """
+    default_from, default_to = _last_month_bounds()
     from_str = request.GET.get("from_date")
     to_str = request.GET.get("to_date")
     try:
-        from_date = date.fromisoformat(from_str) if from_str else today.replace(day=1)
+        from_date = date.fromisoformat(from_str) if from_str else default_from
     except (ValueError, TypeError):
-        from_date = today.replace(day=1)
+        from_date = default_from
     try:
-        to_date = date.fromisoformat(to_str) if to_str else today
+        to_date = date.fromisoformat(to_str) if to_str else default_to
     except (ValueError, TypeError):
-        to_date = today
+        to_date = default_to
     return from_date, to_date
 
 
@@ -49,10 +71,13 @@ def payroll_kpi_data(request):
     today = to_date
     first_of_month = from_date
 
-    # Current month payslips
+    # Only paid payslips count: a draft or unconfirmed one is not money
+    # that has gone out.
     current_qs = Payslip.objects.filter(
+        employee_id__is_active=True,
         start_date__gte=first_of_month,
         start_date__lte=today,
+        status="paid",
     )
 
     total_gross = current_qs.aggregate(
@@ -76,12 +101,14 @@ def payroll_kpi_data(request):
     prev_month_end = first_of_month - timedelta(days=1)
     prev_month_start = prev_month_end.replace(day=1)
     prev_net = Payslip.objects.filter(
+        employee_id__is_active=True,
         start_date__gte=prev_month_start,
         start_date__lte=prev_month_end,
-        status__in=["confirmed", "paid"],
+        status="paid",
     ).aggregate(total=Coalesce(Sum("net_pay"), 0.0, output_field=FloatField()))["total"]
 
-    change_pct = 0
+    # None (not 0) when there is nothing to compare with, so the card can say so
+    change_pct = None
     if prev_net > 0:
         change_pct = round(((total_net - prev_net) / prev_net) * 100, 1)
 
@@ -89,7 +116,11 @@ def payroll_kpi_data(request):
     active_loans = 0
     loan_amount = 0
     try:
-        loans = LoanAccount.objects.filter(settled=False)
+        # Loans only: salary advances and fines are separate tabs on the loans
+        # page, so counting them here made the card disagree with its own list.
+        loans = LoanAccount.objects.filter(
+            employee_id__is_active=True, settled=False, type="loan"
+        )
         active_loans = loans.count()
         loan_amount = loans.aggregate(
             total=Coalesce(Sum("loan_amount"), 0.0, output_field=FloatField())
@@ -101,7 +132,7 @@ def payroll_kpi_data(request):
     pending_reimbursements = 0
     try:
         pending_reimbursements = Reimbursement.objects.filter(
-            status="requested"
+            employee_id__is_active=True, status="requested"
         ).count()
     except Exception:
         pass
@@ -117,6 +148,8 @@ def payroll_kpi_data(request):
             "confirmed": confirmed,
             "paid": paid,
             "change_pct": change_pct,
+            "prev_net": round(float(prev_net), 2),
+            "prev_month": prev_month_start.strftime("%b %Y"),
             "active_loans": active_loans,
             "loan_amount": round(float(loan_amount), 2),
             "pending_reimbursements": pending_reimbursements,
@@ -148,9 +181,10 @@ def payroll_monthly_trend(request):
             )
 
         qs = Payslip.objects.filter(
+            employee_id__is_active=True,
             start_date__gte=month_start,
             start_date__lte=month_end,
-            status__in=["confirmed", "paid"],
+            status="paid",
         )
 
         agg = qs.aggregate(
@@ -186,9 +220,10 @@ def payroll_department_cost(request):
     try:
         data = (
             Payslip.objects.filter(
+                employee_id__is_active=True,
                 start_date__gte=first_of_month,
                 start_date__lte=today,
-                status__in=["confirmed", "paid", "review_ongoing"],
+                status="paid",
             )
             .values(
                 "employee_id__employee_work_info__department_id",
@@ -231,7 +266,11 @@ def payroll_status_pipeline(request):
     today = to_date
     first_of_month = from_date
 
-    qs = Payslip.objects.filter(start_date__gte=first_of_month, start_date__lte=today)
+    qs = Payslip.objects.filter(
+        employee_id__is_active=True,
+        start_date__gte=first_of_month,
+        start_date__lte=today,
+    )
 
     statuses = [
         {
@@ -274,9 +313,10 @@ def payroll_top_earners(request):
     try:
         data = (
             Payslip.objects.filter(
+                employee_id__is_active=True,
                 start_date__gte=first_of_month,
                 start_date__lte=to_date,
-                status__in=["confirmed", "paid"],
+                status="paid",
             )
             .values(
                 "employee_id",
@@ -334,6 +374,7 @@ def payroll_contract_status(request):
         # Still active and ending on or after today.
         ending_qs = (
             Contract.objects.filter(
+                employee_id__is_active=True,
                 contract_end_date__gte=today,
                 contract_end_date__lte=max(to_date, today + horizon),
                 contract_status="active",
@@ -358,6 +399,7 @@ def payroll_contract_status(request):
         # Already ended, within the same 60-day outlook looking backwards.
         expired_qs = (
             Contract.objects.filter(
+                employee_id__is_active=True,
                 contract_end_date__gte=min(from_date, today - horizon),
                 contract_end_date__lte=today - timedelta(days=1),
             )
@@ -399,7 +441,9 @@ def payroll_loan_summary(request):
     try:
         qs = (
             LoanAccount.objects.filter(
+                employee_id__is_active=True,
                 settled=False,
+                type="loan",
                 provided_date__gte=from_date,
                 provided_date__lte=to_date,
             )
@@ -409,13 +453,12 @@ def payroll_loan_summary(request):
 
         for loan in qs[:15]:
             emp = loan.employee_id
-            # Calculate remaining amount from installments
+            # Instalments actually collected: ones that have gone through a
+            # payslip. The deductions are all created up front, so counting
+            # them (as this used to) read every loan as fully repaid.
             total_installments = loan.installments or 1
             installment_amount = loan.installment_amount or 0
-            total_payable = installment_amount * total_installments
-
-            # Count paid installments from deduction_ids
-            paid_installments = loan.deduction_ids.count()
+            paid_installments = min(loan.installment_paid(), total_installments)
             paid_amount = paid_installments * installment_amount
             remaining = max(0, loan.loan_amount - paid_amount)
 
@@ -433,13 +476,9 @@ def payroll_loan_summary(request):
                     "amount": round(float(loan.loan_amount), 2),
                     "remaining": round(float(remaining), 2),
                     "installment": round(float(installment_amount), 2),
-                    "progress": (
-                        round(
-                            ((loan.loan_amount - remaining) / loan.loan_amount * 100), 1
-                        )
-                        if loan.loan_amount > 0
-                        else 0
-                    ),
+                    "installments_paid": paid_installments,
+                    "installments_total": total_installments,
+                    "progress": round(paid_installments / total_installments * 100, 1),
                 }
             )
     except Exception:
@@ -457,9 +496,11 @@ def payroll_reimbursement_summary(request):
     from_date, to_date = _parse_period(request)
     summary = {"requested": 0, "approved": 0, "rejected": 0, "total_amount": 0}
     by_type = []
+    by_status = []
 
     try:
         qs = Reimbursement.objects.filter(
+            employee_id__is_active=True,
             allowance_on__gte=from_date,
             allowance_on__lte=to_date,
         )
@@ -471,6 +512,28 @@ def payroll_reimbursement_summary(request):
             total=Coalesce(Sum("amount"), 0.0, output_field=FloatField())
         )["total"]
         summary["total_amount"] = round(float(approved_amount), 2)
+
+        status_labels = {
+            "requested": _("Pending"),
+            "approved": _("Approved"),
+            "rejected": _("Rejected"),
+        }
+        for row in (
+            qs.values("status")
+            .annotate(
+                count=Count("id"),
+                total=Coalesce(Sum("amount"), 0.0, output_field=FloatField()),
+            )
+            .order_by("status")
+        ):
+            by_status.append(
+                {
+                    "status": row["status"],
+                    "label": status_labels.get(row["status"], row["status"]),
+                    "count": row["count"],
+                    "amount": round(float(row["total"]), 2),
+                }
+            )
 
         # Group by type
         type_data = (
@@ -501,95 +564,168 @@ def payroll_reimbursement_summary(request):
     except Exception:
         pass
 
-    return JsonResponse({"summary": summary, "by_type": by_type})
+    return JsonResponse(
+        {"summary": summary, "by_type": by_type, "by_status": by_status}
+    )
 
 
 @login_required
 @permission_required("payroll.view_payslip")
-def payroll_salary_distribution(request):
-    """Salary band distribution across employees who were active during the selected period."""
-    from employee.models import EmployeeWorkInformation
+def payroll_pending_requests_by_type(request):
+    """Pending reimbursement and encashment requests per type for the selected period."""
+    from base.templatetags.horillafilters import currency_symbol_position
+    from payroll.decorators import leave_encashment_visible_to
+    from payroll.models.models import Reimbursement
 
-    _from, to_date = _parse_period(request)
-    bands = []
+    from_date, to_date = _parse_period(request)
+    pending_by_type = {}
+
     try:
-        salaries = list(
-            EmployeeWorkInformation.objects.filter(
+        rows = (
+            Reimbursement.objects.filter(
                 employee_id__is_active=True,
-                basic_salary__gt=0,
-                date_joining__lte=to_date,
-            ).values_list("basic_salary", flat=True)
+                allowance_on__gte=from_date,
+                allowance_on__lte=to_date,
+                status="requested",
+            )
+            .values("type")
+            .annotate(
+                count=Count("id"),
+                total=Coalesce(Sum("amount"), 0.0, output_field=FloatField()),
+            )
         )
-        if salaries:
-            max_sal = max(salaries)
-            step = max(1, round(max_sal / 6, -3)) or 10000
-            band_map = {}
-            for s in salaries:
-                band_start = int(s // step * step)
-                label = f"{band_start:,}–{band_start + step:,}"
-                band_map[band_start] = band_map.get(
-                    band_start,
-                    {
-                        "label": label,
-                        "count": 0,
-                        "min": band_start,
-                        "max": band_start + int(step),
-                    },
-                )
-                band_map[band_start]["count"] += 1
-            bands = [
-                {
-                    "label": v["label"],
-                    "count": v["count"],
-                    "min": v["min"],
-                    "max": v["max"],
-                }
-                for k, v in sorted(band_map.items())
-            ]
+        pending_by_type = {row["type"]: row for row in rows}
     except Exception:
         pass
-    return JsonResponse({"bands": bands})
+
+    tab_order = ["reimbursement"]
+    if leave_encashment_visible_to(request):
+        tab_order.append("leave_encashment")
+    tab_order.append("bonus_encashment")
+    labels = dict(Reimbursement.reimbursement_types)
+
+    types = []
+    for key in tab_order:
+        if key not in labels:
+            continue
+        label = labels[key]
+        row = pending_by_type.get(key)
+        amount = round(float(row["total"]), 2) if row else 0
+        types.append(
+            {
+                "type": label,
+                "type_key": key,
+                "count": row["count"] if row else 0,
+                "amount": amount,
+                "amount_display": currency_symbol_position(f"{amount:,.0f}"),
+            }
+        )
+    return JsonResponse({"types": types})
 
 
 @login_required
 @permission_required("payroll.view_payslip")
-def payroll_component_breakdown(request):
-    """Top allowance and deduction components from pay_head_data."""
+def payroll_contribution_cost(request):
+    """
+    What each contribution costs, employee and employer share, over the paid
+    payslips in the selected period -- the same figures as the Contributions
+    page, read from the payslips as issued.
+    """
+    from payroll.methods import contributions
     from payroll.models.models import Payslip
 
     from_date, to_date = _parse_period(request)
     components = []
+    totals = {"employee_amount": 0, "employer_amount": 0, "total": 0}
     try:
         payslips = Payslip.objects.filter(
+            employee_id__is_active=True,
             start_date__gte=from_date,
-            start_date__lte=to_date,
-            status__in=["confirmed", "paid"],
+            end_date__lte=to_date,
+            status="paid",
         )
-        comp_map = {}
-        for ps in payslips:
-            if not ps.pay_head_data:
-                continue
-            for key in [
-                "gross_pay_deductions",
-                "basic_pay_deductions",
-                "pretax_deductions",
-                "post_tax_deductions",
-                "tax_deductions",
-                "net_deductions",
-            ]:
-                for item in ps.pay_head_data.get(key, []):
-                    title = item.get("title", _("Unknown"))
-                    amount = float(item.get("amount", 0))
-                    if title not in comp_map:
-                        comp_map[title] = {
-                            "title": title,
-                            "amount": 0,
-                            "type": "deduction",
-                        }
-                    comp_map[title]["amount"] += amount
-        components = sorted(comp_map.values(), key=lambda x: x["amount"], reverse=True)[
-            :10
+        rows, totals = contributions.summarise(payslips, all_deductions=True)
+        components = [
+            {
+                "title": row["title"],
+                "code": getattr(row["component"], "code", "") or "",
+                "company": (
+                    str(row["component"].company_id)
+                    if getattr(row["component"], "company_id", None)
+                    else ""
+                ),
+                "employee": row["employee_amount"],
+                "employer": row["employer_amount"],
+                "total": row["total"],
+                "employees": row["employees"],
+            }
+            for row in rows
         ]
     except Exception:
         pass
-    return JsonResponse({"components": components})
+    return JsonResponse({"components": components, "totals": totals})
+
+
+@login_required
+@permission_required("payroll.view_payslip")
+def payroll_run_coverage(request):
+    """
+    Everyone who should be paid in the selected period, split by where their
+    payslip stands -- including the people it has not been generated for yet.
+
+    "Should be paid" is an active employee with an active contract overlapping
+    the period. An employee with more than one payslip in it is counted once,
+    at the least advanced status: a run is not finished for them until all of
+    their payslips are.
+    """
+    from payroll.models.models import Contract, Payslip
+
+    from_date, to_date = _parse_period(request)
+    order = ["draft", "review_ongoing", "confirmed", "paid"]
+    labels = {
+        "remaining": _("Not generated"),
+        "draft": _("Draft"),
+        "review_ongoing": _("Review"),
+        "confirmed": _("Confirmed"),
+        "paid": _("Paid"),
+    }
+    counts = {key: 0 for key in ["remaining"] + order}
+    total = 0
+    try:
+        employee_ids = set(
+            Contract.objects.filter(
+                contract_status="active",
+                contract_start_date__lte=to_date,
+                employee_id__is_active=True,
+            )
+            .filter(
+                Q(contract_end_date__isnull=True) | Q(contract_end_date__gte=from_date)
+            )
+            .values_list("employee_id", flat=True)
+        )
+        total = len(employee_ids)
+        stage = {}
+        for employee_id, status in Payslip.objects.filter(
+            employee_id__is_active=True,
+            start_date__gte=from_date,
+            end_date__lte=to_date,
+            employee_id__in=employee_ids,
+        ).values_list("employee_id", "status"):
+            rank = order.index(status) if status in order else 0
+            stage[employee_id] = min(stage.get(employee_id, rank), rank)
+        for employee_id in employee_ids:
+            key = order[stage[employee_id]] if employee_id in stage else "remaining"
+            counts[key] += 1
+    except Exception:
+        pass
+
+    return JsonResponse(
+        {
+            "total": total,
+            "remaining": counts["remaining"],
+            "statuses": [
+                {"status": key, "label": str(labels[key]), "count": counts[key]}
+                for key in ["remaining"] + order
+            ],
+        }
+    )

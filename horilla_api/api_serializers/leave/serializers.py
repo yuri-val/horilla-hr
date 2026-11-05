@@ -1,7 +1,10 @@
+from datetime import date
+
 from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
 
 from employee.models import Employee
+from horilla import horilla_middlewares
 from leave.methods import calculate_requested_days
 from leave.models import *
 
@@ -52,15 +55,31 @@ def leave_Validations(self, data):
     )
     errors = {}
     # checking if there is any requested days is overlapping with the existing leave request
+    # Cancelled and rejected requests don't hold the dates -- the same rule
+    # LeaveRequest.clean() applies on the web.
     leave_requests = employee.leaverequest_set.filter(
         start_date__lte=end_date, end_date__gte=start_date
-    )
+    ).exclude(status__in=["cancelled", "rejected"])
     if self.instance:
         leave_requests = leave_requests.exclude(id=self.instance.id)
     if leave_requests:
         raise serializers.ValidationError(
             _("There is already a leave request for this date range.")
         )
+
+    # Past-date restriction -- mirrors LeaveRequest.clean() on the web
+    request = getattr(horilla_middlewares._thread_locals, "request", None)
+    if request and not request.user.is_superuser:
+        emp_company = getattr(
+            getattr(employee, "employee_work_info", None), "company_id", None
+        )
+        restrict = EmployeePastLeaveRestrict.objects.filter(
+            enabled=True, company_id=emp_company
+        ).first()
+        if restrict and start_date < date.today():
+            raise serializers.ValidationError(
+                _("Requests cannot be made for past dates.")
+            )
 
     # checking if the end date is less than the start date
     if not start_date <= end_date:
@@ -453,6 +472,18 @@ class HoildaySerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {"end_date": [_("End date should not be less than start date.")]}
             )
+        # company is not exposed here: new API holidays are global (None)
+        duplicates = Holidays.objects.entire().filter(
+            company_id=self.instance.company_id if self.instance else None,
+            start_date=start_date or getattr(self.instance, "start_date", None),
+            end_date=end_date,
+        )
+        if self.instance:
+            duplicates = duplicates.exclude(pk=self.instance.pk)
+        if end_date is not None and duplicates.exists():
+            raise serializers.ValidationError(
+                _("A holiday already exists for this date range.")
+            )
         return data
 
 
@@ -476,7 +507,7 @@ class LeaveRequestApproveSerializer(serializers.ModelSerializer):
         )
         if not total_available_leave >= leave_request.requested_days:
             raise serializers.ValidationError(
-                _("%(employee)s dont have enough leave days to approve the request..")
+                _("%(employee)s don't have enough leave days to approve the request..")
                 % {"employee": employee_id}
             )
         data["available_leave"] = available_leave

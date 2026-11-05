@@ -59,7 +59,7 @@ def offboarding_manager_can_enter(function, perm):
         ):
             return function(request, *args, **kwargs)
         else:
-            messages.info(request, _("You dont have permission."))
+            messages.info(request, _("You don't have permission."))
             previous_url = request.META.get("HTTP_REFERER", "/")
             script = f'<script>window.location.href = "{previous_url}"</script>'
             key = "HTTP_HX_REQUEST"
@@ -81,7 +81,7 @@ def offboarding_or_stage_manager_can_enter(function, perm):
         ):
             return function(request, *args, **kwargs)
         else:
-            messages.info(request, _("You dont have permission."))
+            messages.info(request, _("You don't have permission."))
             previous_url = request.META.get("HTTP_REFERER", "/")
             key = "HTTP_HX_REQUEST"
             if key in request.META.keys():

@@ -100,7 +100,7 @@ class TagsNavView(HorillaNavView):
                             hx-get="{reverse('create-helpdesk-tag')}"
                             """
 
-    nav_title = _("Helpdesk Tags")
+    nav_title = _("Ticket Tags")
     search_swap_target = "#helpdeskTagsListContainer"
     filter_instance = TagsFilter()
 
@@ -109,12 +109,12 @@ class TagsNavView(HorillaNavView):
 @method_decorator(permission_required(perm="base.add_tags"), name="dispatch")
 class TagsFormView(HorillaFormView):
     """
-    Form view for creating and updating Helpdesk Tags.
+    Form view for creating and updating Ticket Tags.
     """
 
     model = Tags
     form_class = TagsForm
-    new_display_title = _("Create Helpdesk Tag")
+    new_display_title = _("Create Ticket Tag")
 
     def get_context_data(self, **kwargs):
         """
@@ -123,7 +123,7 @@ class TagsFormView(HorillaFormView):
         context = super().get_context_data(**kwargs)
         if self.form.instance.pk:
             self.form_class(instance=self.form.instance)
-            self.form_class.verbose_name = _("Update Helpdesk Tag")
+            self.form_class.verbose_name = _("Update Ticket Tag")
         context["form"] = self.form
         return context
 
@@ -134,7 +134,7 @@ class TagsFormView(HorillaFormView):
         If the form is invalid, render the form with error messages.
         """
         if self.form.instance.pk:
-            self.form_class.verbose_name = _("Update Helpdesk Tag")
+            self.form_class.verbose_name = _("Update Ticket Tag")
         if not form.is_valid():
             errors = form.errors.as_data()
             return render(

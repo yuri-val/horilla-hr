@@ -25,19 +25,15 @@ document.addEventListener("horillaMessage", function (evt) {
     var text = detail.text || "";
     if (!text) return;
 
-    if (typeof Swal !== "undefined" && Swal && typeof Swal.fire === "function") {
-        Swal.fire({
-            toast: true,
-            position: "top-end",
-            icon: (detail.level === "error" ? "error" : "success"),
-            title: text,
-            showConfirmButton: false,
-            timer: 2500,
-            timerProgressBar: true,
-        });
-        return;
-    }
-    alert(text);
+    var level = detail.level === "error" ? "danger" : "success";
+    var $alert = $("<div>")
+        .addClass("oh-alert oh-alert--animated oh-alert--" + level)
+        .text(text);
+    var $container = $("<div>").addClass("oh-alert-container").append($alert);
+    $alert.on("animationend", function () {
+        $container.remove();
+    });
+    $("body").append($container);
 });
 
 function tickLeaverequestsCheckboxes() {
@@ -143,9 +139,66 @@ function bulkApproveLeaveRequests() {
             cancelButtonText: i18nMessages.cancel,
         }).then(function (result) {
             if (result.isConfirmed) {
-                var hxVals = JSON.stringify(ids);
-                $("#bulkApproveSpan").attr("hx-vals", `{"ids":${hxVals}}`);
-                $("#bulkApproveSpan").click();
+                // Progress + result dialog come from the shared bulk-action
+                // wrapper in index.js; the list refreshes in place afterwards.
+                $.ajax({
+                    type: "POST",
+                    url: "/leave/leave-requests-bulk-approve/",
+                    data: {
+                        csrfmiddlewaretoken: getCookie("csrftoken"),
+                        ids: JSON.stringify(ids),
+                    },
+                    success: function () {
+                        clearSelection("selectedInstances");
+                        hlvReloadListInPlace();
+                    },
+                });
+            }
+        });
+    }
+}
+
+function bulkRejectLeaveRequests() {
+    ids = JSON.parse($("#selectedInstances").attr("data-ids"));
+
+    if (ids.length === 0) {
+        Swal.fire({
+            text: i18nMessages.noRowsSelected,
+            icon: "warning",
+            confirmButtonText: i18nMessages.close,
+        });
+    } else {
+        Swal.fire({
+            text: i18nMessages.confirmBulkReject,
+            icon: "warning",
+            input: "textarea",
+            inputPlaceholder: gettext("Rejection reason"),
+            inputAttributes: { "aria-label": gettext("Rejection reason") },
+            inputValidator: function (value) {
+                if (!value || !value.trim()) {
+                    return gettext("A rejection reason is required.");
+                }
+            },
+            showCancelButton: true,
+            confirmButtonColor: "#d33",
+            cancelButtonColor: "#6c757d",
+            confirmButtonText: i18nMessages.confirm,
+            cancelButtonText: i18nMessages.cancel,
+        }).then(function (result) {
+            if (result.isConfirmed) {
+                $.ajax({
+                    type: "POST",
+                    url: "/leave/leave-requests-bulk-reject/",
+                    data: {
+                        csrfmiddlewaretoken: getCookie("csrftoken"),
+                        ids: JSON.stringify(ids),
+                        reason: result.value,
+                    },
+                    success: function () {
+                        clearSelection("selectedInstances");
+                        hlvReloadListInPlace();
+                    },
+                });
             }
         });
     }
@@ -184,12 +237,50 @@ function bulkDeleteLeaveRequests() {
                     },
                     success: function (response, textStatus, jqXHR) {
                         if (jqXHR.status === 200) {
-                            location.reload();
-                        } else {
+                            clearSelection("selectedInstances");
+                            hlvReloadListInPlace();
                         }
                     },
                 });
             }
         });
     }
+}
+
+
+function importLeaveRequest() {
+    Swal.fire({
+        text: i18nMessages.downloadTemplate,
+        icon: "question",
+        showCancelButton: true,
+        confirmButtonColor: "#008000",
+        cancelButtonColor: "#6c757d",
+        confirmButtonText: i18nMessages.confirm,
+        cancelButtonText: i18nMessages.cancel,
+    }).then(function (result) {
+        if (result.isConfirmed) {
+            $.ajax({
+                type: "GET",
+                url: "/leave/leave-request-excel/",
+                dataType: "binary",
+                xhrFields: {
+                    responseType: "blob",
+                },
+                success: function (response) {
+                    const file = new Blob([response], {
+                        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    });
+                    const url = URL.createObjectURL(file);
+                    const link = document.createElement("a");
+                    link.href = url;
+                    link.download = "leave_request_excel.xlsx";
+                    document.body.appendChild(link);
+                    link.click();
+                },
+                error: function (xhr, textStatus, errorThrown) {
+                    console.error("Error downloading file:", errorThrown);
+                },
+            });
+        }
+    });
 }

@@ -1,0 +1,132 @@
+{% load static i18n generic_template_filters %}
+
+{% comment %}
+Page-specific grouped layout for Shift Schedule only -- the shared
+generic/group_by_table.html (used by the "Group By" dropdown on many other
+list pages app-wide) is left untouched. This reuses the same generic,
+already-existing partials the nested-group-by framework uses for its shared
+header (_group_row_colgroup.html, _group_row_thead.html) and per-group table
+(_group_row_table.html with show_header=False), so it matches the
+performance-detail-page standard (one shared column header, restyled
+accordion groups) without duplicating that table-rendering markup here.
+{% endcomment %}
+
+<style>
+    #{{ view_id|safe }} .stickyleft-second {
+        left: 30px;
+    }
+    #{{ view_id|safe }} table.fixed-table input[type="checkbox"] {
+        margin-top: 0;
+    }
+</style>
+
+<div id="{{view_id|safe}}" class="hlv-container relative" data-list-path="{{request.path}}" data-selected-instances-key="{{selected_instances_key_id}}"{% if show_toggle_form %} x-data="{ open: false }"{% endif %}>
+    <script>
+        if (!$(".HTV").length) {
+            $("#reloadMessagesButton").click();
+        }
+    </script>
+
+    <button
+        class="reload-record"
+        id="{{view_id|safe}}Reload"
+        hidden
+        hx-get="{{request.path}}?{{request.GET.urlencode}}"
+        hx-target="#{{view_id|safe}}"
+        hx-swap="outerHTML"
+        hx-on:click="htmxLoadIndicator(this);"
+    ></button>
+
+    {% if show_filter_tags %}
+        {% include "generic/filter_tags.html" %}
+    {% endif %}
+
+    {% if groups %}
+        <div class="bg-white border border-[#EAE8E3] rounded-lg mb-1.5 overflow-hidden relative">
+            <div class="overflow-x-auto ngb-hscroll">
+                <table class="fixed-table w-full border-separate table-fixed" data-bulk-select-option="{{bulk_select_option|yesno:'true,false'}}">
+                    {% include "generic/_group_row_colgroup.html" %}
+                    {% include "generic/_group_row_thead.html" with use_shared_colgroup=True select_all_scope="#"|add:view_id %}
+                </table>
+            </div>
+            {% if show_toggle_form %}
+                <div
+                    class="oh-dropdown__menu oh-sticky-table_dropdown absolute right-[8px] top-[38px] z-20"
+                    x-show="open"
+                    x-cloak
+                    @click.outside="open = false"
+                >
+                {{ toggle_form.as_list }}
+                </div>
+            {% endif %}
+        </div>
+
+        <div class="accordion-wrapper space-y-1.5">
+            {% for group in groups %}
+            {% with group_idx=forloop.counter|stringformat:"s" %}
+            {% with gvid=view_id|add:"-"|add:group_idx %}
+                <div class="oh-accordion bg-white border border-[#EAE8E3] rounded-lg overflow-hidden {% if group.dynamic_name in request.GET or forloop.first %}oh-accordion--show{% endif %}">
+                    <div
+                        class="oh-accordion-header no-after w-full flex justify-between items-center px-3.5 py-2 transition-colors"
+                        data-field="{{saved_filters.field}}"
+                        data-path="{{request.path}}"
+                        data-group="{{forloop.counter}}"
+                    >
+                        <div class="flex items-center gap-2.5">
+                            <span
+                                class="inline-flex items-center justify-center rounded-full font-semibold min-w-[22px] h-[22px] px-1.5 text-[11px] bg-primary-600 text-white"
+                                title="{{group.list.paginator.count}} {% trans 'Records' %}"
+                            >{{ group.list.paginator.count }}</span>
+                            <span class="text-[13.5px] font-semibold text-gray-700">{{ group.grouper|capfirst }}</span>
+                        </div>
+                        <span class="w-6 h-6 flex items-center justify-center rounded-full hover:bg-[#F3F2EE] transition-colors shrink-0">
+                            <ion-icon name="chevron-down-outline" class="icon text-sm text-gray-600"></ion-icon>
+                        </span>
+                    </div>
+
+                    <div class="oh-accordion-body bg-white text-sm text-gray-700">
+                        <div class="ngb-leaf-table" id="{{gvid}}-leaf">
+                            {% include "generic/_group_row_table.html" with show_header=False use_shared_colgroup=True %}
+                        </div>
+                    </div>
+                </div>
+            {% endwith %}
+            {% endwith %}
+            {% empty %}
+                {% if custom_empty_template %}
+                    {% include custom_empty_template %}
+                {% else %}
+                    <div class="flex flex-col items-center justify-center py-4">
+                        <img src="/static/horilla_theme/assets/img/no-records.svg" alt="" width="120" class="mb-2 opacity-80">
+                        <p class="text-[#666] text-sm">{% trans "No records available at the moment" %}</p>
+                    </div>
+                {% endif %}
+            {% endfor %}
+        </div>
+    {% else %}
+        {% if custom_empty_template %}
+            {% include custom_empty_template %}
+        {% else %}
+            <div class="flex flex-col items-center justify-center py-4">
+                <img src="/static/horilla_theme/assets/img/no-records.svg" alt="" width="120" class="mb-2 opacity-80">
+                <p class="text-[#666] text-sm">{% trans "No records available at the moment" %}</p>
+            </div>
+        {% endif %}
+    {% endif %}
+</div>
+
+<script>
+    $(document).ready(function() {
+        $('#{{view_id|safe}} table.fixed-table').each(function () {
+            var $table = $(this);
+            var $optCells = $table.find('td.option-col-cell');
+            if ($optCells.length && !$optCells.find('a, button').length) {
+                $table.find('th.option-col-header, td.option-col-cell').hide();
+            }
+            var $actCells = $table.find('td.action-col-cell');
+            if ($actCells.length && !$actCells.find('a, button').length) {
+                $table.find('th.action-col-header, td.action-col-cell').hide();
+            }
+        });
+    });
+</script>

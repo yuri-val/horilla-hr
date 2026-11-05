@@ -1,0 +1,33 @@
+{% load i18n %}
+{% if perms.asset.change_assetassignment %}
+    <form hx-post="{{ instance.detail_view_url }}" hx-target="#genericModalBody" class="flex justify-end mb-4">
+        {% csrf_token %}
+        <div class="flex items-center flex-wrap">
+            {% for value, label in instance.STEPPER_STATUS %}
+                <button
+                    type="submit"
+                    name="status"
+                    value="{{ value }}"
+                    class="text-xs font-medium whitespace-nowrap py-1.5 {% if instance.status == value %}bg-primary-600 text-white{% else %}bg-gray-100 text-gray-600 hover:bg-gray-200{% endif %}"
+                    style="
+                        clip-path: polygon(0% 0%, 88% 0%, 100% 50%, 88% 100%, 0% 100%, 12% 50%);
+                        padding-left: {% if not forloop.first %}20px{% else %}14px{% endif %};
+                        padding-right: 16px;
+                        margin-left: {% if not forloop.first %}-10px{% else %}0{% endif %};
+                        position: relative;
+                        z-index: {{ forloop.counter }};
+                    "
+                >
+                    {% trans label %}
+                </button>
+            {% endfor %}
+        </div>
+    </form>
+{% else %}
+    <div class="flex items-center justify-end gap-1.5 mb-4">
+        <span class="w-2 h-2 rounded-full {% if instance.status == 'Completed' %}bg-green-500{% elif instance.status == 'Rejected' %}bg-red-500{% elif instance.status == 'In Progress' %}bg-amber-500{% elif instance.status == 'Requested' %}bg-blue-500{% else %}bg-gray-400{% endif %}"></span>
+        <span class="text-xs font-medium {% if instance.status == 'Completed' %}text-green-600{% elif instance.status == 'Rejected' %}text-red-600{% elif instance.status == 'In Progress' %}text-amber-600{% elif instance.status == 'Requested' %}text-blue-600{% else %}text-gray-500{% endif %}">
+            {% trans instance.status %}
+        </span>
+    </div>
+{% endif %}

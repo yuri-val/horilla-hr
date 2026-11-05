@@ -1,0 +1,68 @@
+{% load i18n %}
+<div class="px-6 py-6 text-center">
+    {% if created_count == 0 %}
+        <div class="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-amber-100 text-amber-600">
+            <ion-icon name="warning-outline" style="font-size:30px;"></ion-icon>
+        </div>
+        <h2 class="text-base font-semibold text-gray-800">{% trans "Import Result" %}</h2>
+        <p class="mt-1 text-sm text-gray-500">
+            {% blocktrans %}No {{ model }} were imported. Please review the rows that failed and try again.{% endblocktrans %}
+        </p>
+    {% elif error_count %}
+        <div class="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-amber-100 text-amber-600">
+            <ion-icon name="alert-circle-outline" style="font-size:30px;"></ion-icon>
+        </div>
+        <h2 class="text-base font-semibold text-gray-800">{% trans "Import Completed with Warnings" %}</h2>
+        <p class="mt-1 text-sm text-gray-500">
+            {% blocktrans %}Some {{ model }} could not be imported. Download the error file to see what to fix.{% endblocktrans %}
+        </p>
+    {% else %}
+        <div class="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-green-100 text-green-600">
+            <ion-icon name="checkmark-circle-outline" style="font-size:30px;"></ion-icon>
+        </div>
+        <h2 class="text-base font-semibold text-gray-800">{% trans "Import Successful" %}</h2>
+        <p class="mt-1 text-sm text-gray-500">
+            {% blocktrans %}All {{ model }} were imported successfully.{% endblocktrans %}
+        </p>
+    {% endif %}
+
+    <div class="mt-5 grid grid-cols-3 gap-3">
+        <div class="rounded-lg border border-gray-200 bg-gray-50 py-3">
+            <div class="text-xl font-semibold text-gray-800">{{ created_count|add:error_count }}</div>
+            <div class="text-[11px] font-medium uppercase tracking-wide text-gray-500">{% trans "Total" %}</div>
+        </div>
+        <div class="rounded-lg border border-green-200 bg-green-50 py-3">
+            <div class="text-xl font-semibold text-green-700">{{ created_count }}</div>
+            <div class="text-[11px] font-medium uppercase tracking-wide text-green-700">{% trans "Imported" %}</div>
+        </div>
+        <div class="rounded-lg border {% if error_count %}border-red-200 bg-red-50{% else %}border-gray-200 bg-gray-50{% endif %} py-3">
+            <div class="text-xl font-semibold {% if error_count %}text-red-600{% else %}text-gray-400{% endif %}">{{ error_count }}</div>
+            <div class="text-[11px] font-medium uppercase tracking-wide {% if error_count %}text-red-600{% else %}text-gray-400{% endif %}">{% trans "Failed" %}</div>
+        </div>
+    </div>
+
+    <div class="mt-6 flex items-center justify-between gap-2 border-t border-gray-200 pt-4">
+        {% if path_info %}
+            <a
+                href="#"
+                class="px-4 py-2 border border-brand-600 text-brand-600 rounded-md text-xs flex items-center gap-2 hover:text-white hover:bg-brand-800 transition duration-300"
+                style="text-decoration:none;"
+                aria-label="{% trans 'Download Error File' %}"
+                onclick="handleDownloadAndRefresh(event, '/{{ path_info }}')"
+            >
+                <ion-icon name="cloud-download-outline" style="font-size:16px;"></ion-icon>
+                {% trans "Download Error File" %}
+            </a>
+        {% else %}
+            <span></span>
+        {% endif %}
+        <button
+            type="button"
+            class="px-5 py-2 bg-brand-600 text-white rounded-md text-xs font-medium hover:bg-brand-800 transition duration-300"
+            aria-label="{% trans 'Close' %}"
+            onclick="window.location.reload()"
+        >
+            {% trans "Close" %}
+        </button>
+    </div>
+</div>

@@ -2,6 +2,7 @@
 This page handles the cbv methods for document request page
 """
 
+import json
 import os
 from typing import Any, Optional
 from urllib.parse import parse_qs, urlparse
@@ -14,10 +15,13 @@ from django.urls import reverse, reverse_lazy
 from django.utils.decorators import method_decorator
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
+from django.utils.translation import gettext_noop
 
+from base.cbv.work_shift_tab import ProfileTabShellView
 from base.methods import (
     choosesubordinates,
     get_key_instances,
+    humanize_filter_tags,
     is_reportingmanager,
     paginator_qry,
 )
@@ -31,6 +35,7 @@ from horilla_documents.forms import DocumentRequestForm, DocumentUpdateForm
 from horilla_documents.models import Document, DocumentRequest
 from horilla_views import models as horilla_views_models
 from horilla_views.cbv_methods import (
+    EmployeeScopeMixin,
     hx_request_required,
     login_required,
     saved_filter_path_query,
@@ -58,9 +63,8 @@ BLOCKED_EXTENSIONS = {
 
 def htmx_refresh_document_request_container(request) -> Optional[HttpResponse]:
     """
-    For HTMX requests originating from the document request list page, return a
-    fragment that refetches the list into #view-container and refreshes toasts,
-    avoiding HX-Redirect full page reloads.
+    For HTMX requests from the document request list page, return a fragment that
+    refetches #view-container and refreshes toasts instead of a full HX-Redirect reload.
     """
     if request.headers.get("HX-Request") != "true":
         return None
@@ -93,10 +97,13 @@ def htmx_refresh_document_request_container(request) -> Optional[HttpResponse]:
 @method_decorator(
     manager_can_enter("horilla_documents.add_documentrequest"), name="dispatch"
 )
-class DocumentRequestCreateForm(HorillaFormView):
+class DocumentRequestCreateForm(EmployeeScopeMixin, HorillaFormView):
     """
     form view for create and update document request
     """
+
+    scope_perm = "horilla_documents.add_documentrequest"
+    scope_include_self = False
 
     form_class = DocumentRequestForm
     model = DocumentRequest
@@ -134,11 +141,8 @@ class DocumentRequestCreateForm(HorillaFormView):
                 notify.send(
                     self.request.user.employee_get,
                     recipient=users,
-                    verb=f"{self.request.user.employee_get} requested a document.",
-                    verb_ar=f"طلب {self.request.user.employee_get} مستنداً.",
-                    verb_de=f"{self.request.user.employee_get} hat ein Dokument angefordert.",
-                    verb_es=f"{self.request.user.employee_get} solicitó un documento.",
-                    verb_fr=f"{self.request.user.employee_get} a demandé un document.",
+                    verb=gettext_noop("%(employee_get)s requested a document."),
+                    verb_params={"employee_get": str(self.request.user.employee_get)},
                     redirect=reverse("employee-profile"),
                     icon="chatbox-ellipses",
                 )
@@ -152,10 +156,13 @@ class DocumentRequestCreateForm(HorillaFormView):
 
 
 @method_decorator(login_required, name="dispatch")
-class DocumentCreateForm(HorillaFormView):
+class DocumentCreateForm(EmployeeScopeMixin, HorillaFormView):
     """
     form view for upload document
     """
+
+    scope_perm = "horilla_documents.add_document"
+    scope_include_self = True
 
     form_class = DocumentForm
     model = Document
@@ -266,11 +273,10 @@ class DocumentUploadForm(HorillaFormView):
                     notify.send(
                         self.request.user.employee_get,
                         recipient=self.request.user.employee_get.get_reporting_manager().employee_user_id,
-                        verb=f"{self.request.user.employee_get} uploaded a document",
-                        verb_ar=f"قام {self.request.user.employee_get} بتحميل مستند",
-                        verb_de=f"{self.request.user.employee_get} hat ein Dokument hochgeladen",
-                        verb_es=f"{self.request.user.employee_get} subió un documento",
-                        verb_fr=f"{self.request.user.employee_get} a téléchargé un document",
+                        verb=gettext_noop("%(employee_get)s uploaded a document"),
+                        verb_params={
+                            "employee_get": str(self.request.user.employee_get)
+                        },
                         redirect=reverse(
                             "employee-view-individual",
                             kwargs={"obj_id": self.request.user.employee_get.id},
@@ -349,14 +355,11 @@ class DocumentRequestNav(HorillaNavView):
     filter_instance = DocumentRequestFilter()
     filter_form_context_name = "form"
     search_swap_target = "#view-container"
-    # Modern slide-over filter panel (generic/inline_nav.html's own
-    # {% if modern_filter %} branch, mirroring horilla_nav.html's
-    # .oh-filter-modern styles) -- same treatment as every other panel
-    # this session. DocumentRequestFilter.ajax_fields carries the
-    # AJAX-loaded comboboxes this needs.
+    # Modern slide-over filter panel; DocumentRequestFilter.ajax_fields feeds its AJAX comboboxes.
     modern_filter = True
 
 
+@method_decorator(login_required, name="dispatch")
 @method_decorator(hx_request_required, name="dispatch")
 class DocumentRequestPipelineView(Pipeline):
     """
@@ -404,11 +407,8 @@ class DocumentRequestPipelineView(Pipeline):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        # Pipeline (unlike HorillaListView) never builds filter_dict itself,
-        # so generic/filter_tags.html - included by cbv/documents/pipeline.html
-        # to give the nav's search/filter dropdown a working "remove filter"
-        # tag - would otherwise always render empty. Mirrors the same
-        # get_key_instances()-based construction HorillaListView uses.
+        # Pipeline never builds filter_dict itself (unlike HorillaListView), so build it here
+        # the same way, or the nav's "remove filter" tags would render empty.
         data_dict = parse_qs(self.request.GET.urlencode())
         data_dict = {
             key: list(dict.fromkeys(values)) for key, values in data_dict.items()
@@ -416,28 +416,18 @@ class DocumentRequestPipelineView(Pipeline):
         data_dict = get_key_instances(self.model, data_dict)
         for key in ("filter_applied", "nav_url", "referrer", "grouper", "page"):
             data_dict.pop(key, None)
+        # generic/filter_tags.html needs the label/extra maps next to filter_dict
+        data_dict, tag_labels, tag_extras = humanize_filter_tags(data_dict)
         context["filter_dict"] = data_dict
+        context["filter_tag_labels"] = tag_labels
+        context["filter_tag_extras"] = tag_extras
+        context["keys_to_remove"] = []
 
-        # Pipeline never wired up the saved-filter chip row (quick_actions.html)
-        # that every HorillaListView/HorillaCardView gets for free, so there
-        # was nothing to click "Save" on and no chips to show here. Mirror
-        # their stored_filters construction, but WITHOUT the referrer-based OR
-        # match those use: every chip re-submits its own historically-saved
-        # "referrer" GET param when clicked, so matching on "current referrer"
-        # made the "Filter (N)" count shift depending on which chip was last
-        # selected. path/nav_url are stable regardless of which filter (if
-        # any) is currently applied, so match on those alone.
         context["saved_filters"] = self.request.GET
         context["stored_filters"] = horilla_views_models.SavedFilter.objects.filter(
             saved_filter_path_query(self.request), created_by=self.request.user
         ).distinct()
 
-        # The outer group list (one accordion row per document type) was
-        # rendered in full with no paging, unlike every other list in the
-        # app - fine while there were a couple of document types, but it
-        # just keeps growing as more get added. Page it like everything
-        # else, keeping the total (not just the current page's count) for
-        # the tab badge in the template's script block.
         all_groups = context["groups"].order_by("-id")
         context["groups_total_count"] = all_groups.count()
         context["groups"] = paginator_qry(all_groups, self.request.GET.get("page"))
@@ -447,26 +437,40 @@ class DocumentRequestPipelineView(Pipeline):
         context["groups_preserved_query"] = preserved_query.urlencode()
         context["groups_search_url"] = reverse("document-request-filter-view")
 
-        # quick_actions.html already renders a pagination control in the same
-        # row as the Filter dropdown (the "queryset"/"search_url"/"pd" names
-        # below are what it expects) - reuse it instead of hand-rolling a
-        # second, differently-styled pagination widget underneath.
         context["queryset"] = context["groups"]
         context["search_url"] = context["groups_search_url"]
         context["pd"] = context["groups_preserved_query"]
 
-        # The accordion badge used to show group.document_set.count - the
-        # group's grand total, unaffected by the nav's own search/filter.
-        # That reads as broken once the inner document list (which *is*
-        # filtered, since the accordion's hx-get forwards request.GET into
-        # it) only shows a handful of matching rows under a badge still
-        # claiming the group's full, unfiltered size. Filter each group's
-        # own count the same way DocumentListView filters its document list,
-        # so the badge always matches what's actually visible underneath it.
+        all_ids = []
         for group in context["groups"]:
-            group.filtered_document_count = DocumentRequestFilter(
-                self.request.GET, queryset=group.document_set.all()
-            ).qs.count()
+            group_ids = list(
+                DocumentRequestFilter(
+                    self.request.GET, queryset=group.document_set.all()
+                ).qs.values_list("pk", flat=True)
+            )
+            group.filtered_document_count = len(group_ids)
+            # Every matching document of the group (all its pages), for the
+            # select-all checkbox in the group's header.
+            group.select_ids = json.dumps(group_ids)
+            all_ids.extend(group_ids)
+            # Pages of rows the group will show (DocumentListView.records_per_page),
+            # so its pager can sit in the group header before the group is opened.
+            group.doc_pages = max(
+                -(-group.filtered_document_count // DocumentListView.records_per_page),
+                1,
+            )
+
+        # Every document the header "Select All" checkbox must pick, including
+        # those of groups that are collapsed (their rows are not in the page yet).
+        context["select_all_ids"] = json.dumps(all_ids)
+        context["select_total_count"] = len(all_ids)
+
+        context["bulk_select_option"] = True
+        # "Select (N)" picks every document of every group on the page (see
+        # select_all_ids), not the group rows the pipeline paginates.
+        context["hide_select"] = True
+        context["group_select"] = True
+        context["selected_instances_key_id"] = "selectedInstances"
         return context
 
 
@@ -480,15 +484,6 @@ class DocumentListView(HorillaListView):
     filter_class = DocumentRequestFilter
     filter_keys_to_remove = ["document_request_id"]
     quick_export = False
-    # This per-group list has no filter UI of its own - the only visible
-    # search/filter controls on the page belong to the outer nav
-    # (DocumentRequestNav). filter_tags.html hardcodes
-    # id="filterTagContainerSectionNav", the same id the nav's own template
-    # (generic/inline_nav.html) uses for its own container, so leaving this
-    # enabled means every group reload's filter_tags.html re-renders into
-    # *both* matching elements (jQuery's #id selector matches all of them),
-    # clobbering the nav's own search tag with this list's unrelated,
-    # forwarded-through-request.GET filter state.
     show_filter_tags = False
 
     columns = [
@@ -500,14 +495,32 @@ class DocumentListView(HorillaListView):
 
     action_method = "document_actions"
 
+    # Each group on the Document Requests pipeline is its own list, loaded when
+    # the group is opened; showing every row of every group made each one heavy
+    # (hundreds of KB, ~1s of page scripts). Ten per page, paged inside the
+    # group like the group-by lists. DocumentIndividualTabList restores the
+    # normal page size.
+    records_per_page = 10
+
+    # One instance of this view loads per expanded document-type group on the
+    # Document Requests pipeline page (employee/templates/cbv/documents/pipeline.html),
+    # which renders ONE header shared by all of them -- see that template's
+    # comment. Row checkboxes and the per-group "Select (N)" toolbar
+    # (generic/quick_actions.html, unaffected by show_header) still work
+    # normally; only the repeated column-label row is suppressed.
+    # DocumentIndividualTabList below (the standalone Documents profile tab)
+    # restores it, since it's a normal one-off list, not one of several
+    # sharing a header.
+    show_header = False
+    header_attrs = {
+        "document_title_display": 'style="width:280px !important;"',
+        "document_status_display": 'style="width:140px !important;"',
+        "issue_date": 'style="width:140px !important;"',
+        "action": 'style="width:160px !important;"',
+    }
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        # Same reasoning as show_filter_tags above: the quick-filter chip row
-        # (quick_actions.html's "Filter (N)" dropdown) is a page-level control
-        # that already lives once, outside every group, on
-        # DocumentRequestPipelineView. HorillaListView always populates
-        # stored_filters regardless of show_filter_tags, so left alone every
-        # expanded group would render its own identical copy of that dropdown.
         context["stored_filters"] = horilla_views_models.SavedFilter.objects.none()
         return context
 
@@ -533,6 +546,10 @@ class DocumentIndividualTabList(DocumentListView):
     List view for the Documents tab in employee individual & profile view
     """
 
+    records_per_page = 0
+
+    show_saved_filters = False
+
     columns = [
         (_("Document"), "title"),
         (_("Status"), "document_status_display"),
@@ -545,17 +562,12 @@ class DocumentIndividualTabList(DocumentListView):
         (_("Date"), "issue_date"),
     ]
 
-    # DocumentListView's inherited row_attrs targets #viewFile / #viewFileModal,
-    # a modal shell that only exists inside the handful of legacy templates
-    # that used to embed it inline (tabs/document_tab.html, documents/
-    # requests.html, etc). Now that this tab renders through the generic
-    # HorillaListView table template instead of one of those templates, that
-    # shell is absent from the DOM and a row click raised htmx:targetError
-    # instead of opening a preview. Route through #genericModal /
-    # #genericModalBody instead - the page-chrome modal that's always present
-    # - matching how every other HorillaProfileView sub-tab in this framework
-    # opens its row-click preview (see RotatingShiftAssignIndividualView and
-    # RotatingWorkIndividualTab in base/cbv/work_shift_tab.py).
+    # A normal standalone list (the profile's own Documents tab), not one of
+    # several sharing a header -- restore what the parent class turns off for
+    # its own embedded-in-a-pipeline-accordion use (see the comment there).
+    show_header = True
+    header_attrs = {}
+
     row_attrs = """
                 id="document{id}"
                 hx-get='{view_file_url}'
@@ -571,16 +583,42 @@ class DocumentIndividualTabList(DocumentListView):
         self.view_id = "document_target"
 
     def get_queryset(self, queryset=None, filtered=False, *args, **kwargs):
-        # DocumentListView.get_queryset() (the immediate parent) filters by
-        # a document_request_id GET param, which doesn't apply to this tab
-        # (it's scoped by the employee_id path param instead), so go
-        # straight to HorillaListView.get_queryset() with our own base
-        # queryset. That base implementation is what sets self._saved_filters
-        # and applies filter_class/session/pagination handling -
-        # get_context_data() reads self._saved_filters unconditionally, so
-        # skipping it (as a bare `return self.model.objects.filter(...)`
-        # override previously did) raised an AttributeError on every load.
         if queryset is None:
             pk = self.kwargs.get("pk")
             queryset = self.model.objects.filter(employee_id=pk)
         return HorillaListView.get_queryset(self, queryset, filtered, *args, **kwargs)
+
+
+@method_decorator(login_required, name="dispatch")
+@method_decorator(hx_request_required, name="dispatch")
+class DocumentIndividualTabShell(ProfileTabShellView):
+    """
+    Shell for the Documents profile tab: loads the nav (with the Create
+    button) and, through it, the employee's documents list.
+    """
+
+    shell_target_id = "document-shell"
+    nav_url_name = "employee-document-tab-nav"
+
+
+@method_decorator(login_required, name="dispatch")
+class DocumentIndividualNav(HorillaNavView):
+    """
+    Minimal nav (Create button only) for the Documents profile tab.
+    """
+
+    template_name = "generic/inline_nav.html"
+    nav_title = _("Documents")
+    hide_search = True
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        pk = self.request.resolver_match.kwargs.get("pk")
+        self.search_url = reverse("employee-document-tab-list", kwargs={"pk": pk})
+        self.search_swap_target = "#document-shell"
+        self.create_attrs = f"""
+            hx-get="{reverse('document-create', kwargs={'emp_id': pk})}"
+            hx-target="#genericModalBody"
+            data-toggle="oh-modal-toggle"
+            data-target="#genericModal"
+        """

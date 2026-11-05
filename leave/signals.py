@@ -28,8 +28,30 @@ if apps.is_installed("attendance"):
             super(LeaveRequest, instance).save()
 
         period_dates = instance.requested_dates()
-        if instance.status == "approved":
+        if instance.status in ["approved", "cancel_requested"]:
+            from attendance.methods.leave_days import leave_counted_dates
+            from attendance.models import AttendanceConflictResolution
+
+            # Holidays and week-offs the leave type excludes are not leave: no leave work record
+            # for them (and one an earlier save made is dropped). A day that has been regularised
+            # keeps what the regularisation says.
+            counted = leave_counted_dates(instance)
             for date in period_dates:
+                if date not in counted:
+                    WorkRecords._base_manager.filter(
+                        is_leave_record=True,
+                        date=date,
+                        employee_id=instance.employee_id,
+                        leave_request_id=instance,
+                    ).delete()
+            regularised = set(
+                AttendanceConflictResolution._base_manager.filter(
+                    employee_id=instance.employee_id, date__in=counted
+                ).values_list("date", flat=True)
+            )
+            for date in counted:
+                if date in regularised:
+                    continue
                 try:
                     work_entry = (
                         WorkRecords.objects.filter(
@@ -63,10 +85,11 @@ if apps.is_installed("attendance"):
                     )
                     work_entry.work_record_type = status
                     work_entry.date = date
+                    # WorkRecords.message is max_length=30; the previous
+                    # 36-char text raised DataError on PostgreSQL and
+                    # aborted the transaction for every half-day leave.
                     work_entry.message = (
-                        "Leave"
-                        if status == "ABS"
-                        else _("Half day Attendance need to validate")
+                        "Leave" if status == "ABS" else _("Half day: needs validation")
                     )
                     work_entry.save()
 

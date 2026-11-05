@@ -302,24 +302,22 @@ def offboarding_exit_reasons(request):
 @login_required
 @permission_required("offboarding.view_offboarding")
 def offboarding_notice_period_tracker(request):
-    """Employees with notice periods overlapping the selected period."""
+    """Employees whose notice period ends within the next 30 days."""
     from offboarding.models import OffboardingEmployee
 
-    from_date, to_date = _parse_period(request)
     today = date.today()
     employees = []
+    total = 0
 
     try:
-        qs = (
-            OffboardingEmployee.objects.filter(
-                notice_period_ends__isnull=False,
-                notice_period_starts__lte=to_date,
-                notice_period_ends__gte=from_date,
-            )
-            .exclude(stage_id__type="archived")
-            .select_related("employee_id", "stage_id")
-            .order_by("notice_period_ends")[:15]
-        )
+        in_notice = OffboardingEmployee.objects.filter(
+            notice_period_ends__gte=today,
+            notice_period_ends__lte=today + timedelta(days=30),
+        ).exclude(stage_id__type="archived")
+        total = in_notice.count()
+        qs = in_notice.select_related(
+            "employee_id", "stage_id", "stage_id__offboarding_id"
+        ).order_by("notice_period_ends")[:15]
 
         for oe in qs:
             emp = oe.employee_id
@@ -331,6 +329,9 @@ def offboarding_notice_period_tracker(request):
                     "id": emp.id if emp else None,
                     "name": emp.get_full_name() if emp else "—",
                     "avatar": emp.get_avatar() if emp else None,
+                    "offboarding_id": (
+                        oe.stage_id.offboarding_id_id if oe.stage_id else None
+                    ),
                     "stage": oe.stage_id.title if oe.stage_id else "—",
                     "notice_ends": (
                         oe.notice_period_ends.strftime("%b %d, %Y")
@@ -352,15 +353,16 @@ def offboarding_notice_period_tracker(request):
     except Exception:
         pass
 
-    return JsonResponse({"employees": employees})
+    return JsonResponse({"employees": employees, "total": total})
 
 
 @login_required
 @permission_required("offboarding.view_offboarding")
 def offboarding_unreturned_assets(request):
-    """Unreturned assets from employees offboarded within the selected period."""
+    """Unreturned assets of employees whose notice period ends within the selected period."""
     from_date, to_date = _parse_period(request)
     assets = []
+    total = 0
 
     try:
         if apps.is_installed("asset"):
@@ -368,14 +370,16 @@ def offboarding_unreturned_assets(request):
             from offboarding.models import OffboardingEmployee
 
             offboarding_emp_ids = OffboardingEmployee.objects.filter(
-                created_at__date__gte=from_date,
-                created_at__date__lte=to_date,
+                notice_period_ends__gte=from_date,
+                notice_period_ends__lte=to_date,
             ).values_list("employee_id", flat=True)
 
-            qs = AssetAssignment.objects.filter(
+            unreturned = AssetAssignment.objects.filter(
                 assigned_to_employee_id__in=offboarding_emp_ids,
                 return_status__isnull=True,
-            ).select_related("assigned_to_employee_id", "asset_id")[:15]
+            )
+            total = unreturned.count()
+            qs = unreturned.select_related("assigned_to_employee_id", "asset_id")[:15]
 
             for aa in qs:
                 emp = aa.assigned_to_employee_id
@@ -394,14 +398,13 @@ def offboarding_unreturned_assets(request):
     except Exception:
         pass
 
-    return JsonResponse({"assets": assets})
+    return JsonResponse({"assets": assets, "total": total})
 
 
 @login_required
 @permission_required("offboarding.view_offboarding")
 def offboarding_joining_vs_exiting(request):
-    """Monthly joining vs exiting trend within the selected period."""
-    from employee.models import EmployeeWorkInformation
+    """Monthly exiting count within the selected period."""
     from offboarding.models import ResignationLetter
 
     from_date, to_date = _parse_period(request)
@@ -417,11 +420,6 @@ def offboarding_joining_vs_exiting(request):
         month_start = cursor
         month_end = next_month - timedelta(days=1)
 
-        joining = EmployeeWorkInformation.objects.filter(
-            date_joining__gte=month_start,
-            date_joining__lte=month_end,
-        ).count()
-
         exiting = ResignationLetter.objects.filter(
             planned_to_leave_on__gte=month_start,
             planned_to_leave_on__lte=month_end,
@@ -431,7 +429,6 @@ def offboarding_joining_vs_exiting(request):
         months.append(
             {
                 "month": month_start.strftime("%b %Y"),
-                "joining": joining,
                 "exiting": exiting,
                 "from_date": month_start.isoformat(),
                 "to_date": month_end.isoformat(),

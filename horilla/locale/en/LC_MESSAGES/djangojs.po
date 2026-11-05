@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2025-12-18 13:57+0530\n"
+"POT-Creation-Date: 2026-09-10 13:50+0530\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -47,16 +47,87 @@ msgstr ""
 msgid "View Request"
 msgstr ""
 
-msgid "Some selected requests have already been approved."
+msgid "Employees Imported Successfully"
 msgstr ""
 
-msgid "Some selected requests have already been rejected."
+msgid "You have"
+msgstr ""
+
+msgid "errors. Do you want to download the error list?"
+msgstr ""
+
+msgid "Download error list & Skip Import"
+msgstr ""
+
+msgid "Download error list & Continue Import"
+msgstr ""
+
+msgid "Invalid File"
+msgstr ""
+
+msgid "Please upload a valid XLSX file."
+msgstr ""
+
+msgid "Stage updated"
+msgstr ""
+
+msgid "Failed to update sequence: "
+msgstr ""
+
+msgid "Sequence updated"
+msgstr ""
+
+msgid "Confirm Stage Change"
+msgstr ""
+
+msgid ""
+"The candidate is being moved from %(from)s to the %(to)s stage. Do you want "
+"to proceed?"
+msgstr ""
+
+msgid "Don't show this again in this session"
+msgstr ""
+
+msgid "Cannot Change Stage"
+msgstr ""
+
+msgid "This move is not allowed."
+msgstr ""
+
+msgid "Employees"
+msgstr ""
+
+msgid "Number of days"
+msgstr ""
+
+msgid "Draft"
+msgstr ""
+
+msgid "Review Ongoing"
+msgstr ""
+
+msgid "Confirmed"
+msgstr ""
+
+msgid "Paid"
+msgstr ""
+
+msgid "Leave count"
 msgstr ""
 
 msgid "Do you wish to create a Leave Report?"
 msgstr ""
 
 msgid "Do you want to reject the selected leave requests?"
+msgstr ""
+
+msgid "Onboarding Candidates"
+msgstr ""
+
+msgid "Candidates per Stage"
+msgstr ""
+
+msgid "Number of Candidates"
 msgstr ""
 
 msgid "Do you want to send the payslip by mail?"
@@ -68,6 +139,15 @@ msgstr ""
 msgid "Amount"
 msgstr ""
 
+msgid "Objective"
+msgstr ""
+
+msgid "Key Result"
+msgstr ""
+
+msgid "Feedback"
+msgstr ""
+
 msgid "Upload Completed!"
 msgstr ""
 
@@ -75,6 +155,174 @@ msgid "Imported Successfully!"
 msgstr ""
 
 msgid "Please upload a file with the .xlsx extension only."
+msgstr ""
+
+msgid "Hired Candidates"
+msgstr ""
+
+msgid "Stage sequence updated"
+msgstr ""
+
+msgid "Dashboard"
+msgstr ""
+
+msgid "Horilla dashboard section"
+msgstr ""
+
+msgid "Mark Attendance"
+msgstr ""
+
+msgid "Used to mark your attendance"
+msgstr ""
+
+msgid "Settings"
+msgstr ""
+
+msgid "Settings configurations"
+msgstr ""
+
+msgid "Notification"
+msgstr ""
+
+msgid "Notifications section"
+msgstr ""
+
+msgid "Language"
+msgstr ""
+
+msgid "Multi-Language options"
+msgstr ""
+
+msgid "Multi-Company"
+msgstr ""
+
+msgid "Multi-Company options"
+msgstr ""
+
+msgid "Profile"
+msgstr ""
+
+msgid "Profile and change password options"
+msgstr ""
+
+msgid "Dashboard Tiles"
+msgstr ""
+
+msgid "Horilla Dashboard Tiles"
+msgstr ""
+
+msgid "Dashboard Actions"
+msgstr ""
+
+msgid "Approve or Reject Options"
+msgstr ""
+
+msgid "Add announcement"
+msgstr ""
+
+msgid "Create announcement from dashboard"
+msgstr ""
+
+msgid "Quick Actions"
+msgstr ""
+
+msgid "Create Quick Requests"
+msgstr ""
+
+msgid "Company"
+msgstr ""
+
+msgid "Your current company access"
+msgstr ""
+
+msgid "App"
+msgstr ""
+
+msgid "Horilla Hr Apps. eg Dashboard"
+msgstr ""
+
+msgid "Pipeline"
+msgstr ""
+
+msgid "Recruitment pipeline management"
+msgstr ""
+
+msgid "New Recruitment"
+msgstr ""
+
+msgid "Add new recruitment"
+msgstr ""
+
+msgid "Filter"
+msgstr ""
+
+msgid "Pipeline filter option"
+msgstr ""
+
+msgid "Toggle View"
+msgstr ""
+
+msgid "Toggle view type"
+msgstr ""
+
+msgid "Search"
+msgstr ""
+
+msgid "Search in candidate, recruitment and stage"
+msgstr ""
+
+msgid "Filter Tag"
+msgstr ""
+
+msgid "Filter tag option"
+msgstr ""
+
+msgid "Quick Filters"
+msgstr ""
+
+msgid "Recruitment"
+msgstr ""
+
+msgid "Add Stage"
+msgstr ""
+
+msgid "Add new stage to recruitment"
+msgstr ""
+
+msgid "Stage"
+msgstr ""
+
+msgid "Recruitment stage"
+msgstr ""
+
+msgid "Add candidate"
+msgstr ""
+
+msgid "Add candidate to stage option"
+msgstr ""
+
+msgid "Candidate"
+msgstr ""
+
+msgid "Candidate record"
+msgstr ""
+
+msgid "Rating"
+msgstr ""
+
+msgid "Candidate rating option"
+msgstr ""
+
+msgid "Change Stage"
+msgstr ""
+
+msgid "Candidate change stage option"
+msgstr ""
+
+msgid "Options"
+msgstr ""
+
+msgid "Candidate management options"
 msgstr ""
 
 msgid "visible"
@@ -143,6 +391,39 @@ msgstr ""
 msgid "customdata"
 msgstr ""
 
+msgid "All your company and base configurations"
+msgstr ""
+
+msgid "Settings Options"
+msgstr ""
+
+msgid "Settings menu bar"
+msgstr ""
+
+msgid "Settings View"
+msgstr ""
+
+msgid "Selected settings view"
+msgstr ""
+
+msgid "Project: "
+msgstr ""
+
+msgid "watchFile"
+msgstr ""
+
+msgid "watchDirectory"
+msgstr ""
+
+msgid "getCompletionsAtPosition: getCompletionEntriesFromSymbols: "
+msgstr ""
+
+msgid "placeOpenBraceOnNewLineForControlBlocks"
+msgstr ""
+
+msgid "placeOpenBraceOnNewLineForFunctions"
+msgstr ""
+
 msgid "punc"
 msgstr ""
 
@@ -156,6 +437,66 @@ msgid "arrow"
 msgstr ""
 
 msgid "operator"
+msgstr ""
+
+msgid "Expected "
+msgstr ""
+
+msgid "I"
+msgstr ""
+
+msgid "E"
+msgstr ""
+
+msgid "X"
+msgstr ""
+
+msgid "B"
+msgstr ""
+
+msgid "Invalid generatedCharacter found"
+msgstr ""
+
+msgid "Invalid sourceIndex found"
+msgstr ""
+
+msgid "Unsupported Format: No entries after sourceIndex"
+msgstr ""
+
+msgid "Invalid sourceLine found"
+msgstr ""
+
+msgid "Unsupported Format: No entries after sourceLine"
+msgstr ""
+
+msgid "Invalid sourceCharacter found"
+msgstr ""
+
+msgid "Invalid nameIndex found"
+msgstr ""
+
+msgid "Unsupported Error Format: Entries after nameIndex"
+msgstr ""
+
+msgid "collectAutoImports"
+msgstr ""
+
+msgid "continuePreviousIncompleteResponse"
+msgstr ""
+
+msgid "TypeRoots version has changed; provide new program"
+msgstr ""
+
+msgid "getIndentationAtPosition: getCurrentSourceFile: "
+msgstr ""
+
+msgid "getIndentationAtPosition: computeIndentation  : "
+msgstr ""
+
+msgid "Program"
+msgstr ""
+
+msgid "BlockStatement"
 msgstr ""
 
 msgid "close"
@@ -179,6 +520,9 @@ msgstr ""
 msgid "No Records found"
 msgstr ""
 
+msgid "Ok"
+msgstr ""
+
 msgid "Do you want to download the excel file?"
 msgstr ""
 
@@ -200,29 +544,21 @@ msgstr ""
 msgid "Do you really want to unarchive all the selected records?"
 msgstr ""
 
-msgid "Ok"
-msgstr ""
-
 msgid "Total vacancy is %(vacancy)s."
 msgstr ""
 
-msgid "Are you sure to change the candidate from %(from)s stage to %(to)s stage"
+msgid ""
+"Are you sure to change the candidate from %(from)s stage to %(to)s stage"
 msgstr ""
 
-msgid "Stage updated"
+msgid "Retry"
 msgstr ""
 
-msgid "Confirm Stage Change"
+msgid "Something went wrong while loading this data."
 msgstr ""
 
-msgid "The candidate is being moved from %(from)s to the %(to)s stage. Do you want to proceed?"
+msgid "Request failed (status %(status)s)."
 msgstr ""
 
-msgid "Don't show this again in this session"
-msgstr ""
-
-msgid "Cannot Change Stage"
-msgstr ""
-
-msgid "This move is not allowed."
+msgid "The request took too long to respond."
 msgstr ""

@@ -7,6 +7,7 @@ from pms import cbvs
 from pms import dashboard as pms_dashboard
 from pms.cbv import (
     dashboard,
+    employee_objectives,
     feedback,
     key_result,
     meetings,
@@ -23,6 +24,11 @@ urlpatterns = [
         "individual-performance-tab-list/<int:pk>/",
         feedback.PerformanceTab.as_view(),
         name="individual-performance-tab-list",
+    ),
+    path(
+        "individual-key-result-tab-list/<int:pk>/",
+        objectives.EKRTab.as_view(),
+        name="individual-key-result-tab-list",
     ),
     path("feedback-view/", feedback.FeedbackViewPage.as_view(), name="feedback-view"),
     path(
@@ -739,6 +745,36 @@ urlpatterns = [
         objectives.ObjectiveTemplateList.as_view(),
         name="list-objective-templates-view",
     ),
+    path(
+        "employee-objective-list-view/",
+        employee_objectives.EmployeeObjectivesPage.as_view(),
+        name="employee-objective-list-view",
+    ),
+    path(
+        "employee-objectives-nav/",
+        employee_objectives.EmployeeObjectivesNav.as_view(),
+        name="employee-objectives-nav",
+    ),
+    path(
+        "employee-objectives-list/",
+        employee_objectives.EmployeeObjectivesList.as_view(),
+        name="employee-objectives-list",
+    ),
+    path(
+        "employee-key-result-list-view/",
+        employee_objectives.EmployeeKeyResultsPage.as_view(),
+        name="employee-key-result-list-view",
+    ),
+    path(
+        "employee-key-results-nav/",
+        employee_objectives.EmployeeKeyResultsNav.as_view(),
+        name="employee-key-results-nav",
+    ),
+    path(
+        "employee-key-results-list/",
+        employee_objectives.EmployeeKeyResultsList.as_view(),
+        name="employee-key-results-list",
+    ),
     path("view-meetings/", meetings.MeetingsView.as_view(), name="view-meetings"),
     path("meetings-list/", meetings.MeetingsList.as_view(), name="meetings-list"),
     path("meetings-nav/", meetings.MeetingsNav.as_view(), name="meetings-nav"),
@@ -761,6 +797,26 @@ urlpatterns = [
         "nav-question-template/",
         question_template.QuestionTemplateNav.as_view(),
         name="nav-question-template",
+    ),
+    path(
+        "question-list-nav/<int:template_id>/",
+        question_template.QuestionListNav.as_view(),
+        name="question-list-nav",
+    ),
+    path(
+        "question-list-view/<int:template_id>/",
+        question_template.QuestionListView.as_view(),
+        name="question-list-view",
+    ),
+    path(
+        "question-form-create/<int:template_id>/",
+        question_template.QuestionFormView.as_view(),
+        name="question-form-create",
+    ),
+    path(
+        "question-form-update/<int:pk>/",
+        question_template.QuestionFormView.as_view(),
+        name="question-form-update",
     ),
     path(
         "period-view/",
@@ -813,21 +869,6 @@ urlpatterns = [
         "performance-settings-bonus-point-tab/",
         settings_tabs.PerformanceSettingsBonusPointTab.as_view(),
         name="performance-settings-bonus-point-tab",
-    ),
-    path(
-        "performance-settings-objective-template-tab/",
-        settings_tabs.PerformanceSettingsObjectiveTemplateTab.as_view(),
-        name="performance-settings-objective-template-tab",
-    ),
-    path(
-        "performance-settings-objective-template-nav/",
-        settings_tabs.PerformanceSettingsObjectiveTemplateNav.as_view(),
-        name="performance-settings-objective-template-nav",
-    ),
-    path(
-        "performance-settings-objective-template-list/",
-        settings_tabs.PerformanceSettingsObjectiveTemplateList.as_view(),
-        name="performance-settings-objective-template-list",
     ),
     path(
         "performance-settings-question-template-tab/",
@@ -883,6 +924,11 @@ urlpatterns = [
         "bonus-point-setting-list-view/",
         cbvs.BonusPointSettingListView.as_view(),
         name="bonus-point-setting-list-view",
+    ),
+    path(
+        "bonus-point-setting-detail-view/<int:pk>/",
+        cbvs.BonusPointSettingDetailView.as_view(),
+        name="bonus-point-setting-detail-view",
     ),
     path(
         "bonus-setting-form-values/",
@@ -959,11 +1005,6 @@ urlpatterns = [
         name="pms-dashboard-dept",
     ),
     path(
-        "dashboard/api/at-risk/",
-        pms_dashboard.pms_at_risk_objectives,
-        name="pms-dashboard-at-risk",
-    ),
-    path(
         "dashboard/api/performers/",
         pms_dashboard.pms_top_performers,
         name="pms-dashboard-performers",
@@ -977,15 +1018,5 @@ urlpatterns = [
         "dashboard/api/meetings/",
         pms_dashboard.pms_upcoming_meetings,
         name="pms-dashboard-meetings",
-    ),
-    path(
-        "dashboard/api/progress-trend/",
-        pms_dashboard.pms_progress_trend,
-        name="pms-dashboard-progress-trend",
-    ),
-    path(
-        "dashboard/api/feedback-completion/",
-        pms_dashboard.pms_feedback_completion,
-        name="pms-dashboard-fb-completion",
     ),
 ]

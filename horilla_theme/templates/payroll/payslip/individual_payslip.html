@@ -1,4 +1,4 @@
-{% extends 'index.html' %} {% block content %} {% load static i18n horillafilters i18n %}
+{% extends 'index.html' %} {% block content %} {% load static i18n horillafilters payrollfilters %}
 <style>
   .sent-to-employee{
     background-color: yellowgreen;
@@ -12,11 +12,21 @@
     padding-bottom:0rem;
   }
 </style>
-<div class="bg-white p-6 rounded-md shadow-card w-[60%] mx-auto">
+{% comment %}
+The payslip and its tax working side by side, the pair centred in the view. The
+working is its own card so the payslip stays the statement it is.
+{% endcomment %}
+<div style="display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:center;gap:16px;width:94%;max-width:1480px;margin:0 auto;">
+<div class="bg-white px-6 py-4 rounded-md shadow-card" style="flex:1 1 640px;max-width:980px;min-width:0;">
     <div class="flex gap-2 md:gap-0 flex-wrap justify-between items-end mb-2 border-b border-dark-50 pb-3">
         <div class="flex items-center gap-5">
             <div class="bg-dark-50 p-2 rounded-md w-14">
-                <img src="{{employee.employee_work_info.company_id.icon.url}}" alt="{% trans 'Company' %}">
+                {% with resolved_company=employee.employee_work_info.company_id|default:company %}
+                    <img
+                        src="{% if resolved_company.icon %}{{ resolved_company.icon.url }}{% else %}{% static 'images/ui/auth-logo.png' %}{% endif %}"
+                        alt="{% trans 'Company' %}"
+                    >
+                {% endwith %}
             </div>
             <div class="flex-1">
                 <p class="mb-1 font-semibold">{{employee.get_full_name}}</p>
@@ -41,8 +51,28 @@
                         width="18" class="filter brightness-0 invert">
                 </a>
                 {% if perms.payroll.change_payslip %}
+                    {% comment %}
+                    Into the same #objectCreateModal every other in-place edit
+                    on this page uses, and #objectCreateModalTarget is what the
+                    modal renders whatever was fetched into. Saving swaps
+                    #payslipBody -- the same target the status dropdown beside
+                    it already uses -- so an edit updates the totals on screen
+                    exactly the way changing status already does.
+                    {% endcomment %}
+                    <a id="payslipEditBtn"
+                       title="{% if instance.status == 'paid' %}{% trans 'A paid payslip cannot be edited' %}{% else %}{% trans 'Edit or add components' %}{% endif %}"
+                       {% if instance.status == "paid" %}aria-disabled="true" style="opacity:.4;pointer-events:none;cursor:not-allowed;"{% endif %}
+                       hx-get="{% url 'edit-payslip-components' instance.id %}"
+                       hx-target="#objectCreateModalTarget"
+                       data-toggle="oh-modal-toggle"
+                       data-target="#objectCreateModal"
+                       class="w-8 h-8 justify-center bg-[white] rounded-md text-xs flex items-center gap-2 border border-brand-500 hover:border-brand-600 transition duration-300 cursor-pointer">
+                        <ion-icon name="create-outline"></ion-icon>
+                    </a>
+                {% endif %}
+                {% if perms.payroll.change_payslip %}
                     <div class="relative dropdown-wrapper" style="width:120px;">
-                        <select name="status" class="oh-select" id="id_status" hx-trigger="change" hx-post="{% url 'payslip-status-update' instance.id %}" hx-target="#payslipBody" >
+                        <select name="status" class="oh-select" id="id_status"{% if instance.status_locked %} disabled title="{{ instance.status_lock_message }}"{% endif %} hx-trigger="payslipStatusChanged" hx-post="{% url 'payslip-status-update' instance.id %}" hx-target="#payslipBody" >
                             {% for choice in instance.status_choices %}
                                 <option value="{{choice.0}}" {% if instance.status == choice.0  %} selected{% endif %}>{{choice.1}}</option>
                             {% endfor %}
@@ -55,24 +85,69 @@
 
 
 
-    <div class="h-[calc(100vh_-_290px)] overflow-hidden overflow-y-auto overflow-x-auto" id="payslipBody">
+    <style>
+      /* A slimmer scrollbar for the payslip. The browser default is a wide
+         grey slab down the side of a document whose whole job is to be read,
+         and it sat right against the figures' right-hand edge. Both syntaxes
+         because Firefox takes scrollbar-width and Chrome and Safari take the
+         pseudo-element; each ignores the other. */
+      #payslipBody { scrollbar-width: thin; scrollbar-color: #cdd1d9 transparent; }
+      #payslipBody::-webkit-scrollbar { width: 6px; height: 6px; }
+      #payslipBody::-webkit-scrollbar-track { background: transparent; }
+      #payslipBody::-webkit-scrollbar-thumb {
+        background: #cdd1d9; border-radius: 3px;
+      }
+      #payslipBody::-webkit-scrollbar-thumb:hover { background: #b6bac4; }
+    </style>
+
+    <div class="max-h-[calc(100vh_-_250px)] overflow-hidden overflow-y-auto overflow-x-auto" id="payslipBody">
         <!--Start of Payslip Summary -->
         {% include "payroll/payslip/individual_payslip_summery.html" %}
         <!-- End of Payslip Payable -->
     </div>
 
-    <div class="grid sm:flex gap-5 sm:gap-0 justify-between items-center mt-2 w-full border-t border-[#d7d7d7] pt-2">
-        <div class="flex items-center gap-5">
-            <div>
-                <p class="mb-1 font-semibold">{% trans "Total Net Payable" %}</p>
-                <p class="text-sm text-[#858585]">{% trans "Gross Earnings - Total Deductions" %}</p>
-            </div>
-        </div>
+    {# The payslip's own net block (see .ps__net), in the page's own terms: Gross Pay, Total Deductions, Net Pay. #}
+    <div class="ps__net">
         <div>
-            <p class="text-lg font-semibold text-primary-600">{{ net_pay|floatformat:2|currency_symbol_position }}</p>
+            <div class="ps__net-label">{% trans "Net Pay" %}</div>
+            <div class="ps__net-sum">{% trans "Gross Pay" %} &minus; {% trans "Total Deductions" %}</div>
         </div>
+        <div class="ps__net-amount">{{ net_pay|floatformat:2|currency_symbol_position }}</div>
     </div>
 </div>
+{% if payslip|income_tax_explanation or payslip|ctc_breakdown %}
+<aside id="payslipTaxPanel" style="flex:0 0 360px;width:360px;max-width:100%;">
+  {% include "payroll/payslip/_tax_side_panel.html" %}
+  {% include "payroll/payslip/_ctc_breakdown.html" %}
+</aside>
+{% endif %}
+</div>
+<script>
+  (function () {
+    var select = document.getElementById("id_status");
+    if (!select) return;
+    // The select is a Select2 widget, which announces a choice through jQuery
+    // only -- htmx listens for native events, so a plain hx-trigger="change"
+    // never heard it and the status moved only after a reload. This turns
+    // either kind of change into the event htmx waits for.
+    $(select).on("change", function () {
+      htmx.trigger(select, "payslipStatusChanged");
+    });
+    // A paid payslip is closed: the edit button stays, but greyed out.
+    function syncEditButton() {
+      var btn = document.getElementById("payslipEditBtn");
+      if (!btn) return;
+      var paid = select.value === "paid";
+      btn.style.opacity = paid ? ".4" : "";
+      btn.style.pointerEvents = paid ? "none" : "";
+      btn.style.cursor = paid ? "not-allowed" : "";
+      btn.setAttribute("aria-disabled", paid ? "true" : "false");
+      btn.title = paid ? "{% trans 'A paid payslip cannot be edited'|escapejs %}" : "{% trans 'Edit or add components'|escapejs %}";
+    }
+    select.addEventListener("htmx:afterRequest", syncEditButton);
+    syncEditButton();
+  })();
+</script>
 {% endblock content %}
 {% comment %} <button
                         class="px-5 py-2 h-full bg-[white] rounded-md text-xs flex items-center gap-2  border border-primary-500 hover:border-primary-600 transition duration-300">

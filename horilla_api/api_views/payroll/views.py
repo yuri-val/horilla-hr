@@ -5,13 +5,14 @@ from django.contrib.auth.decorators import permission_required
 from django.shortcuts import render
 from django.utils.decorators import method_decorator
 from django.utils.translation import gettext_lazy as _
-from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from base.backends import ConfiguredEmailBackend
-from base.methods import eval_validate
+from base.methods import eval_validate, filtersubordinates
+from horilla_api.api_methods.base.methods import reject_reason_from
+from horilla_api.api_methods.base.pagination import HorillaPageNumberPagination
 from payroll.filters import (
     AllowanceFilter,
     ContractFilter,
@@ -25,11 +26,13 @@ from payroll.models.models import (
     LoanAccount,
     Payslip,
     Reimbursement,
+    ReimbursementrequestComment,
 )
 from payroll.models.tax_models import TaxBracket
 from payroll.threadings.mail import MailSendThread
 from payroll.views.views import payslip_pdf
 
+from ...api_decorators.base.decorators import approver_permission_required
 from ...api_methods.base.methods import groupby_queryset
 from ...api_serializers.payroll.serializers import (
     AllowanceSerializer,
@@ -70,7 +73,7 @@ class PayslipView(APIView):
         if field_name:
             url = request.build_absolute_uri()
             return groupby_queryset(request, url, field_name, payslip_filter_queryset)
-        pagination = PageNumberPagination()
+        pagination = HorillaPageNumberPagination()
         page = pagination.paginate_queryset(payslip_filter_queryset, request)
         serializer = PayslipSerializer(page, many=True)
         return pagination.get_paginated_response(serializer.data)
@@ -142,7 +145,7 @@ class ContractView(APIView):
         if field_name:
             url = request.build_absolute_uri()
             return groupby_queryset(request, url, field_name, filter_queryset)
-        pagination = PageNumberPagination()
+        pagination = HorillaPageNumberPagination()
         page = pagination.paginate_queryset(filter_queryset, request)
         serializer = ContractSerializer(page, many=True)
         return pagination.get_paginated_response(serializer.data)
@@ -182,7 +185,7 @@ class AllowanceView(APIView):
             return Response(serializer.data, status=200)
         allowance = Allowance.objects.all()
         filter_queryset = AllowanceFilter(request.GET, allowance).qs
-        pagination = PageNumberPagination()
+        pagination = HorillaPageNumberPagination()
         page = pagination.paginate_queryset(filter_queryset, request)
         serializer = AllowanceSerializer(page, many=True)
         return pagination.get_paginated_response(serializer.data)
@@ -222,7 +225,7 @@ class DeductionView(APIView):
             return Response(serializer.data, status=200)
         deduction = Deduction.objects.all()
         filter_queryset = DeductionFilter(request.GET, deduction).qs
-        pagination = PageNumberPagination()
+        pagination = HorillaPageNumberPagination()
         page = pagination.paginate_queryset(filter_queryset, request)
         serializer = DeductionSerializer(page, many=True)
         return pagination.get_paginated_response(serializer.data)
@@ -269,7 +272,7 @@ class LoanAccountView(APIView):
             serializer = LoanAccountSerializer(instance=loan_account)
             return Response(serializer.data, status=200)
         loan_accounts = LoanAccount.objects.all()
-        pagination = PageNumberPagination()
+        pagination = HorillaPageNumberPagination()
         page = pagination.paginate_queryset(loan_accounts, request)
         serializer = LoanAccountSerializer(page, many=True)
         return pagination.get_paginated_response(serializer.data)
@@ -295,26 +298,32 @@ class ReimbursementView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, pk=None):
+        # A line manager sees (and, per ReimbusementApproveRejectView below,
+        # can now decide on) their reports' claims too, not only their own --
+        # filtersubordinates already returns everything for a
+        # payroll.view_reimbursement holder, and always includes the
+        # caller's own records alongside any subordinates'.
         if pk:
-            if request.user.has_perm("payroll.view_reimbursement"):
-                reimbursement = Reimbursement.objects.filter(id=pk).first()
-            else:
-                reimbursement = Reimbursement.objects.filter(
-                    id=pk, employee_id=request.user.employee_get
-                ).first()
+            reimbursement = filtersubordinates(
+                request,
+                Reimbursement.objects.filter(id=pk),
+                "payroll.view_reimbursement",
+            ).first()
             if not reimbursement:
                 return Response({"error": _("Reimbursement not found.")}, status=404)
             serializer = self.serializer_class(reimbursement)
             return Response(serializer.data, status=200)
-        reimbursements = Reimbursement.objects.all()
-
-        if request.user.has_perm("payroll.view_reimbursement"):
-            reimbursements = Reimbursement.objects.all()
-        else:
-            reimbursements = Reimbursement.objects.filter(
-                employee_id=request.user.employee_get
-            )
-        pagination = PageNumberPagination()
+        reimbursements = filtersubordinates(
+            request, Reimbursement.objects.all(), "payroll.view_reimbursement"
+        )
+        # "?status=requested" for the pending ones only -- the other request
+        # lists already take a status filter; this one returned everything.
+        status_filter = request.query_params.get("status")
+        valid_statuses = dict(Reimbursement._meta.get_field("status").choices)
+        if status_filter in valid_statuses:
+            reimbursements = reimbursements.filter(status=status_filter)
+        reimbursements = reimbursements.order_by("-id")
+        pagination = HorillaPageNumberPagination()
         page = pagination.paginate_queryset(reimbursements, request)
         serializer = self.serializer_class(page, many=True)
         return pagination.get_paginated_response(serializer.data)
@@ -348,7 +357,10 @@ class ReimbursementView(APIView):
 class ReimbusementApproveRejectView(APIView):
     permission_classes = [IsAuthenticated]
 
-    @method_decorator(permission_required("payroll.change_reimbursement"))
+    # A reporting manager may now decide on their own report's claim, same as
+    # leave and attendance already work -- never their own claim, and never a
+    # claim belonging to someone outside their reporting chain.
+    @approver_permission_required(Reimbursement, "payroll.change_reimbursement")
     def post(self, request, pk):
         reimbursement = Reimbursement.objects.filter(id=pk).first()
         if reimbursement is None:
@@ -391,6 +403,13 @@ class ReimbusementApproveRejectView(APIView):
         # save(), not queryset.update(): update() bypasses model validation and
         # the modified_by bookkeeping in HorillaModel.save().
         reimbursement.save()
+        reason = reject_reason_from(request)
+        if status == "rejected" and reason:
+            ReimbursementrequestComment.objects.create(
+                request_id=reimbursement,
+                employee_id=request.user.employee_get,
+                comment=reason,
+            )
         return Response({"status": reimbursement.status}, status=200)
 
 
@@ -544,11 +563,7 @@ class PayslipPDFAPIView(APIView):
         data["json_data"]["employee"] = payslip.employee_id.id
         data["json_data"]["payslip"] = payslip.id
         data["instance"] = payslip
-        data["currency"] = (
-            PayrollSettings.objects.first().currency_symbol
-            if PayrollSettings.objects.exists()
-            else "₹"
-        )
+        data["currency"] = PayrollSettings.currency_for_selected_company()
         data["all_deductions"] = []
         for deduction_list in [
             data.get("basic_pay_deductions", []),
@@ -590,7 +605,14 @@ class PayslipPDFAPIView(APIView):
                 pdf_options = {
                     "enable-local-file-access": None,  # if your template references local CSS
                 }
-                pdf_bytes = pdfkit.from_string(html, False, options=pdf_options)
+                from base.methods import pdfkit_configuration
+
+                pdf_bytes = pdfkit.from_string(
+                    html,
+                    False,
+                    options=pdf_options,
+                    configuration=pdfkit_configuration(),
+                )
                 response = HttpResponse(pdf_bytes, content_type="application/pdf")
                 response["Content-Disposition"] = f'inline; filename="payslip-{id}.pdf"'
                 return response

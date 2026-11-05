@@ -48,6 +48,10 @@ class JobRoleListView(HorillaListView):
     model = JobPosition
     filter_class = JobRoleFilter
     show_toggle_form = False
+    # Job position is now the accordion group header, not a selectable row --
+    # see base/templates/cbv/settings/job_role_group_by.html.
+    bulk_select_option = False
+    template_name = "cbv/settings/job_role_group_by.html"
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)

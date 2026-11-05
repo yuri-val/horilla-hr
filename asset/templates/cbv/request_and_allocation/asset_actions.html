@@ -1,32 +1,25 @@
 {% load i18n %}
 <div class="flex items-center justify-center" onclick="event.stopPropagation();">
-{% if perms.asset.change_assetassignment %}
+{% if instance.open_service_request %}
     <button
-        href="#"
+        class="oh-btn oh-btn--secondary oh-btn--disabled"
+        role="button"
+        disabled
+    >
+        <ion-icon name="build-outline"></ion-icon>
+        {% trans "Service Requested" %}
+    </button>
+{% else %}
+    <button
         class="oh-btn oh-btn--secondary"
         role="button"
         data-toggle="oh-modal-toggle"
-        data-target="#objectCreateModal"
-        hx-get="{% url 'asset-allocate-return' assignment_id=instance.id %}"
-        hx-target="#objectCreateModalTarget"
+        data-target="#genericModal"
+        hx-get="{% url 'asset-service-request-creation' %}?assignment_id={{ instance.id }}"
+        hx-target="#genericModalBody"
     >
-        <ion-icon name="return-down-back-sharp"></ion-icon>{% trans "Return" %}
+        <ion-icon name="build-outline"></ion-icon>
+        {% trans "Request Service" %}
     </button>
-{% else %}
-    {% if instance.return_request %}
-        <div class="d-flex align-items-center">
-            <span class="oh-dot oh-dot--small me-1 oh-dot--color oh-dot--info"></span>
-            <span class="link-primary"> {% trans "Requested to return" %} </span>
-        </div>
-    {% else %}
-        <form action="{% url 'asset-allocate-return-request' asset_id=instance.id %}"
-              onsubmit="return confirm('{% trans "Are you sure you want to return this asset?"|escapejs %}');">
-            {% csrf_token %}
-            <button type="submit" class="oh-btn oh-btn--secondary" onclick="event.stopPropagation();">
-                <ion-icon name="return-down-back-sharp"></ion-icon>
-                {% trans "Return Request" %}
-            </button>
-        </form>
-    {% endif %}
 {% endif %}
 </div>

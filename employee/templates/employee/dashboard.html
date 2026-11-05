@@ -1,8 +1,8 @@
-﻿{% extends "index.html" %}
+{% extends "index.html" %}
 {% load static i18n %}
 
 {% block content %}
-    <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+    <script src="https://cdn.jsdelivr.net/npm/apexcharts@7.8.0/dist/apexcharts.min.js"></script>
     <style>
         :root {
             --em-indigo: var(--primary-600, #E54F38);
@@ -32,6 +32,11 @@
             justify-content: space-between;
             margin-bottom: 20px;
         }
+        .em-header__actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
         .em-header h1 {
             margin: 0;
             font-weight: 700;
@@ -42,27 +47,11 @@
             font-size: 13px;
             opacity: 0.6;
         }
-        .em-btn-back {
-            padding: 6px 14px;
-            border: 1px solid rgba(128, 128, 128, 0.2);
-            border-radius: 8px;
-            background: none;
-            color: inherit;
-            font-size: 13px;
-            text-decoration: none;
-            cursor: pointer;
-            transition: all 0.15s;
-        }
-        .em-btn-back:hover {
-            border-color: var(--em-indigo);
-            color: var(--em-indigo);
-            text-decoration: none;
-        }
 
         /* KPI Grid */
         .em-kpi-grid {
             display: grid;
-            grid-template-columns: repeat(5, 1fr);
+            grid-template-columns: repeat(4, 1fr);
             margin-bottom: 20px;
             gap: 14px;
         }
@@ -166,6 +155,55 @@
             font-size: 12px;
             opacity: 0.6;
         }
+        .em-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 2px 8px;
+            gap: 3px;
+            border-radius: 999px;
+            font-weight: 600;
+            font-size: 11px;
+        }
+        .em-badge--green {
+            background: #dcfce7;
+            color: #166534;
+        }
+        .em-badge--amber {
+            background: #fef3c7;
+            color: #92400e;
+        }
+        .em-badge--red {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+        .em-badge--blue {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+        .em-badge--purple {
+            background: #f3e8ff;
+            color: #6b21a8;
+        }
+        .dark .em-badge--green {
+            background: #166534;
+            color: #bbf7d0;
+        }
+        .dark .em-badge--amber {
+            background: #92400e;
+            color: #fde68a;
+        }
+        .dark .em-badge--red {
+            background: #7f1d1d;
+            color: #fca5a5;
+        }
+        .dark .em-badge--blue {
+            background: #1e3a8a;
+            color: #bfdbfe;
+        }
+        .dark .em-badge--purple {
+            background: #581c87;
+            color: #e9d5ff;
+        }
 
         /* Chart Grid */
         .em-chart-grid {
@@ -236,11 +274,44 @@
         .em-chart-card__body {
             padding: 4px 12px 12px;
         }
+        /* Small segmented switch in a chart card header (Overall / By Department). */
+        .em-chart-card__controls {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+        .em-seg {
+            display: inline-flex;
+            border: 1px solid rgba(128, 128, 128, 0.25);
+            border-radius: 999px;
+            padding: 2px;
+        }
+        .em-seg[hidden] { display: none; }
+        .em-seg__btn {
+            border: 0;
+            background: none;
+            color: inherit;
+            font-size: 11px;
+            font-weight: 600;
+            padding: 3px 12px;
+            border-radius: 999px;
+            opacity: 0.6;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+        .em-seg__btn:hover { opacity: 1; }
+        .em-seg__btn.is-active {
+            background: var(--primary-600, #e54f38);
+            color: #fff;
+            opacity: 1;
+        }
 
         /* Layout */
         .em-layout {
             display: grid;
-            grid-template-columns: 1fr 300px;
+            grid-template-columns: minmax(0, 1fr) 320px;
             align-items: start;
             gap: 20px;
         }
@@ -253,10 +324,20 @@
             top: 90px;
             flex-direction: column;
             gap: 16px;
+            max-height: calc(100vh - 90px - 24px);
+            overflow-y: auto;
+        }
+        .em-sidebar::-webkit-scrollbar {
+            width: 3px;
+        }
+        .em-sidebar::-webkit-scrollbar-thumb {
+            border-radius: 3px;
+            background: rgba(128, 128, 128, 0.2);
         }
 
         /* Sidebar panels */
         .em-panel {
+            flex-shrink: 0;
             overflow: hidden;
             border: 1px solid rgba(128, 128, 128, 0.12);
             border-radius: 12px;
@@ -275,9 +356,28 @@
             border-bottom: 1px solid rgba(128, 128, 128, 0.08);
         }
         .em-panel__title {
+            display: flex;
+            align-items: center;
+            gap: 8px;
             font-weight: 700;
             font-size: 13px;
         }
+        /* How many items the panel holds, beside its title. Hidden at zero. */
+        .em-count-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 24px;
+            height: 24px;
+            padding: 0 6px;
+            border-radius: 999px;
+            background: var(--primary-600, #e54f38);
+            color: #fff;
+            font-size: 12px;
+            font-weight: 600;
+            line-height: 1;
+        }
+        .em-count-badge[hidden] { display: none; }
         .em-panel__body {
             max-height: 380px;
             padding: 8px 16px 12px;
@@ -343,6 +443,23 @@
             font-size: 11px;
             opacity: 0.5;
         }
+        .em-panel__subtitle {
+            font-size: 11px;
+            font-weight: 400;
+            opacity: 0.5;
+        }
+        .em-emp-item__expiry {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 2px;
+            flex-shrink: 0;
+        }
+        .em-emp-item__days {
+            font-size: 10px;
+            opacity: 0.6;
+            white-space: nowrap;
+        }
         .em-emp-item__badge {
             flex-shrink: 0;
             padding: 2px 6px;
@@ -357,49 +474,6 @@
             color: #bbf7d0;
         }
 
-        /* Birthday item */
-        .em-bday-item {
-            display: flex;
-            align-items: center;
-            padding: 7px 0;
-            gap: 10px;
-            border-bottom: 1px solid rgba(128, 128, 128, 0.06);
-        }
-        .em-bday-item:last-child {
-            border-bottom: none;
-        }
-        .em-bday-item__avatar {
-            display: flex;
-            flex-shrink: 0;
-            align-items: center;
-            justify-content: center;
-            width: 30px;
-            height: 30px;
-            overflow: hidden;
-            border-radius: 50%;
-            background: #fef3c7;
-            color: var(--em-amber);
-            font-size: 14px;
-        }
-        .dark .em-bday-item__avatar {
-            background: #78350f;
-        }
-        .em-bday-item__avatar img {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-        }
-        .em-bday-item__name {
-            flex: 1;
-            font-weight: 600;
-            font-size: 12px;
-        }
-        .em-bday-item__date {
-            color: var(--em-amber);
-            font-weight: 700;
-            font-size: 11px;
-        }
-
         /* Empty state */
         .em-empty {
             padding: 32px 0;
@@ -408,39 +482,284 @@
             opacity: 0.5;
         }
 
-        /* Clickable charts */
-        #chart-em-dept .apexcharts-bar-area,
-        #chart-em-gender .apexcharts-pie-slice-donut,
-        #chart-em-type .apexcharts-pie-slice-donut,
-        #chart-em-position .apexcharts-bar-area {
+        /* Clickable cards / charts */
+        .em-kpi-card[hidden],
+        [data-cust-id][hidden] {
+            display: none;
+        }
+        #chart-em-work-type .apexcharts-pie-slice-donut,
+        #chart-em-shift .apexcharts-pie-slice-donut,
+        #chart-em-dept .apexcharts-pie-slice-donut {
             cursor: pointer;
+        }
+        .em-empty img {
+            display: block;
+            width: 96px;
+            margin: 0 auto 8px;
+            opacity: 0.8;
+        }
+
+        /* Skeleton */
+        .em-skeleton {
+            border-radius: 6px;
+            background: linear-gradient(90deg, rgba(128,128,128,0.12), rgba(128,128,128,0.22), rgba(128,128,128,0.12));
+            background-size: 200% 100%;
+            animation: em-shimmer 1.2s infinite linear;
+        }
+        .em-skeleton--value {
+            width: 56px;
+            height: 30px;
+        }
+        @keyframes em-shimmer {
+            from { background-position: 200% 0; }
+            to { background-position: -200% 0; }
+        }
+
+        /* Panel links */
+        .em-panel__link {
+            flex-shrink: 0;
+            color: var(--primary-600, #E54F38);
+            font-weight: 700;
+            font-size: 11px;
+            text-decoration: none;
+            white-space: nowrap;
+        }
+        .em-panel__link:hover { text-decoration: underline; }
+        /* Same chip as the Interviews time on the Recruitment dashboard: active theme colour. */
+        .em-emp-item__date {
+            flex-shrink: 0;
+            padding: 6px 10px;
+            border-radius: 8px;
+            background: color-mix(in srgb, var(--primary-600, #E54F38) 12%, transparent);
+            color: var(--primary-600, #E54F38);
+            font-weight: 700;
+            font-size: 11px;
+            white-space: nowrap;
+        }
+        .dark .em-emp-item__date {
+            background: color-mix(in srgb, var(--primary-600, #E54F38) 25%, transparent);
+            color: var(--primary-300, #fcedeb);
+        }
+
+        .em-header {
+            flex-wrap: wrap;
+            row-gap: 10px;
+        }
+
+        /* Customize panel */
+        .em-customize-overlay {
+            z-index: 1050;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.3);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s;
+        }
+        .em-customize-overlay--open {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        .em-customize-panel {
+            display: flex;
+            z-index: 1051;
+            position: fixed;
+            top: 0;
+            right: -420px;
+            flex-direction: column;
+            width: 400px;
+            height: 100vh;
+            background: #ffffff;
+            box-shadow: -4px 0 24px rgba(0, 0, 0, 0.12);
+            transition: right 0.25s ease;
+        }
+        .dark .em-customize-panel {
+            background: #242424;
+        }
+        .em-customize-panel--open {
+            right: 0;
+        }
+        .em-customize-panel__header {
+            display: flex;
+            flex-shrink: 0;
+            align-items: center;
+            justify-content: space-between;
+            padding: 18px 20px;
+            border-bottom: 1px solid rgba(128, 128, 128, 0.12);
+        }
+        .em-customize-panel__header h3 {
+            margin: 0;
+            font-weight: 700;
+            font-size: 16px;
+        }
+        .em-customize-panel__close {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 32px;
+            height: 32px;
+            border: none;
+            border-radius: 8px;
+            background: rgba(128, 128, 128, 0.08);
+            color: inherit;
+            font-size: 18px;
+            cursor: pointer;
+        }
+        .em-customize-panel__close:hover {
+            background: rgba(128, 128, 128, 0.16);
+        }
+        .em-customize-panel__body {
+            flex: 1;
+            padding: 12px 20px;
+            overflow-y: auto;
+        }
+        .em-customize-panel__footer {
+            display: flex;
+            flex-shrink: 0;
+            justify-content: space-between;
+            padding: 14px 20px;
+            border-top: 1px solid rgba(128, 128, 128, 0.12);
+        }
+        .em-cust-group {
+            margin: 12px 0 6px;
+            font-weight: 700;
+            font-size: 11px;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            opacity: 0.5;
+        }
+        .em-cust-btn {
+            padding: 7px 16px;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .em-cust-btn--primary {
+            background: var(--em-indigo);
+            color: #fff;
+        }
+        .em-cust-btn--primary:hover {
+            opacity: 0.9;
+        }
+        .em-cust-btn--ghost {
+            background: none;
+            color: inherit;
+            opacity: 0.6;
+        }
+        .em-cust-btn--ghost:hover {
+            opacity: 1;
+        }
+        .em-cust-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 6px;
+            padding: 10px 12px;
+            gap: 10px;
+            border: 1px solid rgba(128, 128, 128, 0.1);
+            border-radius: 8px;
+            background: rgba(128, 128, 128, 0.02);
+            cursor: grab;
+            user-select: none;
+        }
+        .em-cust-item:active {
+            cursor: grabbing;
+        }
+        .em-cust-item.em-dragging {
+            border-color: var(--em-indigo);
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+            opacity: 0.85;
+        }
+        .em-cust-item.em-drag-over {
+            border-top: 2px solid var(--em-indigo);
+        }
+        .em-cust-item__handle {
+            flex-shrink: 0;
+            font-size: 16px;
+            opacity: 0.3;
+        }
+        .em-cust-item__label {
+            flex: 1;
+            font-weight: 500;
+            font-size: 13px;
+        }
+        .em-cust-item__toggle {
+            position: relative;
+            flex-shrink: 0;
+            width: 36px;
+            height: 20px;
+            border: none;
+            border-radius: 12px;
+            background: #e2e8f0;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .dark .em-cust-item__toggle {
+            background: #334155;
+        }
+        .em-cust-item__toggle::after {
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #fff;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+            content: '';
+            transition: transform 0.2s;
+        }
+        .em-cust-item__toggle--on {
+            background: var(--em-indigo);
+        }
+        .em-cust-item__toggle--on::after {
+            transform: translateX(16px);
         }
 
         @media (max-width: 1200px) {
             .em-kpi-grid {
-                grid-template-columns: repeat(3, 1fr);
+                grid-template-columns: repeat(2, 1fr);
             }
         }
         @media (max-width: 900px) {
             .em-layout {
-                grid-template-columns: 1fr;
+                grid-template-columns: minmax(0, 1fr);
             }
             .em-sidebar {
                 position: static;
+                max-height: none;
+                overflow-y: visible;
             }
             .em-chart-grid {
-                grid-template-columns: 1fr;
+                grid-template-columns: minmax(0, 1fr);
             }
             .em-chart-card--wide {
                 grid-column: span 1;
             }
-        }
-        @media (max-width: 600px) {
-            .em-kpi-grid {
-                grid-template-columns: repeat(2, 1fr);
+            .em-customize-panel {
+                right: -340px;
+                width: 320px;
             }
         }
+        @media (max-width: 640px) {
+            .em-header {
+                flex-wrap: wrap;
+                gap: 10px;
+            }
+            .em-kpi-grid {
+                grid-template-columns: 1fr;
+            }
+            .em-customize-panel {
+                right: -100%;
+                width: 100%;
+            }
+        }
+
     </style>
+
+    {% include "components/pie_legend.html" %}
 
     <div class="em-dashboard">
         <!-- Header -->
@@ -449,402 +768,740 @@
                 <h1>{% trans "Employee Dashboard" %}</h1>
                 <div class="em-header__date" id="em-today-date"></div>
             </div>
-            <a href="{% url 'employee-view-new' %}" class="em-btn-back">{% trans "View All Employees" %} →</a>
+            <div class="em-header__actions">
+                <button
+                    type="button"
+                    class="oh-btn oh-btn--secondary"
+                    id="em-open-customize"
+                    title="{% trans 'Customize dashboard' %}"
+                    style="display: flex; align-items: center; gap: 5px; font-size: 13px"
+                >
+                    <svg
+                        width="15"
+                        height="15"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                    >
+                        <circle cx="12" cy="12" r="3" />
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                    </svg>
+                    {% trans "Customize" %}
+                </button>
+            </div>
         </div>
 
         <!-- KPI Cards -->
         <div class="em-kpi-grid" id="em-kpi-grid">
-            <a href="{% url 'employee-view-new' %}" class="em-kpi-card">
+            <a
+                href="{% url 'requests-view' %}?tab=document&status=requested&employee_id__is_active=true&filter_applied=on"
+                class="em-kpi-card"
+                id="kpi-card-documents"
+                data-cust-id="kpi-documents"
+                data-cust-group="kpi"
+                data-cust-label="{% trans 'Document Requests' %}"
+            >
                 <div class="em-kpi-card__icon em-kpi-card__icon--indigo">
-                    <svg
-                        width="20"
-                        height="20"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                    >
-                        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-                        <circle cx="9" cy="7" r="4" />
-                        <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
-                        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                        <polyline points="14 2 14 8 20 8" />
+                        <line x1="9" y1="13" x2="15" y2="13" />
+                        <line x1="9" y1="17" x2="15" y2="17" />
                     </svg>
                 </div>
-                <div class="em-kpi-card__label">{% trans "Total Employees" %}</div>
-                <div class="em-kpi-card__value" id="kpi-total">—</div>
-                <div class="em-kpi-card__sub">{% trans "All records" %}</div>
+                <div class="em-kpi-card__label">{% trans "Document Requests" %}</div>
+                <div class="em-kpi-card__value" id="kpi-documents"><div class="em-skeleton em-skeleton--value"></div></div>
+                <div class="em-kpi-card__sub"><span class="em-badge em-badge--amber">{% trans "Not yet received" %}</span></div>
             </a>
-            <a href="{% url 'employee-view-new' %}?is_active=True" class="em-kpi-card">
+            <a
+                href="{% url 'requests-view' %}?tab=work-type&status=requested&filter_applied=on"
+                class="em-kpi-card"
+                id="kpi-card-work-type"
+                data-cust-id="kpi-work-type"
+                data-cust-group="kpi"
+                data-cust-label="{% trans 'Work Type Requests' %}"
+            >
+                <div class="em-kpi-card__icon em-kpi-card__icon--blue">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="2" y="7" width="20" height="14" rx="2" ry="2" />
+                        <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
+                    </svg>
+                </div>
+                <div class="em-kpi-card__label">{% trans "Work Type Requests" %}</div>
+                <div class="em-kpi-card__value" id="kpi-work-type"><div class="em-skeleton em-skeleton--value"></div></div>
+                <div class="em-kpi-card__sub"><span class="em-badge em-badge--blue">{% trans "Pending approval" %}</span></div>
+            </a>
+            <a
+                href="{% url 'requests-view' %}?tab=shift-request&status=requested&filter_applied=on"
+                class="em-kpi-card"
+                id="kpi-card-shift"
+                data-cust-id="kpi-shift"
+                data-cust-group="kpi"
+                data-cust-label="{% trans 'Shift Requests' %}"
+            >
+                <div class="em-kpi-card__icon em-kpi-card__icon--amber">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10" />
+                        <polyline points="12 6 12 12 16 14" />
+                    </svg>
+                </div>
+                <div class="em-kpi-card__label">{% trans "Shift Requests" %}</div>
+                <div class="em-kpi-card__value" id="kpi-shift"><div class="em-skeleton em-skeleton--value"></div></div>
+                <div class="em-kpi-card__sub"><span class="em-badge em-badge--amber">{% trans "Pending approval" %}</span></div>
+            </a>
+            <a
+                href="{% url 'requests-view' %}?tab=shift-inbox&status=requested&filter_applied=on"
+                class="em-kpi-card"
+                id="kpi-card-shift-allocation"
+                data-cust-id="kpi-shift-allocation"
+                data-cust-group="kpi"
+                data-cust-label="{% trans 'Shift Allocation Requests' %}"
+            >
                 <div class="em-kpi-card__icon em-kpi-card__icon--green">
-                    <svg
-                        width="20"
-                        height="20"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                    >
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
                         <circle cx="8.5" cy="7" r="4" />
                         <polyline points="17 11 19 13 23 9" />
                     </svg>
                 </div>
-                <div class="em-kpi-card__label">{% trans "Active" %}</div>
-                <div class="em-kpi-card__value" id="kpi-active">—</div>
-                <div class="em-kpi-card__sub" id="kpi-active-pct">—% of total</div>
-            </a>
-            <a href="{% url 'employee-view-new' %}?is_active=False" class="em-kpi-card">
-                <div class="em-kpi-card__icon em-kpi-card__icon--red">
-                    <svg
-                        width="20"
-                        height="20"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                    >
-                        <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                        <circle cx="8.5" cy="7" r="4" />
-                        <line x1="18" y1="8" x2="23" y2="13" />
-                        <line x1="23" y1="8" x2="18" y2="13" />
-                    </svg>
-                </div>
-                <div class="em-kpi-card__label">{% trans "Inactive" %}</div>
-                <div class="em-kpi-card__value" id="kpi-inactive">—</div>
-                <div class="em-kpi-card__sub">{% trans "Archived employees" %}</div>
-            </a>
-            <a href="{% url 'employee-view-new' %}" class="em-kpi-card">
-                <div class="em-kpi-card__icon em-kpi-card__icon--amber">
-                    <svg
-                        width="20"
-                        height="20"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                    >
-                        <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                        <circle cx="8.5" cy="7" r="4" />
-                        <line x1="20" y1="8" x2="20" y2="14" />
-                        <line x1="23" y1="11" x2="17" y2="11" />
-                    </svg>
-                </div>
-                <div class="em-kpi-card__label">{% trans "New This Month" %}</div>
-                <div class="em-kpi-card__value" id="kpi-new">—</div>
-                <div class="em-kpi-card__sub">{% trans "Joined this month" %}</div>
-            </a>
-            <a href="{% url 'request-view' %}?status=approved&today_leave=true" class="em-kpi-card">
-                <div class="em-kpi-card__icon em-kpi-card__icon--blue">
-                    <svg
-                        width="20"
-                        height="20"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                    >
-                        <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
-                        <line x1="16" y1="2" x2="16" y2="6" />
-                        <line x1="8" y1="2" x2="8" y2="6" />
-                        <line x1="3" y1="10" x2="21" y2="10" />
-                    </svg>
-                </div>
-                <div class="em-kpi-card__label">{% trans "On Leave Today" %}</div>
-                <div class="em-kpi-card__value" id="kpi-leave">—</div>
-                <div class="em-kpi-card__sub">{% trans "Approved leaves" %}</div>
+                <div class="em-kpi-card__label">{% trans "Shift Allocation Requests" %}</div>
+                <div class="em-kpi-card__value" id="kpi-shift-allocation"><div class="em-skeleton em-skeleton--value"></div></div>
+                <div class="em-kpi-card__sub"><span class="em-badge em-badge--green">{% trans "Pending approval" %}</span></div>
             </a>
         </div>
 
         <!-- Main content + Sidebar -->
         <div class="em-layout">
             <div class="em-main">
-                <!-- Charts row 1 -->
-                <div class="em-chart-grid">
-                    <div class="em-chart-card" data-accent="indigo">
+                <div class="em-chart-grid" id="em-chart-grid">
+                    <div
+                        class="em-chart-card"
+                        data-accent="indigo"
+                        data-cust-id="chart-work-type"
+                        data-cust-group="chart"
+                        data-cust-label="{% trans 'Work Type Distribution' %}"
+                    >
                         <div class="em-chart-card__header">
                             <div>
-                                <div class="em-chart-card__title">{% trans "By Department" %}</div>
-                                <div class="em-chart-card__subtitle">{% trans "Active headcount per department" %}</div>
+                                <div class="em-chart-card__title">{% trans "Work Type Distribution" %}</div>
+                                <div class="em-chart-card__subtitle">{% trans "Active employees by work type" %}</div>
+                            </div>
+                        </div>
+                        <div class="em-chart-card__body"><div id="chart-em-work-type"></div></div>
+                    </div>
+                    <div
+                        class="em-chart-card"
+                        data-accent="green"
+                        data-cust-id="chart-shift"
+                        data-cust-group="chart"
+                        data-cust-label="{% trans 'Shift Distribution' %}"
+                    >
+                        <div class="em-chart-card__header">
+                            <div>
+                                <div class="em-chart-card__title">{% trans "Shift Distribution" %}</div>
+                                <div class="em-chart-card__subtitle">{% trans "Active employees by assigned shift" %}</div>
+                            </div>
+                        </div>
+                        <div class="em-chart-card__body"><div id="chart-em-shift"></div></div>
+                    </div>
+                    <div
+                        class="em-chart-card"
+                        data-accent="blue"
+                        data-cust-id="chart-dept"
+                        data-cust-group="chart"
+                        data-cust-label="{% trans 'Department Distribution' %}"
+                    >
+                        <div class="em-chart-card__header">
+                            <div>
+                                <div class="em-chart-card__title">{% trans "Department Distribution" %}</div>
+                                <div class="em-chart-card__subtitle">{% trans "Active employees by department" %}</div>
                             </div>
                         </div>
                         <div class="em-chart-card__body"><div id="chart-em-dept"></div></div>
                     </div>
-                    <div class="em-chart-card" data-accent="green">
+                    <div
+                        class="em-chart-card"
+                        data-accent="blue"
+                        data-cust-id="chart-managers"
+                        data-cust-group="chart"
+                        data-cust-label="{% trans 'Employees Per Reporting Manager' %}"
+                    >
                         <div class="em-chart-card__header">
                             <div>
-                                <div class="em-chart-card__title">{% trans "Gender Distribution" %}</div>
-                                <div class="em-chart-card__subtitle">{% trans "Active employees by gender" %}</div>
+                                <div class="em-chart-card__title">{% trans "Employees Per Reporting Manager" %}</div>
+                                <div class="em-chart-card__subtitle">{% trans "Active direct reports, top 10 managers" %}</div>
                             </div>
                         </div>
-                        <div class="em-chart-card__body"><div id="chart-em-gender"></div></div>
+                        <div class="em-chart-card__body"><div id="chart-em-managers"></div></div>
                     </div>
-                </div>
-
-                <!-- Charts row 2 -->
-                <div class="em-chart-grid">
-                    <div class="em-chart-card" data-accent="amber">
+                    <div
+                        class="em-chart-card em-chart-card--wide"
+                        data-accent="green"
+                        data-cust-id="chart-turnover"
+                        data-cust-group="chart"
+                        data-cust-label="{% trans 'Hire vs Turnover' %}"
+                    >
                         <div class="em-chart-card__header">
                             <div>
-                                <div class="em-chart-card__title">{% trans "Employment Type" %}</div>
-                                <div class="em-chart-card__subtitle">{% trans "Active employees by type" %}</div>
+                                <div class="em-chart-card__title">{% trans "Hire vs Turnover" %}</div>
+                                <div class="em-chart-card__subtitle" id="em-turnover-rate">{% trans "New hires vs exits — last 6 months" %}</div>
                             </div>
-                        </div>
-                        <div class="em-chart-card__body"><div id="chart-em-type"></div></div>
-                    </div>
-                    <div class="em-chart-card" data-accent="blue">
-                        <div class="em-chart-card__header">
-                            <div>
-                                <div class="em-chart-card__title">{% trans "By Job Position" %}</div>
-                                <div class="em-chart-card__subtitle">{% trans "Top 10 positions" %}</div>
-                            </div>
-                        </div>
-                        <div class="em-chart-card__body"><div id="chart-em-position"></div></div>
-                    </div>
-                </div>
-
-                <!-- Wide charts -->
-                <div class="em-chart-grid">
-                    <div class="em-chart-card em-chart-card--wide" data-accent="indigo">
-                        <div class="em-chart-card__header">
-                            <div>
-                                <div class="em-chart-card__title">{% trans "Monthly Joinings" %}</div>
-                                <div class="em-chart-card__subtitle">
-                                    {% trans "New hires over the last 6 months" %}
+                            <div class="em-chart-card__controls">
+                                <div class="em-seg" id="em-turnover-measure" hidden>
+                                    <button type="button" class="em-seg__btn is-active" data-measure="hires">{% trans "New Hires" %}</button>
+                                    <button type="button" class="em-seg__btn" data-measure="exits">{% trans "Exits" %}</button>
+                                </div>
+                                <div class="em-seg" id="em-turnover-view">
+                                    <button type="button" class="em-seg__btn is-active" data-view="overall">{% trans "Overall" %}</button>
+                                    <button type="button" class="em-seg__btn" data-view="department">{% trans "By Department" %}</button>
                                 </div>
                             </div>
                         </div>
-                        <div class="em-chart-card__body"><div id="chart-em-joining"></div></div>
+                        <div class="em-chart-card__body"><div id="chart-em-turnover"></div></div>
+                    </div>
+                    <div
+                        class="em-chart-card em-chart-card--wide"
+                        data-accent="indigo"
+                        data-cust-id="chart-dept-positions"
+                        data-cust-group="chart"
+                        data-cust-label="{% trans 'Job Position Headcount by Department' %}"
+                    >
+                        <div class="em-chart-card__header">
+                            <div>
+                                <div class="em-chart-card__title">{% trans "Job Position Headcount by Department" %}</div>
+                                <div class="em-chart-card__subtitle">{% trans "Active employees per job position, stacked by department" %}</div>
+                            </div>
+                        </div>
+                        <div class="em-chart-card__body"><div id="chart-em-dept-positions"></div></div>
                     </div>
                 </div>
             </div>
 
             <!-- Sidebar -->
-            <div class="em-sidebar">
-                <!-- Recent Employees -->
-                <div class="em-panel">
+            <div class="em-sidebar" id="em-sidebar">
+                <div
+                    class="em-panel"
+                    data-cust-id="panel-new-employees"
+                    data-cust-group="panel"
+                    data-cust-label="{% trans 'New Employees' %}"
+                >
                     <div class="em-panel__header">
-                        <span class="em-panel__title">{% trans "Recent Employees" %}</span>
-                        <a
-                            href="{% url 'employee-view-new' %}"
-                            style="font-size: 11px; color: var(--em-indigo); font-weight: 700; text-decoration: none"
-                        >{% trans "View all" %}</a>
+                        <div>
+                            <span class="em-panel__title">{% trans "New Employees" %}<span id="em-new-count" class="em-count-badge" hidden title="{% trans 'In this period' %}">0</span></span>
+                            <div class="em-panel__subtitle" id="em-new-range"></div>
+                        </div>
+                        <a href="{% url 'employee-view' %}?is_active=True&filter_applied=on" id="em-new-view-all" class="em-panel__link">{% trans "View all" %}</a>
                     </div>
-                    <div class="em-panel__body" id="em-recent-list">
+                    <div class="em-panel__body" id="em-new-list">
                         <div class="em-panel__empty">{% trans "Loading..." %}</div>
                     </div>
                 </div>
-
-                <!-- Upcoming Birthdays -->
-                <div class="em-panel">
+                <div
+                    class="em-panel"
+                    data-cust-id="panel-expired-documents"
+                    data-cust-group="panel"
+                    data-cust-label="{% trans 'Documents to Expire' %}"
+                >
                     <div class="em-panel__header">
-                        <span class="em-panel__title">🎂 {% trans "Upcoming Birthdays" %}</span>
+                        <div>
+                            <span class="em-panel__title">{% trans "Documents to Expire" %}<span id="em-expired-count" class="em-count-badge" hidden>0</span></span>
+                            <div class="em-panel__subtitle">{% trans "Documents expire in 60 days" %}</div>
+                        </div>
+                        <a href="{% url 'requests-view' %}?tab=document&filter_applied=on" id="em-expired-view-all" class="em-panel__link">{% trans "View all" %}</a>
                     </div>
-                    <div class="em-panel__body" id="em-bday-list">
+                    <div class="em-panel__body" id="em-expired-list">
                         <div class="em-panel__empty">{% trans "Loading..." %}</div>
                     </div>
                 </div>
             </div>
         </div>
     </div>
-{% endblock %}
 
-{% block scripts %}
+    <!-- Customize Panel -->
+    <div class="em-customize-overlay" id="em-customize-overlay"></div>
+    <div class="em-customize-panel" id="em-customize-panel">
+        <div class="em-customize-panel__header">
+            <h3>{% trans "Customize Dashboard" %}</h3>
+            <button type="button" class="em-customize-panel__close" id="em-close-customize">&times;</button>
+        </div>
+        <div class="em-customize-panel__body" id="em-customize-list"></div>
+        <div class="em-customize-panel__footer">
+            <button type="button" class="em-cust-btn em-cust-btn--ghost" id="em-reset-customize">{% trans "Reset" %}</button>
+            <button type="button" class="em-cust-btn em-cust-btn--primary" id="em-save-customize">{% trans "Save" %}</button>
+        </div>
+    </div>
+
     <script>
         (function () {
-            const isDark    = document.documentElement.classList.contains('dark');
-            const textColor = isDark ? '#94a3b8' : '#64748b';
-            const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)';
+            const isDark    = document.documentElement.classList.contains('dark') || document.body.classList.contains('dark');
+            const textColor = isDark ? '#e2e8f0' : '#334155';
+            const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
             const cardBg    = isDark ? '#242424' : '#ffffff';
-
             const COLORS = ['#E54F38','#22c55e','#f59e0b','#3b82f6','#a855f7','#06b6d4','#ec4899','#ef4444','#84cc16','#0ea5e9'];
+            const employeeListUrl = "{% url 'employee-view' %}";
 
-            function emptyHtml(msg) {
-                return `<div class="em-empty">${msg}</div>`;
-            }
+            const esc = (v) => String(v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+            const emptyHtml = (msg) => `<div class="em-empty"><img src="/static/images/ui/no_records.svg" alt="">${msg}</div>`;
+            const fetchJson = (url) => fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } }).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
+            // Active-employee list filtered by one work-information field
+            const employeeUrlFor = (field, id) => `${employeeListUrl}?${field}=${encodeURIComponent(id)}&is_active=True&filter_applied=on`;
 
-            function fetchP(url) {
-                return fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
-            }
+            document.getElementById('em-today-date').textContent = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
-            // Date header
-            const d = new Date();
-            document.getElementById('em-today-date').textContent = d.toLocaleDateString('en-US', { weekday:'long', year:'numeric', month:'long', day:'numeric' });
+            // ── Chart customize (show/hide + reorder, per group; stored per browser) ──
+            const CUST_KEY = 'em_dashboard_prefs';
+            const GROUPS = {
+                chart: { title: "{% trans 'Charts'|escapejs %}", container: '#em-chart-grid' },
+            };
+            const loadPrefs = () => { try { const r = localStorage.getItem(CUST_KEY); return r ? JSON.parse(r) : null; } catch (e) { return null; } };
+            const savePrefs = (p) => { try { localStorage.setItem(CUST_KEY, JSON.stringify(p)); } catch (e) {} };
+            // Items the server hid for this user (e.g. no document access) stay out of the customizer
+            const customizable = (el) => !el.hasAttribute('data-unavailable');
 
-            // ─── KPI ───
-            fetchP("{% url 'employee-dashboard-kpi' %}")
-                .then(r => r.json())
-                .then(data => {
-                    document.getElementById('kpi-total').textContent   = data.total;
-                    document.getElementById('kpi-active').textContent  = data.active;
-                    document.getElementById('kpi-inactive').textContent = data.inactive;
-                    document.getElementById('kpi-new').textContent     = data.new_this_month;
-                    document.getElementById('kpi-leave').textContent   = data.on_leave;
-                    document.getElementById('kpi-active-pct').textContent = data.active_pct + '% of total';
+            function applyPrefs(prefs) {
+                if (!prefs) return;
+                Object.keys(GROUPS).forEach(group => {
+                    const container = document.querySelector(GROUPS[group].container);
+                    const items = {};
+                    container.querySelectorAll(`[data-cust-group="${group}"]`).forEach(el => { items[el.dataset.custId] = el; });
+                    prefs.filter(p => items[p.id]).forEach(p => {
+                        container.appendChild(items[p.id]);
+                        items[p.id].style.display = p.visible === false ? 'none' : '';
+                    });
                 });
+            }
 
-            // ─── BY DEPARTMENT ───
-            fetchP("{% url 'employee-dashboard-dept' %}")
-                .then(r => r.json())
-                .then(data => {
-                    if (!data.departments.length) { document.querySelector('#chart-em-dept').innerHTML = emptyHtml('{% trans "No department data"|escapejs %}'); return; }
-                    new ApexCharts(document.querySelector('#chart-em-dept'), {
-                        series: [{ name: '{% trans "Employees"|escapejs %}', data: data.departments.map(d => d.count) }],
-                        chart: { type: 'bar', height: 300, toolbar: { show: false }, background: 'transparent', fontFamily: 'inherit',
+            const custOverlay = document.getElementById('em-customize-overlay');
+            const custPanel = document.getElementById('em-customize-panel');
+            const custList = document.getElementById('em-customize-list');
+
+            function openCust() {
+                const prefs = loadPrefs() || [];
+                let html = '';
+                Object.keys(GROUPS).forEach(group => {
+                    const els = Array.from(document.querySelector(GROUPS[group].container).querySelectorAll(`[data-cust-group="${group}"]`)).filter(customizable);
+                    if (!els.length) return;
+                    html += `<div class="em-cust-group">${GROUPS[group].title}</div>`;
+                    els.forEach(el => {
+                        const visible = el.style.display !== 'none';
+                        html += `<div class="em-cust-item" draggable="true" data-cust-id="${esc(el.dataset.custId)}" data-cust-group="${group}"><span class="em-cust-item__handle">&#x2630;</span><div class="em-cust-item__label">${esc(el.dataset.custLabel)}</div><button type="button" class="em-cust-item__toggle ${visible ? 'em-cust-item__toggle--on' : ''}"></button></div>`;
+                    });
+                });
+                custList.innerHTML = html;
+                initCustDrag();
+                custOverlay.classList.add('em-customize-overlay--open');
+                custPanel.classList.add('em-customize-panel--open');
+            }
+            function closeCust() {
+                custOverlay.classList.remove('em-customize-overlay--open');
+                custPanel.classList.remove('em-customize-panel--open');
+            }
+            function initCustDrag() {
+                let dragEl = null;
+                custList.querySelectorAll('.em-cust-item').forEach(item => {
+                    item.addEventListener('dragstart', e => { dragEl = item; item.classList.add('em-dragging'); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', ''); });
+                    item.addEventListener('dragend', () => { if (dragEl) dragEl.classList.remove('em-dragging'); custList.querySelectorAll('.em-cust-item').forEach(i => i.classList.remove('em-drag-over')); dragEl = null; });
+                    // Reordering stays inside a group: a chart can't be dropped among KPI cards
+                    item.addEventListener('dragover', e => { if (!dragEl || dragEl.dataset.custGroup !== item.dataset.custGroup) return; e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (item !== dragEl) item.classList.add('em-drag-over'); });
+                    item.addEventListener('dragleave', () => item.classList.remove('em-drag-over'));
+                    item.addEventListener('drop', e => {
+                        e.preventDefault(); item.classList.remove('em-drag-over');
+                        if (!dragEl || item === dragEl || dragEl.dataset.custGroup !== item.dataset.custGroup) return;
+                        const items = Array.from(custList.querySelectorAll('.em-cust-item'));
+                        item.parentNode.insertBefore(dragEl, items.indexOf(dragEl) < items.indexOf(item) ? item.nextSibling : item);
+                    });
+                });
+                custList.querySelectorAll('.em-cust-item__toggle').forEach(btn => btn.addEventListener('click', e => { e.stopPropagation(); btn.classList.toggle('em-cust-item__toggle--on'); }));
+            }
+            const custState = () => Array.from(custList.querySelectorAll('.em-cust-item')).map(item => ({ id: item.dataset.custId, visible: item.querySelector('.em-cust-item__toggle').classList.contains('em-cust-item__toggle--on') }));
+
+            document.getElementById('em-open-customize').addEventListener('click', openCust);
+            document.getElementById('em-close-customize').addEventListener('click', closeCust);
+            custOverlay.addEventListener('click', closeCust);
+            document.getElementById('em-save-customize').addEventListener('click', () => { const p = custState(); savePrefs(p); applyPrefs(p); closeCust(); });
+            document.getElementById('em-reset-customize').addEventListener('click', () => { try { localStorage.removeItem(CUST_KEY); } catch (e) {} location.reload(); });
+            applyPrefs(loadPrefs());
+
+
+            // ── Chart instance registry (a re-render destroys the previous chart) ──
+            const chartInstances = {};
+            function renderChart(key, el, options) {
+                if (chartInstances[key]) chartInstances[key].destroy();
+                el.innerHTML = '';
+                const chart = new ApexCharts(el, { ...options, legend: { ...options.legend, show: !!(options.legend && options.legend.show) } });
+                chartInstances[key] = chart;
+                chart.render();
+            }
+
+            // ── KPI cards ──
+            function loadKpis() {
+                fetchJson("{% url 'employee-dashboard-kpi' %}").then(data => {
+                    const map = {
+                        'documents': data.document_requests,
+                        'work-type': data.work_type_requests,
+                        'shift': data.shift_requests,
+                        'shift-allocation': data.shift_allocation_requests,
+                    };
+                    Object.keys(map).forEach(key => {
+                        const card = document.getElementById('kpi-card-' + key);
+                        if (map[key] === null) {
+                            // No access to this request type: hide the card entirely
+                            card.hidden = true;
+                            card.setAttribute('data-unavailable', '');
+                            return;
+                        }
+                        document.getElementById('kpi-' + key).textContent = Number(map[key]).toLocaleString();
+                    });
+                }).catch(() => {
+                    document.querySelectorAll('.em-kpi-card__value').forEach(el => { el.textContent = '—'; });
+                });
+            }
+
+            // ── Distribution charts ──
+            function donutChart(key, selector, url, field, emptyMsg, noun, type = 'donut') {
+                const el = document.querySelector(selector);
+                const legend = PieLegend.forChart(el, () => chartInstances[key], noun);
+                fetchJson(url).then(data => {
+                    const items = data.items || [];
+                    if (!items.length) { legend.clear(); el.innerHTML = emptyHtml(emptyMsg); return; }
+                    const colors = items.map((i, n) => PieLegend.color(n, COLORS));
+                    legend.set(items.map((i, n) => ({ name: i.label, value: i.count, color: colors[n] })));
+                    renderChart(key, el, {
+                        series: legend.series(),
+                        chart: { type, height: 300, background: 'transparent', fontFamily: 'inherit',
                             events: { dataPointSelection: (e, ctx, cfg) => {
-                                const dept = data.departments[cfg.dataPointIndex];
-                                if (dept && dept.id) window.location.href = "{% url 'employee-view-new' %}?employee_work_info__department_id=" + dept.id;
+                                const item = items[cfg.dataPointIndex];
+                                if (item && item.id) window.location.href = employeeUrlFor(field, item.id);
                             }}
                         },
-                        colors: COLORS,
-                        plotOptions: { bar: { borderRadius: 6, horizontal: true, barHeight: '55%', distributed: true } },
-                        xaxis: { categories: data.departments.map(d => d.department), labels: { style: { colors: textColor } } },
-                        yaxis: { labels: { style: { colors: textColor, fontSize: '11px' } } },
-                        grid: { borderColor: gridColor },
+                        labels: items.map(i => i.label),
+                        colors: colors,
+                        plotOptions: { pie: { donut: { size: '65%', labels: { show: true, total: { show: true, label: "{% trans 'Total'|escapejs %}", color: textColor, fontSize: '13px', fontWeight: 600, formatter: w => w.globals.seriesTotals.reduce((a, b) => a + b, 0) } } } } },
+                        stroke: { width: 2, colors: [cardBg] }, dataLabels: { enabled: false },
+                        legend: { show: false },
+                        tooltip: { theme: isDark ? 'dark' : 'light' },
+                    });
+                }).catch(() => { legend.clear(); el.innerHTML = emptyHtml("{% trans 'No data'|escapejs %}"); });
+            }
+
+            // ── Trend / stacked / ranking charts ──
+            const GRID = { borderColor: gridColor, strokeDashArray: 5, padding: { left: 4, right: 4 } };
+            const TOOLTIP_STYLE = { theme: isDark ? 'dark' : 'light', style: { fontSize: '12px' } };
+            const XAXIS_STYLE = { labels: { style: { colors: textColor, fontSize: '11px', fontWeight: 500 } }, axisBorder: { show: false }, axisTicks: { show: false } };
+            const YAXIS_STYLE = { min: 0, forceNiceScale: true, labels: { style: { colors: textColor, fontSize: '11px' }, formatter: v => Number.isInteger(+v) ? v : '' } };
+            const LEGEND_STYLE = { position: 'bottom', labels: { colors: textColor }, fontSize: '11px', fontWeight: 500, markers: { width: 8, height: 8, radius: 3 }, itemMargin: { horizontal: 8 } };
+            const baseChart = (extra) => ({ height: 300, toolbar: { show: false }, background: 'transparent', fontFamily: 'inherit', ...extra });
+
+            // Same shared metric as the main dashboard's own "Hire vs Turnover"
+            // card (base/dashboard.py's dashboard_turnover) -- last 6 months
+            // ending at the selected period, new hires vs exits.
+            // "By Department" view: one stacked column per month, one segment per
+            // department, for the chosen measure (hires or exits).
+            let turnoverData = null;
+            let turnoverView = 'overall';   // 'overall' | 'department'
+            let turnoverMeasure = 'hires';  // department view only: 'hires' | 'exits'
+            const turnoverEl = document.querySelector('#chart-em-turnover');
+            const turnoverLabel = (measure) => measure === 'hires' ? "{% trans 'New Hires'|escapejs %}" : "{% trans 'Exits'|escapejs %}";
+            const turnoverLegend = PieLegend.forChart(
+                turnoverEl,
+                () => chartInstances['turnover'],
+                "{% trans 'departments'|escapejs %}",
+                { topN: 20, onChange: () => drawTurnoverDepartments() },
+            );
+            // Colour follows the department's place in the full list, so it is
+            // the same whichever measure is showing.
+            const turnoverDeptColor = (name) => PieLegend.color(Math.max(0, turnoverData.departments.findIndex(d => d.name === name)), COLORS);
+
+            function drawTurnoverDepartments() {
+                const data = turnoverData, measure = turnoverMeasure;
+                const picked = new Set(turnoverLegend.selectedNames());
+                const shown = data.departments.filter(d => picked.has(d.name));
+                const labels = data.months.map(m => m.month);
+                const peak = Math.max(0, ...labels.map((_, i) => shown.reduce((a, d) => a + d[measure][i], 0)));
+                // Whole people only: one tick per integer while the counts are small.
+                const yaxis = peak <= 5
+                    ? { max: Math.max(peak, 1), tickAmount: Math.max(peak, 1) }
+                    : { forceNiceScale: true };
+                renderChart('turnover', turnoverEl, {
+                    series: shown.map(d => ({ name: d.name, data: d[measure] })),
+                    chart: baseChart({ type: 'bar', stacked: true, height: 290,
+                        events: { dataPointSelection: (e, ctx, cfg) => {
+                            const m = data.months[cfg.dataPointIndex], d = shown[cfg.seriesIndex];
+                            // "No Department" has no id to filter on, so it cannot drill down.
+                            if (!m || !m.from || !d || d.id == null) return;
+                            const range = measure === 'hires'
+                                ? `joined_from=${m.from}&joined_till=${m.to}`
+                                : `exited_from=${m.from}&exited_till=${m.to}`;
+                            window.location.href = `${employeeListUrl}?is_active=all&${range}&employee_work_info__department_id=${d.id}&filter_applied=on`;
+                        }}
+                    }),
+                    colors: shown.map(d => turnoverDeptColor(d.name)),
+                    plotOptions: { bar: { borderRadius: 6, borderRadiusApplication: 'end', borderRadiusWhenStacked: 'last', columnWidth: '52%' } },
+                    stroke: { width: 2, colors: [cardBg] },
+                    xaxis: { ...XAXIS_STYLE, categories: labels },
+                    yaxis: { ...YAXIS_STYLE, min: 0, ...yaxis, labels: { ...YAXIS_STYLE.labels, formatter: v => Math.round(v) } },
+                    grid: GRID, dataLabels: { enabled: false },
+                    legend: { show: false },
+                    tooltip: { ...TOOLTIP_STYLE, shared: true, intersect: false },
+                    states: { hover: { filter: { type: 'darken', value: 0.9 } } },
+                });
+            }
+
+            // Switch between the overall bars and the department breakdown.
+            function showTurnover() {
+                const data = turnoverData;
+                if (!data) return;
+                const rateEl = document.getElementById('em-turnover-rate');
+                const dept = turnoverView === 'department';
+                document.getElementById('em-turnover-measure').hidden = !dept;
+                document.querySelectorAll('#em-turnover-view .em-seg__btn').forEach(b => b.classList.toggle('is-active', b.dataset.view === turnoverView));
+                document.querySelectorAll('#em-turnover-measure .em-seg__btn').forEach(b => b.classList.toggle('is-active', b.dataset.measure === turnoverMeasure));
+                if (!dept) {
+                    turnoverLegend.clear();
+                    rateEl.textContent = `{% trans "6-month turnover rate"|escapejs %}: ${data.turnover_rate_6m}%`;
+                    rateEl.title = `${data.turnover_formula}\n= ${data.turnover_exits_6m} ÷ ${data.turnover_headcount} × 100 = ${data.turnover_rate_6m}%`;
+                    drawTurnoverOverall(data);
+                    return;
+                }
+                rateEl.textContent = turnoverLabel(turnoverMeasure) + " {% trans 'by department — last 6 months'|escapejs %}";
+                rateEl.title = '';
+                const totalOf = (d) => d[turnoverMeasure].reduce((a, b) => a + b, 0);
+                const depts = (data.departments || []).filter(d => totalOf(d) > 0);
+                if (!depts.length) {
+                    turnoverLegend.clear();
+                    if (chartInstances['turnover']) { chartInstances['turnover'].destroy(); chartInstances['turnover'] = null; }
+                    turnoverEl.innerHTML = emptyHtml("{% trans 'No data'|escapejs %}");
+                    return;
+                }
+                turnoverLegend.set(depts.map(d => ({ name: d.name, value: totalOf(d), color: turnoverDeptColor(d.name) })));
+                // set() does not redraw by itself. The legend only holds departments with
+                // data, so filtering by it also drops the empty ones.
+                drawTurnoverDepartments();
+            }
+            document.getElementById('em-turnover-view').addEventListener('click', (e) => {
+                const b = e.target.closest('[data-view]');
+                if (!b || b.dataset.view === turnoverView) return;
+                turnoverView = b.dataset.view;
+                showTurnover();
+            });
+            document.getElementById('em-turnover-measure').addEventListener('click', (e) => {
+                const b = e.target.closest('[data-measure]');
+                if (!b || b.dataset.measure === turnoverMeasure) return;
+                turnoverMeasure = b.dataset.measure;
+                showTurnover();
+            });
+
+            function loadEmployeeTurnover() {
+                fetchJson("{% url 'dashboard-turnover' %}?group=department").then(data => {
+                    if (!(data.months || []).length) { turnoverEl.innerHTML = emptyHtml("{% trans 'No turnover data'|escapejs %}"); return; }
+                    turnoverData = data;
+                    showTurnover();
+                }).catch(() => { turnoverEl.innerHTML = emptyHtml("{% trans 'No turnover data'|escapejs %}"); });
+            }
+            function drawTurnoverOverall(data) {
+                    const months = data.months;
+                    renderChart('turnover', turnoverEl, {
+                        series: [
+                            { name: "{% trans 'New Hires'|escapejs %}", data: months.map(m => m.hires) },
+                            { name: "{% trans 'Exits'|escapejs %}", data: months.map(m => m.exits) },
+                        ],
+                        chart: baseChart({ type: 'bar', height: 290, events: { dataPointSelection: (e, ctx, cfg) => {
+                            const m = months[cfg.dataPointIndex];
+                            if (!m || !m.from) return;
+                            // Only the hires column opens a list; exits don't redirect.
+                            if (cfg.seriesIndex !== 0) return;
+                            const range = `joined_from=${m.from}&joined_till=${m.to}`;
+                            window.location.href = `${employeeListUrl}?is_active=all&${range}&filter_applied=on`;
+                        }}}),
+                        colors: ['#22c55e', '#ef4444'],
+                        fill: { type: 'gradient', gradient: { type: 'vertical', shadeIntensity: 0.3, opacityFrom: 1, opacityTo: 0.8 } },
+                        plotOptions: { bar: { borderRadius: 6, borderRadiusApplication: 'end', columnWidth: '52%', grouped: true } },
+                        xaxis: { ...XAXIS_STYLE, categories: months.map(m => m.month) },
+                        // Whole people only: one tick per integer while the counts are small.
+                        yaxis: (() => {
+                            const peak = Math.max(1, ...months.map(m => Math.max(m.hires, m.exits)));
+                            return { ...YAXIS_STYLE, min: 0, ...(peak <= 5 ? { max: peak, tickAmount: peak } : { forceNiceScale: true }),
+                                labels: { ...YAXIS_STYLE.labels, formatter: v => Math.round(v) } };
+                        })(),
+                        grid: GRID,
+                        dataLabels: { enabled: true, style: { fontSize: '11px', fontWeight: 700, colors: ['#fff'] }, background: { enabled: false } },
+                        legend: { ...LEGEND_STYLE, show: true, position: 'top', horizontalAlign: 'right' },
+                        tooltip: { ...TOOLTIP_STYLE, shared: true, intersect: false },
+                        states: { hover: { filter: { type: 'darken', value: 0.85 } } },
+                    });
+            }
+
+            // Job positions are series here (one stacked segment per position
+            // across every department bar), not one value per legend item, so
+            // the legend can't just call chart.updateSeries() the way the
+            // donut charts' PieLegend.options() usage does above -- toggling a
+            // chip instead re-runs this whole function (onChange) against the
+            // cached payload, dropping that position's series from the chart.
+            let deptPositionsRaw = null;
+            const deptPositionsLegend = PieLegend.forChart(
+                document.querySelector('#chart-em-dept-positions'),
+                () => chartInstances['dept-positions'],
+                "{% trans 'departments'|escapejs %}",
+                { topN: 20, onChange: () => loadDeptPositions(deptPositionsRaw) },
+            );
+            function loadDeptPositions(cached) {
+                const el = document.querySelector('#chart-em-dept-positions');
+                (cached ? Promise.resolve(cached) : fetchJson("{% url 'employee-dashboard-dept-positions' %}"))
+                    .then(data => {
+                        deptPositionsRaw = data;
+                        const depts = data.departments || [], positions = data.positions || [];
+                        if (!depts.length) { el.innerHTML = emptyHtml("{% trans 'No department data'|escapejs %}"); deptPositionsLegend.clear(); return; }
+                        // Departments run along the x-axis (and are the legend); each department's
+                        // bar is stacked by its job positions, as shades of the department colour.
+                        const deptColors = depts.map((d, n) => PieLegend.color(n, COLORS));
+                        if (!cached) {
+                            deptPositionsLegend.set(depts.map((d, n) => ({ name: d.label, color: deptColors[n], value: d.total })));
+                        }
+                        const picked = new Set(deptPositionsLegend.selectedNames());
+                        const shown = depts.map((d, n) => ({ d, n })).filter(x => picked.has(x.d.label));
+                        const posLabel = Object.fromEntries(positions.map(p => [p.key, p.label]));
+                        const shade = (color, t) => {
+                            if (!/^#[0-9a-f]{6}$/i.test(color)) return color;
+                            const v = parseInt(color.slice(1), 16);
+                            const mix = c => Math.round(c + (255 - c) * t);
+                            return '#' + [(v >> 16) & 255, (v >> 8) & 255, v & 255].map(mix).map(c => c.toString(16).padStart(2, '0')).join('');
+                        };
+                        // One stacked series per (department, position) that has headcount
+                        const stacks = [];
+                        shown.forEach((x, col) => {
+                            Object.keys(x.d.by_position).sort((a, b) => x.d.by_position[b] - x.d.by_position[a]).forEach((key, i) => {
+                                const data = shown.map(() => 0);
+                                data[col] = x.d.by_position[key];
+                                stacks.push({ name: posLabel[key] || key, key, dept: x.d, data, color: shade(deptColors[x.n], Math.min(i * 0.22, 0.66)) });
+                            });
+                        });
+                        renderChart('dept-positions', el, {
+                            series: stacks.map(st => ({ name: st.name, data: st.data })),
+                            chart: baseChart({ type: 'bar', stacked: true, height: 340,
+                                events: { dataPointSelection: (e, ctx, cfg) => {
+                                    const st = stacks[cfg.seriesIndex];
+                                    if (!st || !st.dept.id) return;
+                                    let url = employeeUrlFor('employee_work_info__department_id', st.dept.id);
+                                    if (st.key === 'unassigned') url += '&no_job_position=True';
+                                    else url += `&employee_work_info__job_position_id=${encodeURIComponent(st.key)}`;
+                                    window.location.href = url;
+                                }}
+                            }),
+                            colors: stacks.map(st => st.color),
+                            plotOptions: { bar: { borderRadius: 6, borderRadiusApplication: 'end', borderRadiusWhenStacked: 'last', columnWidth: '42%' } },
+                            stroke: { width: 2, colors: [cardBg] },
+                            // Departments are the legend chips below, so the x axis is just a plain line.
+                            xaxis: { ...XAXIS_STYLE, categories: shown.map(x => x.d.label), labels: { show: false }, axisBorder: { show: true, color: gridColor }, tooltip: { enabled: false } },
+                            yaxis: YAXIS_STYLE, grid: GRID, dataLabels: { enabled: false },
+                            legend: { show: false },
+                            // Only the hovered department's own job positions
+                            tooltip: { ...TOOLTIP_STYLE, shared: true, intersect: false,
+                                custom: ({ series, dataPointIndex, w }) => {
+                                    const rows = w.globals.seriesNames
+                                        .map((name, i) => ({ name, count: series[i][dataPointIndex], color: w.globals.colors[i] }))
+                                        .filter(r => r.count > 0)
+                                        .map(r => `<div class="apexcharts-tooltip-series-group apexcharts-active" style="display:flex;order:1;">
+                                            <span class="apexcharts-tooltip-marker" style="background-color:${r.color};"></span>
+                                            <div class="apexcharts-tooltip-text"><div class="apexcharts-tooltip-y-group">
+                                                <span class="apexcharts-tooltip-text-y-label">${esc(r.name)}: </span>
+                                                <span class="apexcharts-tooltip-text-y-value">${r.count}</span>
+                                            </div></div></div>`).join('');
+                                    return `<div class="apexcharts-tooltip-title">${esc(w.globals.labels[dataPointIndex])}</div>${rows}`;
+                                } },
+                            states: { hover: { filter: { type: 'darken', value: 0.9 } } },
+                        });
+                    }).catch(() => { el.innerHTML = emptyHtml("{% trans 'No data'|escapejs %}"); deptPositionsLegend.clear(); });
+            }
+
+            function loadManagers() {
+                const el = document.querySelector('#chart-em-managers');
+                fetchJson("{% url 'employee-dashboard-reporting-managers' %}").then(data => {
+                    const items = data.items || [];
+                    if (!items.length) { el.innerHTML = emptyHtml("{% trans 'No reporting manager data'|escapejs %}"); return; }
+                    renderChart('managers', el, {
+                        series: [{ name: "{% trans 'Employees'|escapejs %}", data: items.map(i => i.count) }],
+                        chart: baseChart({ type: 'bar', height: 300,
+                            events: { dataPointSelection: (e, ctx, cfg) => {
+                                const item = items[cfg.dataPointIndex];
+                                if (item) window.location.href = employeeUrlFor('employee_work_info__reporting_manager_id', item.id);
+                            }}
+                        }),
+                        colors: ['#3b82f6'],
+                        plotOptions: { bar: { horizontal: true, borderRadius: 6, barHeight: '60%', distributed: false } },
                         dataLabels: { enabled: true, style: { fontSize: '11px' } },
-                        legend: { show: false },
-                        tooltip: { theme: isDark ? 'dark' : 'light' },
-                    }).render();
-                });
+                        xaxis: { ...XAXIS_STYLE, categories: items.map(i => i.label) },
+                        yaxis: { labels: { style: { colors: textColor, fontSize: '11px' }, maxWidth: 200 } },
+                        grid: { ...GRID, xaxis: { lines: { show: true } }, yaxis: { lines: { show: false } } },
+                        tooltip: { ...TOOLTIP_STYLE },
+                    });
+                }).catch(() => { el.innerHTML = emptyHtml("{% trans 'No data'|escapejs %}"); });
+            }
 
-            // ─── GENDER ───
-            fetchP("{% url 'employee-dashboard-gender' %}")
-                .then(r => r.json())
-                .then(data => {
-                    if (!data.genders.length) { document.querySelector('#chart-em-gender').innerHTML = emptyHtml('{% trans "No gender data"|escapejs %}'); return; }
-                    const genderColors = { male: '#3b82f6', female: '#ec4899', other: '#a855f7' };
-                    new ApexCharts(document.querySelector('#chart-em-gender'), {
-                        series: data.genders.map(g => g.count),
-                        chart: { type: 'donut', height: 300, background: 'transparent', fontFamily: 'inherit',
-                            events: { dataPointSelection: (e, ctx, cfg) => {
-                                const g = data.genders[cfg.dataPointIndex];
-                                if (g) window.location.href = "{% url 'employee-view-new' %}?gender=" + encodeURIComponent(g.gender);
-                            }}
-                        },
-                        labels: data.genders.map(g => g.label),
-                        colors: data.genders.map(g => genderColors[g.gender] || '#94a3b8'),
-                        plotOptions: { pie: { donut: { size: '65%', labels: { show: true, total: { show: true, label: '{% trans "Total"|escapejs %}', color: textColor, fontSize: '13px', fontWeight: 600, formatter: w => w.globals.seriesTotals.reduce((a,b)=>a+b,0) } } } } },
-                        stroke: { width: 2, colors: [cardBg] }, dataLabels: { enabled: false },
-                        legend: { position: 'bottom', labels: { colors: textColor }, fontSize: '11px', markers: { width: 8, height: 8, radius: 2 } },
-                        tooltip: { theme: isDark ? 'dark' : 'light' },
-                    }).render();
-                });
-
-            // ─── EMPLOYMENT TYPE ───
-            fetchP("{% url 'employee-dashboard-type' %}")
-                .then(r => r.json())
-                .then(data => {
-                    if (!data.types.length) { document.querySelector('#chart-em-type').innerHTML = emptyHtml('{% trans "No type data"|escapejs %}'); return; }
-                    new ApexCharts(document.querySelector('#chart-em-type'), {
-                        series: data.types.map(t => t.count),
-                        chart: { type: 'donut', height: 300, background: 'transparent', fontFamily: 'inherit',
-                            events: { dataPointSelection: (e, ctx, cfg) => {
-                                const t = data.types[cfg.dataPointIndex];
-                                if (t && t.id) window.location.href = "{% url 'employee-view-new' %}?employee_work_info__employee_type_id=" + t.id;
-                            }}
-                        },
-                        labels: data.types.map(t => t.type),
-                        colors: COLORS,
-                        plotOptions: { pie: { donut: { size: '65%', labels: { show: true, total: { show: true, label: '{% trans "Total"|escapejs %}', color: textColor, fontSize: '13px', fontWeight: 600, formatter: w => w.globals.seriesTotals.reduce((a,b)=>a+b,0) } } } } },
-                        stroke: { width: 2, colors: [cardBg] }, dataLabels: { enabled: false },
-                        legend: { position: 'bottom', labels: { colors: textColor }, fontSize: '11px', markers: { width: 8, height: 8, radius: 2 } },
-                        tooltip: { theme: isDark ? 'dark' : 'light' },
-                    }).render();
-                });
-
-            // ─── BY JOB POSITION ───
-            fetchP("{% url 'employee-dashboard-position' %}")
-                .then(r => r.json())
-                .then(data => {
-                    if (!data.positions.length) { document.querySelector('#chart-em-position').innerHTML = emptyHtml('{% trans "No position data"|escapejs %}'); return; }
-                    new ApexCharts(document.querySelector('#chart-em-position'), {
-                        series: [{ name: '{% trans "Employees"|escapejs %}', data: data.positions.map(p => p.count) }],
-                        chart: { type: 'bar', height: 300, toolbar: { show: false }, background: 'transparent', fontFamily: 'inherit',
-                            events: { dataPointSelection: (e, ctx, cfg) => {
-                                const pos = data.positions[cfg.dataPointIndex];
-                                if (pos && pos.id) window.location.href = "{% url 'employee-view-new' %}?employee_work_info__job_position_id=" + pos.id;
-                            }}
-                        },
-                        colors: COLORS,
-                        plotOptions: { bar: { borderRadius: 6, columnWidth: '55%', distributed: true } },
-                        xaxis: { categories: data.positions.map(p => p.position), labels: { style: { colors: textColor, fontSize: '10px' }, rotate: -30 }, axisBorder: { show: false }, axisTicks: { show: false } },
-                        yaxis: { labels: { style: { colors: textColor } } },
-                        grid: { borderColor: gridColor, strokeDashArray: 4 },
-                        dataLabels: { enabled: true, style: { fontSize: '11px', colors: ['#fff'] } },
-                        legend: { show: false },
-                        tooltip: { theme: isDark ? 'dark' : 'light' },
-                    }).render();
-                });
-
-            // ─── MONTHLY JOININGS ───
-            fetchP("{% url 'employee-dashboard-joining-trend' %}")
-                .then(r => r.json())
-                .then(data => {
-                    if (!data.months.length) { document.querySelector('#chart-em-joining').innerHTML = emptyHtml('{% trans "No data"|escapejs %}'); return; }
-                    new ApexCharts(document.querySelector('#chart-em-joining'), {
-                        series: [{ name: '{% trans "New Hires"|escapejs %}', data: data.months.map(m => m.count) }],
-                        chart: { type: 'bar', height: 260, toolbar: { show: false }, background: 'transparent', fontFamily: 'inherit' },
-                        colors: ['#E54F38'],
-                        plotOptions: { bar: { borderRadius: 8, columnWidth: '45%' } },
-                        xaxis: { categories: data.months.map(m => m.month), labels: { style: { colors: textColor, fontSize: '12px' } }, axisBorder: { show: false }, axisTicks: { show: false } },
-                        yaxis: { labels: { style: { colors: textColor } } },
-                        grid: { borderColor: gridColor, strokeDashArray: 4 },
-                        dataLabels: { enabled: true, style: { fontSize: '13px', colors: ['#fff'] } },
-                        legend: { show: false },
-                        fill: { type: 'gradient', gradient: { shade: 'light', type: 'vertical', shadeIntensity: 0.3, gradientToColors: ['#a855f7'], opacityFrom: 1, opacityTo: 0.85 } },
-                        tooltip: { theme: isDark ? 'dark' : 'light' },
-                    }).render();
-                });
-
-            // ─── RECENT EMPLOYEES ───
-            fetchP("{% url 'employee-dashboard-recent' %}")
-                .then(r => r.json())
-                .then(data => {
-                    const container = document.getElementById('em-recent-list');
-                    if (!data.employees.length) { container.innerHTML = '<div class="em-panel__empty">{% trans "No employees"|escapejs %}</div>'; return; }
+            // ── New employees ──
+            function loadNewEmployees() {
+                const container = document.getElementById('em-new-list');
+                const badge = document.getElementById('em-new-count');
+                const setCount = (n) => { badge.textContent = n; badge.hidden = !n; };
+                fetchJson("{% url 'employee-dashboard-new-joiners' %}").then(data => {
+                    document.getElementById('em-new-range').textContent = "{% trans 'Joined in the last 30 days'|escapejs %}";
+                    document.getElementById('em-new-view-all').href = `${employeeListUrl}?is_active=True&joined_from=${data.from_date}&joined_till=${data.to_date}&filter_applied=on`;
+                    setCount(data.employees.length);
+                    if (!data.employees.length) { container.innerHTML = `<div class="em-panel__empty">{% trans "No new employees in the last 30 days"|escapejs %}</div>`; return; }
                     container.innerHTML = data.employees.map(emp => {
-                        const initials = emp.name.split(' ').map(n => n[0]).join('').slice(0,2).toUpperCase();
-                        const avatar = emp.avatar
-                            ? `<img src="${emp.avatar}" alt="${emp.name}">`
-                            : initials;
-                        return `<a href="/employee/employee-view/${emp.id}/" class="em-emp-item">
-                    <div class="em-emp-item__avatar">${avatar}</div>
-                    <div class="em-emp-item__info">
-                        <div class="em-emp-item__name">${emp.name}</div>
-                        <div class="em-emp-item__detail">${emp.position} · ${emp.department}</div>
-                    </div>
-                </a>`;
+                        const initials = emp.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+                        const avatar = emp.avatar ? `<img src="${esc(emp.avatar)}" alt="${esc(emp.name)}">` : esc(initials);
+                        const detail = [emp.position, emp.department].filter(Boolean).map(esc).join(' · ') || '—';
+                        return `<a href="${esc(emp.url)}" class="em-emp-item">
+                            <div class="em-emp-item__avatar">${avatar}</div>
+                            <div class="em-emp-item__info">
+                                <div class="em-emp-item__name">${esc(emp.name)}</div>
+                                <div class="em-emp-item__detail">${detail}</div>
+                            </div>
+                            <span class="em-emp-item__date">${esc(emp.date_joining)}</span>
+                        </a>`;
                     }).join('');
-                });
+                }).catch(() => { setCount(0); container.innerHTML = `<div class="em-panel__empty">{% trans "No data"|escapejs %}</div>`; });
+            }
 
-            // ─── BIRTHDAYS ───
-            fetchP("{% url 'employee-dashboard-birthdays' %}")
-                .then(r => r.json())
-                .then(data => {
-                    const container = document.getElementById('em-bday-list');
-                    if (!data.birthdays.length) { container.innerHTML = '<div class="em-panel__empty">{% trans "No upcoming birthdays"|escapejs %}</div>'; return; }
-                    container.innerHTML = data.birthdays.map(b => {
-                        const avatar = b.avatar
-                            ? `<img src="${b.avatar}" alt="${b.name}">`
-                            : '🎂';
-                        const daysLabel = b.days_left === 0 ? '{% trans "Today!"|escapejs %}' : b.days_left === 1 ? '{% trans "Tomorrow"|escapejs %}' : `${b.days_left} {% trans "days"|escapejs %}`;
-                        return `<div class="em-bday-item">
-                                    <div class="em-bday-item__avatar">${avatar}</div>
-                                    <div class="em-bday-item__name">${b.name}</div>
-                                    <div class="em-bday-item__date">${b.date}<br><span style="font-size:10px;opacity:0.7">${daysLabel}</span></div>
-                                </div>`;
+            // ── Expired documents ──
+            function loadExpiredDocuments() {
+                const container = document.getElementById('em-expired-list');
+                const badge = document.getElementById('em-expired-count');
+                const setCount = (n) => { badge.textContent = n; badge.hidden = !n; };
+                fetchJson("{% url 'employee-dashboard-expired-documents' %}").then(data => {
+                    document.getElementById('em-expired-view-all').href = `{% url 'requests-view' %}?tab=document&status=approved&expiry_from=${data.from_date}&expiry_till=${data.to_date}&employee_id__is_active=True&filter_applied=on`;
+                    setCount(data.total);
+                    if (!data.documents.length) { container.innerHTML = `<div class="em-panel__empty">{% trans "No documents expiring soon"|escapejs %}</div>`; return; }
+                    container.innerHTML = data.documents.map(doc => {
+                        const initials = doc.employee.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+                        const avatar = doc.avatar ? `<img src="${esc(doc.avatar)}" alt="${esc(doc.employee)}">` : esc(initials);
+                        return `<div class="em-emp-item">
+                            <div class="em-emp-item__avatar">${avatar}</div>
+                            <div class="em-emp-item__info">
+                                <div class="em-emp-item__name">${esc(doc.title)}</div>
+                                <div class="em-emp-item__detail">${esc(doc.employee)}</div>
+                            </div>
+                            <div class="em-emp-item__expiry">
+                                <span class="em-emp-item__date">${esc(doc.expiry_date)}</span>
+                                <span class="em-emp-item__days">${doc.days_left === 0 ? "{% trans 'Expires today'|escapejs %}" : doc.days_left === 1 ? "{% trans '1 day left'|escapejs %}" : doc.days_left + " {% trans 'days left'|escapejs %}"}</span>
+                            </div>
+                        </div>`;
                     }).join('');
-                });
+                }).catch(() => { setCount(0); container.innerHTML = `<div class="em-panel__empty">{% trans "No data"|escapejs %}</div>`; });
+            }
 
+            loadKpis();
+            donutChart('work-type', '#chart-em-work-type', "{% url 'employee-dashboard-work-type' %}", 'employee_work_info__work_type_id', "{% trans 'No work type data'|escapejs %}", "{% trans 'work types'|escapejs %}");
+            donutChart('shift', '#chart-em-shift', "{% url 'employee-dashboard-shift' %}", 'employee_work_info__shift_id', "{% trans 'No shift data'|escapejs %}", "{% trans 'shifts'|escapejs %}");
+            donutChart('dept', '#chart-em-dept', "{% url 'employee-dashboard-dept' %}", 'employee_work_info__department_id', "{% trans 'No department data'|escapejs %}", "{% trans 'departments'|escapejs %}");
+            loadEmployeeTurnover();
+            loadDeptPositions();
+            loadManagers();
+            loadNewEmployees();
+            loadExpiredDocuments();
         })();
     </script>
 {% endblock %}

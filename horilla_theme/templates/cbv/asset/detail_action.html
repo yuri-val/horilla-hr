@@ -3,21 +3,6 @@
 
     {{ instance.asset_items_action|safe }}
 
-    {# Edit #}
-    {% if perms.asset.change_asset %}
-        <a
-            data-toggle="oh-modal-toggle"
-            data-target="#genericModal"
-            hx-get="{{ instance.get_update_url }}?{{ pg }}"
-            hx-target="#genericModalBody"
-            class="oh-btn oh-btn--light-bkg px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300"
-            title="{% trans 'Update' %}"
-        >
-            <ion-icon name="create-outline"></ion-icon>
-            {% trans "Update" %}
-        </a>
-    {% endif %}
-
     {# Duplicate #}
     {% if perms.asset.change_asset %}
         <a
@@ -30,6 +15,21 @@
         >
             <ion-icon name="copy-outline"></ion-icon>
             {% trans "Duplicate" %}
+        </a>
+    {% endif %}
+
+    {# Edit #}
+    {% if perms.asset.change_asset %}
+        <a
+            data-toggle="oh-modal-toggle"
+            data-target="#genericModal"
+            hx-get="{{ instance.get_update_url }}?{{ pg }}"
+            hx-target="#genericModalBody"
+            class="oh-btn oh-btn--light-bkg px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300"
+            title="{% trans 'Edit' %}"
+        >
+            <ion-icon name="create-outline"></ion-icon>
+            {% trans "Edit" %}
         </a>
     {% endif %}
 

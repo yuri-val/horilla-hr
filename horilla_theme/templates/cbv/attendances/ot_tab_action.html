@@ -3,60 +3,6 @@
 {% with can_change=perms.attendance.change_attendance can_delete=perms.attendance.delete_attendance %}
 <div class="flex items-center justify-center gap-1 flex-wrap">
     {% if can_change or can_manage %}
-        <a
-            class="oh-btn oh-btn--light-bkg px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300"
-            data-toggle="oh-modal-toggle"
-            data-target="#genericModal"
-            hx-get="{% url 'attendance-update' instance.id %}?instance_ids={{ instance.ordered_ids }}"
-            onclick="event.stopPropagation()"
-            hx-swap="innerHTML"
-            hx-target="#genericModalBody"
-        >
-            <ion-icon name="create-outline"></ion-icon>
-            {% trans "Edit" %}
-        </a>
-    {% else %}
-        <button
-            type="button"
-            class="oh-btn oh-btn--light-bkg px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300"
-            title="{% trans 'Edit' %}"
-            disabled
-        >
-            <ion-icon name="create-outline"></ion-icon>
-            {% trans "Edit" %}
-        </button>
-    {% endif %}
-
-    {% if can_delete or can_manage %}
-        <form
-            hx-post="{% url 'attendance-delete' instance.id %}"
-            onclick="event.stopPropagation()"
-            hx-swap="none"
-        >
-            {% csrf_token %}
-            <button
-                type="submit"
-                class="oh-btn oh-btn--danger px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300"
-                title="{% trans 'Remove' %}"
-                onclick="return confirm('{% trans "Are you sure want to delete this attendance?"|escapejs %}')"
-            >
-                <ion-icon name="trash-outline"></ion-icon>
-                {% trans "Delete" %}
-            </button>
-        </form>
-    {% else %}
-        <button
-            type="button"
-            class="oh-btn oh-btn--light-bkg px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300"
-            title="{% trans 'Delete' %}"
-            disabled
-        >
-            <ion-icon name="trash-outline"></ion-icon>
-            {% trans "Delete" %}
-        </button>
-    {% endif %}
-
-    {% if can_change or can_manage %}
         {% if instance.attendance_overtime_approve %}
             <button
                 type="button"
@@ -104,7 +50,7 @@
         {% elif instance.overtime_second >= 60 %}
             <button
                 type="button"
-                class="oh-btn oh-btn--warning px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300"
+                class="oh-btn oh-btn--success px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300"
                 title="{% trans 'Approve Overtime (OT < min.OT)' %}"
                 onclick="event.preventDefault(); event.stopPropagation(); (function(pk){
                     Swal.fire({
@@ -136,6 +82,59 @@
                 {% csrf_token %}
             </form>
         {% endif %}
+    {% endif %}
+    {% if can_change or can_manage %}
+        <a
+            class="oh-btn oh-btn--light-bkg px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300"
+            data-toggle="oh-modal-toggle"
+            data-target="#genericModal"
+            hx-get="{% url 'attendance-update' instance.id %}?instance_ids={{ instance.ordered_ids }}"
+            onclick="event.stopPropagation()"
+            hx-swap="innerHTML"
+            hx-target="#genericModalBody"
+        >
+            <ion-icon name="create-outline"></ion-icon>
+            {% trans "Edit" %}
+        </a>
+    {% else %}
+        <button
+            type="button"
+            class="oh-btn oh-btn--light-bkg px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300"
+            title="{% trans 'Edit' %}"
+            disabled
+        >
+            <ion-icon name="create-outline"></ion-icon>
+            {% trans "Edit" %}
+        </button>
+    {% endif %}
+
+    {% if can_delete or can_manage %}
+        <form
+            hx-post="{% url 'attendance-delete' instance.id %}"
+            onclick="event.stopPropagation()"
+            hx-swap="none"
+        >
+            {% csrf_token %}
+            <button
+                type="submit"
+                class="oh-btn oh-btn--danger px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300"
+                title="{% trans 'Delete' %}"
+                onclick="return confirm('{% trans "Are you sure want to delete this attendance?"|escapejs %}')"
+            >
+                <ion-icon name="trash-outline"></ion-icon>
+                {% trans "Delete" %}
+            </button>
+        </form>
+    {% else %}
+        <button
+            type="button"
+            class="oh-btn oh-btn--light-bkg px-4 py-2 rounded-md text-xs flex items-center justify-center gap-2 transition duration-300"
+            title="{% trans 'Delete' %}"
+            disabled
+        >
+            <ion-icon name="trash-outline"></ion-icon>
+            {% trans "Delete" %}
+        </button>
     {% endif %}
 </div>
 {% endwith %}

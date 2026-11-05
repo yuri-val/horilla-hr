@@ -17,6 +17,8 @@ services:
     environment:
       - DEBUG=1
       - DB_HOST=db
+      # Believe X-Forwarded-For only from the nginx service (horilla/client_ip.py)
+      - HORILLA_TRUSTED_PROXIES=nginx
       - SECRET_KEY=dev-secret-key-change-in-production
       - ALLOWED_HOSTS=localhost,127.0.0.1,0.0.0.0
       - CSRF_TRUSTED_ORIGINS=http://localhost:8000
@@ -32,38 +34,46 @@ services:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health/"]
       interval: 30s
       timeout: 30s
-      start_period: 60s
+      # First boot applies every migration and collectstatic before gunicorn
+      # binds (about 5 minutes on an empty database). nginx waits for this
+      # check, so a shorter window makes a fresh `make prod` abort as unhealthy.
+      start_period: 10m
       retries: 3
 
-  # Background jobs. Registered via horilla.scheduling.register_job and run by
-  # exactly ONE process -- keep this at a single replica. Jobs used to start
-  # inside every gunicorn worker, so payroll runs and backups fired once per
-  # worker per interval.
-  #
-  # HORILLA_SKIP_RELEASE_TASKS=1 because the web container already runs migrate
-  # and collectstatic on boot; running them here too would race it, and
-  # collectstatic --clear would wipe STATIC_ROOT from under the live web
-  # container.
+  # Background jobs run here, NOT in the web workers. Keep this at exactly one
+  # replica: the jobs are not idempotent, so a second copy means a second
+  # payslip run and a second backup. Scaling `web` is safe; scaling this is not.
   scheduler:
     build: .
-    command: ["python", "manage.py", "run_scheduler"]
+    command: python manage.py run_scheduler
     volumes:
       - .:/app
       - media:/app/media
     environment:
       - DEBUG=1
       - DB_HOST=db
+      # Believe X-Forwarded-For only from the nginx service (horilla/client_ip.py)
+      - HORILLA_TRUSTED_PROXIES=nginx
       - SECRET_KEY=dev-secret-key-change-in-production
       - ALLOWED_HOSTS=localhost,127.0.0.1,0.0.0.0
       - DATABASE_URL=postgres://horilla_user:horilla_pass@db:5432/horilla_db
       - DB_INIT_PASSWORD=dev-init-password-change-in-production
       - REDIS_URL=redis://:horilla_pass@redis:6379/0
+      # web owns migrate/collectstatic; racing them from here can deadlock on
+      # DDL and would wipe STATIC_ROOT while web is serving from it.
       - HORILLA_SKIP_RELEASE_TASKS=1
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
+    # The image's HEALTHCHECK curls localhost:8000/health/, which only the web
+    # service serves. This container runs run_scheduler and binds no port, so
+    # the inherited check can never pass -- it reported "unhealthy" forever,
+    # and orchestrators that gate on health would restart-loop it. The prod
+    # overlay builds on this file, so disabling it here covers both stacks.
+    healthcheck:
+      disable: true
     restart: unless-stopped
 
   db:

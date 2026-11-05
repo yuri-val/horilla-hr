@@ -4,6 +4,18 @@
 {% with can_change=perms.leave.change_availableleave can_delete=perms.leave.delete_availableleave %}
 {% if can_change or can_delete or can_manage %}
     <div class="flex items-center justify-center gap-1" onclick="event.stopPropagation();">
+        <button type="button"
+            hx-get="{% url 'leave-balance-ledger' instance.id %}"
+            hx-target="#leaveLedgerContainer"
+            title="{% if instance.is_reset_due %}{% trans 'Leave Ledger - missed reset' %}{% else %}{% trans 'Leave Ledger' %}{% endif %}"
+            class="oh-btn oh-btn--light-bkg oh-btn--sq-sm"
+            style="position: relative;"
+            onclick="event.stopPropagation(); $('#leaveLedgerSidebar').addClass('oh-activity-sidebar--show');">
+            <ion-icon name="receipt-outline"></ion-icon>
+            {% if instance.is_reset_due %}
+                <span class="text-danger-dark" style="position: absolute; top: 3px; right: 3px; width: 8px; height: 8px; border-radius: 50%; background: currentColor;"></span>
+            {% endif %}
+        </button>
         {% if can_manage or can_change %}
             <button class="oh-btn oh-btn--light-bkg oh-btn--sq-sm" title="{% trans 'Edit' %}" data-toggle="oh-modal-toggle"
                 data-target="#objectUpdateModal" hx-get="{% url 'available-leave-update' instance.id %}"

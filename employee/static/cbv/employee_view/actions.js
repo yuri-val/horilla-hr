@@ -74,7 +74,7 @@ form.addEventListener("submit", function (event) {
 
                     if (json.success_count > 0) {
                         Swal.fire({
-                            text: `${json.success_count} Employees Imported Successfully`,
+                            text: json.success_count + " " + gettext("Employees Imported Successfully"),
                             icon: "success",
                             showConfirmButton: false,
                             timer: 3000,
@@ -89,12 +89,12 @@ form.addEventListener("submit", function (event) {
             }
             if (!$(".file-xlsx-validation").length) {
                 swal.fire({
-                    text: `You have ${errorCount} errors. Do you want to download the error list?`,
+                    text: gettext("You have") + " " + errorCount + " " + gettext("errors. Do you want to download the error list?"),
                     icon: "error",
                     showCancelButton: true,
                     showDenyButton: true,
-                    confirmButtonText: "Download error list & Skip Import",
-                    denyButtonText: "Downlod error list & Continue Import",
+                    confirmButtonText: gettext("Download error list & Skip Import"),
+                    denyButtonText: gettext("Download error list & Continue Import"),
                     cancelButtonText: i18nMessages.cancel,
                     confirmButtonColor: "#008000",
                     denyButtonColor: "#6c757d",
@@ -132,7 +132,7 @@ form.addEventListener("submit", function (event) {
                                 },
                                 success: function (response, textStatus, xhr) {
                                     Swal.fire({
-                                        text: `Employees Imported Successfully`,
+                                        text: gettext("Employees Imported Successfully"),
                                         icon: "success",
                                         showConfirmButton: false,
                                         timer: 3000,
@@ -369,6 +369,117 @@ $(document).on("click", "#unArchiveEmployees", function (e) {
     }
 });
 
+$(document).on("click", "#resetPasswordEmployees", function (e) {
+    e.preventDefault();
+    ids = [];
+    ids.push($("#selectedInstances").attr("data-ids"));
+    ids = JSON.parse($("#selectedInstances").attr("data-ids"));
+    if (ids.length === 0) {
+        Swal.fire({
+            text: i18nMessages.noRowsSelected,
+            icon: "warning",
+            confirmButtonText: i18nMessages.close,
+        });
+    } else {
+        Swal.fire({
+            text: i18nMessages.confirmBulkResetPassword,
+            icon: "warning",
+            showCancelButton: true,
+            confirmButtonColor: "#d33",
+            cancelButtonColor: "#6c757d",
+            confirmButtonText: i18nMessages.confirm,
+            cancelButtonText: i18nMessages.cancel,
+        }).then(function (result) {
+            if (result.isConfirmed) {
+                ids = [];
+                ids.push($("#selectedInstances").attr("data-ids"));
+                ids = JSON.parse($("#selectedInstances").attr("data-ids"));
+                // The request is one call, so the real progress is not known: the bar
+                // runs until it finishes. Without it the page just sat there.
+                Swal.fire({
+                    title: i18nMessages.resettingPasswords || "Resetting passwords",
+                    html:
+                        '<style>@keyframes rpSlide{0%{margin-left:-40%}100%{margin-left:100%}}</style>' +
+                        '<div style="margin:14px 0 6px;color:#6b7280;font-size:14px">' +
+                        ids.length + " " + (i18nMessages.resettingCount || "employee(s)") + "</div>" +
+                        '<div style="height:8px;border-radius:6px;background:#eceef2;overflow:hidden">' +
+                        '<div style="width:40%;height:100%;border-radius:6px;background:#e54f38;animation:rpSlide 1.1s ease-in-out infinite"></div></div>',
+                    allowOutsideClick: false,
+                    allowEscapeKey: false,
+                    showConfirmButton: false,
+                });
+                $.ajax({
+                    type: "POST",
+                    url: "/employee/employee-bulk-reset-password-admin/",
+                    data: {
+                        csrfmiddlewaretoken: getCookie("csrftoken"),
+                        ids: JSON.stringify(ids),
+                    },
+                    error: function () {
+                        Swal.close();
+                        Swal.fire({ text: i18nMessages.resetFailed || "Could not reset the passwords.", icon: "error" });
+                    },
+                    success: function (response, textStatus, jqXHR) {
+                        Swal.close();
+                        if (jqXHR.status === 200) {
+                            $("#genericModalBody").html(response);
+                            // Same class the declarative data-toggle="oh-modal-toggle"
+                            // handler adds (ModalDialog.js openModal()) -- this is a
+                            // JS-driven open (after a Swal confirm), not a raw click
+                            // on an element carrying that attribute, so it has to be
+                            // triggered directly here instead.
+                            $("#genericModal").addClass("oh-modal--show");
+                        }
+                    },
+                });
+            }
+        });
+    }
+});
+
+$(document).on("click", "#sendInvitationEmployees", function (e) {
+    e.preventDefault();
+    ids = [];
+    ids.push($("#selectedInstances").attr("data-ids"));
+    ids = JSON.parse($("#selectedInstances").attr("data-ids"));
+    if (ids.length === 0) {
+        Swal.fire({
+            text: i18nMessages.noRowsSelected,
+            icon: "warning",
+            confirmButtonText: i18nMessages.close,
+        });
+    } else {
+        Swal.fire({
+            text: i18nMessages.confirmBulkInvite,
+            icon: "info",
+            showCancelButton: true,
+            confirmButtonColor: "#d33",
+            cancelButtonColor: "#6c757d",
+            confirmButtonText: i18nMessages.confirm,
+            cancelButtonText: i18nMessages.cancel,
+        }).then(function (result) {
+            if (result.isConfirmed) {
+                ids = [];
+                ids.push($("#selectedInstances").attr("data-ids"));
+                ids = JSON.parse($("#selectedInstances").attr("data-ids"));
+                $.ajax({
+                    type: "POST",
+                    url: "/employee/employee-bulk-send-invitation/",
+                    data: {
+                        csrfmiddlewaretoken: getCookie("csrftoken"),
+                        ids: JSON.stringify(ids),
+                    },
+                    success: function (response, textStatus, jqXHR) {
+                        if (jqXHR.status === 200) {
+                            reloadEmployeeListContainer();
+                        }
+                    },
+                });
+            }
+        });
+    }
+});
+
 $(document).on("click", "#employeeBulkUpdateId", function (e) {
     ids = [];
     ids.push($("#selectedInstances").attr("data-ids"));
@@ -415,6 +526,13 @@ $(document).on("click", "#deleteEmployees", function (e) {
                 ids.push($("#selectedInstances").attr("data-ids"));
                 ids = JSON.parse($("#selectedInstances").attr("data-ids"));
 
+                // One call, so real progress is unknown: the bar runs until it
+                // finishes. Without it the page just sat there.
+                hlvBulkDeleteProgress(
+                    ids.length,
+                    i18nMessages.deletingEmployees || "Deleting employees"
+                );
+
                 $.ajax({
                     type: "POST",
                     url: "/employee/employee-bulk-delete/",
@@ -422,12 +540,16 @@ $(document).on("click", "#deleteEmployees", function (e) {
                         csrfmiddlewaretoken: getCookie("csrftoken"),
                         ids: JSON.stringify(ids),
                     },
-                    success: function (response, textStatus, jqXHR) {
-                        if (jqXHR.status === 200) {
-                            reloadEmployeeListContainer();
-                        } else {
-                            // console.log("Unexpected HTTP status:", jqXHR.status);
-                        }
+                    error: function () {
+                        Swal.close();
+                        Swal.fire({
+                            text: i18nMessages.deleteFailed || "Could not delete the employees.",
+                            icon: "error",
+                        });
+                    },
+                    success: function (response) {
+                        reloadEmployeeListContainer();
+                        hlvShowBulkDeleteSummary(response);
                     },
                 });
             }

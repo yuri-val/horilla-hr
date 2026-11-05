@@ -4,100 +4,278 @@
 {% include 'generic/modern_filter_panel.html' %}
 
 <style>
-  body.dark .ms-page-header h3 { color: #dfdfdf !important; }
-  /* Active-filter chip row — same look as generic/filter_tags.html */
+  body.dark .ms-toolbar-row .oh-main__titlebar-title { color: #dfdfdf !important; }
+  /* Active-filter chip row -- colors/sizing copied from the computed
+     styles of .oh-titlebar__tag.filter-field / .oh-titlebar__tag-close
+     (generic/filter_tags.html) so this hand-built row matches exactly
+     rather than approximating it. */
+  #ms-filter-tags { justify-content: flex-end; }
   .ms-filter-tag {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    padding: 4px 10px;
-    border-radius: 18px;
-    font-size: .78rem;
-    font-weight: 600;
-    background: rgba(229, 79, 56, .1);
-    border: 1px solid hsl(8, 77%, 56%);
-    color: hsl(8, 60%, 40%);
+    padding: 4px 12px;
+    border-radius: 25px;
+    font-size: 13.6px;
+    font-weight: 700;
+    background: #fff;
+    border: 1px solid rgb(229, 79, 56);
+    color: rgb(28, 28, 28);
   }
-  body.dark .ms-filter-tag { color: #fca5a5; }
-  .ms-filter-tag ion-icon { cursor: pointer; font-size: .95rem; }
+  body.dark .ms-filter-tag { background: transparent; color: #f1f5f9; }
+  .ms-filter-tag .ms-filter-tag-close {
+    background-color: rgb(229, 79, 56);
+    color: #fff;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+    border: none;
+    border-radius: 50%;
+    margin-left: 0.75rem;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .ms-filter-tag .ms-filter-tag-close ion-icon { font-size: 11px; }
+
+  /* Filter / Export / Actions, styled explicitly rather than left to
+     .oh-btn / .oh-btn-group -- two rounds of matching those classes
+     against the Employees page's own markup each looked right in the
+     rendered HTML but still didn't match live, so this no longer leans on
+     shared, ambiently-inherited rules whose actual computed result here
+     cannot be confirmed without a browser. Every property below is set on
+     one page-local class, so nothing about how it looks depends on what
+     else does or doesn't apply above it in the cascade. */
+  .ms-toolbar-row .oh-btn {
+    display: inline-flex !important;
+    align-items: center !important;
+    height: 2.375rem !important;
+    padding: 0 1rem !important;
+    font-size: .8rem !important;
+    font-weight: 500 !important;
+    color: hsl(219, 9%, 29%) !important;
+    background-color: #fff !important;
+    border: 1px solid hsl(213, 22%, 84%) !important;
+    border-radius: 0.375rem !important;
+    box-shadow: none !important;
+  }
+  .ms-toolbar-row .oh-btn:hover { background-color: hsl(210, 20%, 98%) !important; }
+  .ms-toolbar-row .oh-btn.oh-btn--secondary {
+    background-color: hsl(8, 77%, 56%) !important;
+    border-color: hsl(8, 77%, 56%) !important;
+    color: #fff !important;
+  }
+  .ms-toolbar-row .oh-btn.oh-btn--secondary:hover { background-color: hsl(8, 61%, 50%) !important; }
+  body.dark .ms-toolbar-row .oh-btn {
+    background-color: #242424 !important;
+    border-color: #3a3a3a !important;
+    color: #e5e7eb !important;
+  }
+  body.dark .ms-toolbar-row .oh-btn:hover { background-color: #1a1a1a !important; }
+
+  /* Filter, once something is actually filtered -- the accent border and
+     the count badge the standard toolbar shows on its own Filter button
+     when it isn't sitting at its default, unfiltered state. Toggled by
+     msRenderFilterTags() below, which already works out whether anything
+     is active to build the filter-chip row; this reads the same count
+     rather than re-deriving it. */
+  .ms-toolbar-row .oh-btn.ms-filter-active {
+    border-color: hsl(8, 77%, 56%) !important;
+    color: hsl(8, 77%, 56%) !important;
+  }
+  .ms-filter-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 16px; height: 16px; padding: 0 4px; margin-left: 4px;
+    border-radius: 999px; background: hsl(8, 77%, 56%); color: #fff;
+    font-size: .65rem; font-weight: 700; line-height: 1;
+  }
+
+  /* A small link, sized to its own text -- not .oh-dropdown__link's
+     display:block;width:100%;height:100%, correct for a menu row inside a
+     constraining <li> but not for a link standing on its own in a modal
+     body, where it stretched to the full width and whatever height its
+     siblings gave the row. */
+  .ms-download-template {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: .85rem; color: hsl(219, 9%, 29%);
+    text-decoration: none; cursor: pointer;
+  }
+  .ms-download-template:hover { color: hsl(8, 77%, 56%); }
+  .ms-template-row { display: flex; align-items: center; gap: 6px; }
+  .ms-template-tip { width: 280px; left: auto; right: -8px; }
+  .ms-template-tip::after { left: auto; right: 14px; }
+  .ms-template-tip div + div { margin-top: 4px; }
+  .ms-template-tip b { font-weight: 600; }
+  .ms-download-template ion-icon { font-size: 18px; }
+
+  /* Same fixed height as the buttons above, so the row's four controls --
+     two date inputs, the search box, the buttons -- share one edge instead
+     of each control supplying its own idea of how tall it is. */
+  .ms-toolbar-row .oh-input { height: 2.375rem !important; margin-bottom: 0 !important; }
+
+  /* The Summary / Day-wise buttons: the same height as the search box and the other buttons
+     (they were a few pixels shorter, which left the group sitting off the row's edge), a
+     square icon button, and a small gap between the two like the employee list's switch. */
+  /* Even rhythm: every control is one 2.375rem-tall box and the gap between any two is the
+     row's own 0.5rem, as in the employee nav. No control carries a margin of its own. */
+  /* Only the toolbar's own controls: the filter panel is nested in this row, and its fields keep
+     their labels' spacing. */
+  .ms-toolbar-row > div > .oh-btn-group, .ms-toolbar-row > div > .ms-search { margin: 0 !important; }
+  .ms-toolbar-row .ms-search { width: 18.5rem; max-width: 100%; }
+  .ms-toolbar-row .ms-view-group { display: inline-flex; align-items: center; gap: .25rem; }
+  .ms-toolbar-row .ms-view-btn {
+    display: inline-flex !important; align-items: center; justify-content: center;
+    height: 2.375rem !important; width: 2.75rem; padding: 0 !important;
+    border-radius: .375rem; line-height: 1;
+  }
+  .ms-toolbar-row .ms-view-btn ion-icon { font-size: 1.05rem; }
+
+  /* The dropdown menu, made explicit for the same reason as the buttons
+     above: Actions is the row's last/rightmost control, and whatever was
+     deciding where its menu opens and whether it sits above the KPI cards
+     below it was not something reading .oh-dropdown__menu--right's
+     "right: 0" alone could confirm without a browser. Right-anchored and
+     given its own background/shadow/z-index here rather than assumed. */
+  .ms-toolbar-row .oh-dropdown { position: relative !important; }
+  .ms-toolbar-row .oh-dropdown__menu {
+    position: absolute !important;
+    top: calc(100% + 4px) !important;
+    right: 0 !important;
+    left: auto !important;
+    min-width: 200px !important;
+    background: #fff !important;
+    border: 1px solid hsl(213, 22%, 84%) !important;
+    border-radius: 0.375rem !important;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, .12) !important;
+    z-index: 50 !important;
+  }
+  body.dark .ms-toolbar-row .oh-dropdown__menu {
+    background: #242424 !important; border-color: #3a3a3a !important;
+  }
+
+  /* A small gap, not the 1.5rem tried earlier -- that read as the title
+     having drifted away from the toolbar row above it rather than sitting
+     with it as one header block. */
+  /* Title now sits in the toolbar row itself (left side, toolbar controls
+     grouped on the right) rather than on a row of its own underneath, so
+     it only needs its own size fixed, not a margin separating it from
+     anything -- gap on .ms-toolbar-row already spaces it from its
+     siblings the same as every other item in that row. */
+  .ms-toolbar-row .oh-main__titlebar-title {
+    margin: 0 !important;
+    padding: 0 !important;
+    font-weight: 700 !important;
+    /* v1_styles.css defines this class twice -- 1.5rem earlier in the
+       file, 1rem later, unconditionally -- and the later, unconditional
+       rule is what actually wins the cascade site-wide. Matched to that
+       real value instead of the first (overridden) one this was matched
+       against before. */
+    font-size: 1rem !important;
+  }
 </style>
 
 <div class="oh-wrapper">
   <div class="oh-container"  style="padding-top:1.25rem;">
 
     <!-- Search + Filter bar -->
+    {% comment %}
+      hx-sync: whichever request starts last wins. The page's first (unfiltered) table request and the
+      filter saveFilters.js puts back on load would otherwise race, and the slower one overwrote the other.
+    {% endcomment %}
     <form id="summary-filter-form"
           hx-get="{% url 'attendance-monthly-summary-table' %}"
           hx-target="#summary-table-container"
+          hx-sync="#summary-table-container:replace"
           hx-push-url="false">
+      {# Summary (totals per employee) or Day-wise (a column per date); every request carries it. #}
+      <input type="hidden" name="view" id="ms-view" value="{{ view }}">
 
-      <div class="ms-page-header flex flex-wrap justify-between items-center mb-2">
-        <h3 class="text-lg font-semibold" style="margin:0;">{% trans "Monthly Attendance Summary" %}</h3>
-
-        <div class="flex flex-wrap gap-1">
-          <!-- Search -->
-          <div class="relative">
-            <input type="text"
-                   name="search"
-                   id="ms-search-input"
-                   placeholder="{% trans 'Employee name…' %}"
-                   autocomplete="off"
-                   hx-get="{% url 'attendance-monthly-summary-table' %}"
-                   hx-target="#summary-table-container"
-                   hx-trigger="input changed delay:400ms"
-                   hx-include="#summary-filter-form"
-                   class="text-color-600 ps-8 p-1.5 pb-2 placeholder:text-xs w-full border border-dark-50 rounded-md focus-visible:outline-0 placeholder:text-dark-100 text-sm [transition:.3s] focus:border-primary-600"
-                   style="width:200px;">
-            <i class="fas fa-search absolute left-3 top-[1px] bottom-0 m-auto flex items-center opacity-50 text-xs"></i>
-            <button type="button" id="ms-search-clear"
-                    onclick="document.getElementById('ms-search-input').value='';
-                             document.getElementById('ms-search-input').dispatchEvent(new Event('input'));"
-                    style="position:absolute;top:50%;right:8px;transform:translateY(-50%);
-                           background:none;border:none;cursor:pointer;color:#9ca3af;
-                           padding:0;display:none;line-height:1;"
-                    title="{% trans 'Clear' %}">
-              <ion-icon name="close-circle-outline" style="font-size:.9rem;"></ion-icon>
-            </button>
-          </div>
-
-          <!-- Date range -->
-          <input type="date"
-                 name="from_date"
-                 id="ms-from-date"
-                 value="{{ from_date }}"
-                 title="{% trans 'From' %}"
+      {% comment %}
+      Title and toolbar on one row -- title left, search/date/Filter/
+      Actions grouped right -- not the title on its own row underneath.
+      Every control below keeps its existing hx-get/hx-trigger/id; only
+      this wrapper and the title's position changed.
+      {% endcomment %}
+      <div class="ms-toolbar-row flex flex-wrap justify-between items-center gap-2 mb-4">
+        <h3 class="oh-main__titlebar-title fw-bold mb-0">
+          {% trans "Monthly Attendance Summary" %}
+        </h3>
+        <div class="flex flex-wrap items-center gap-2">
+        <!-- Search -->
+        <div class="oh-input-group ms-search" style="position:relative;">
+          <ion-icon name="search-outline" class="oh-input-group__icon oh-input-group__icon--left"
+                    style="position:absolute;top:50%;left:10px;transform:translateY(-50%);font-size:.85rem;color:#9ca3af;"></ion-icon>
+          <input type="text"
+                 name="search"
+                 id="ms-search-input"
+                 placeholder="{% trans 'Employee name…' %}"
+                 value="{{ search }}"
+                 autocomplete="off"
                  hx-get="{% url 'attendance-monthly-summary-table' %}"
                  hx-target="#summary-table-container"
-                 hx-trigger="change"
+                 hx-trigger="input changed delay:400ms"
+                 hx-sync="#summary-table-container:replace"
                  hx-include="#summary-filter-form"
-                 class="text-color-600 p-1.5 pb-2 border border-dark-50 rounded-md focus-visible:outline-0 text-sm [transition:.3s] focus:border-primary-600"
-                 style="width:145px;">
-          <input type="date"
-                 name="to_date"
-                 id="ms-to-date"
-                 value="{{ to_date }}"
-                 title="{% trans 'To' %}"
-                 hx-get="{% url 'attendance-monthly-summary-table' %}"
-                 hx-target="#summary-table-container"
-                 hx-trigger="change"
-                 hx-include="#summary-filter-form"
-                 class="text-color-600 p-1.5 pb-2 border border-dark-50 rounded-md focus-visible:outline-0 text-sm [transition:.3s] focus:border-primary-600"
-                 style="width:145px;">
+                 class="oh-input"
+                 style="padding-left:28px;padding-right:26px;height:2.375rem;margin-bottom:0;">
+          <button type="button" id="ms-search-clear"
+                  onclick="document.getElementById('ms-search-input').value='';
+                           document.getElementById('ms-search-input').dispatchEvent(new Event('input'));"
+                  style="position:absolute;top:50%;right:8px;transform:translateY(-50%);
+                         background:none;border:none;cursor:pointer;color:#9ca3af;
+                         padding:0;display:none;line-height:1;"
+                  title="{% trans 'Clear' %}">
+            <ion-icon name="close-circle-outline" style="font-size:.9rem;"></ion-icon>
+          </button>
+        </div>
 
-          <!-- Modern slide-over filter panel (generic/modern_filter_panel.html)
-               -- same offcanvas used by Attendance/Late Arrival/Check-in Log/
-               Employee/Work Records this session, not a bespoke anchored
-               dropdown. Trigger/backdrop/panel ids aren't namespaced (only
-               one panel per page), so this replaces the page's earlier
-               custom #ms-filter-toggle/#ms-filter-dropdown implementation
-               entirely rather than living alongside it. -->
+        <!-- View: the list, a column per date, or the summary dashboard. The same icon
+             buttons as the employee list / kanban switch (generic/horilla_nav.html). -->
+        <div class="ms-view-group text-[#000]" role="group" aria-label="{% trans 'View' %}">
+          <button type="button" data-view="list" title="{% trans 'List' %}"
+                  class="tab-btn bg-white px-4 py-2 rounded-md text-xs flex items-center gap-2 border transition duration-300 border-primary-500 ms-view-btn{% if view == 'list' %} oh-view-btn--active{% endif %}"
+                  onclick="msSetView('list')">
+            <ion-icon name="list-outline"></ion-icon>
+          </button>
+          <button type="button" data-view="daily" title="{% trans 'Day-Wise' %}"
+                  class="tab-btn bg-white px-4 py-2 rounded-md text-xs flex items-center gap-2 border transition duration-300 border-primary-500 ms-view-btn{% if view == 'daily' %} oh-view-btn--active{% endif %}"
+                  onclick="msSetView('daily')">
+            <ion-icon name="calendar-outline"></ion-icon>
+          </button>
+          <button type="button" data-view="summary" title="{% trans 'Summary' %}"
+                  class="tab-btn bg-white px-4 py-2 rounded-md text-xs flex items-center gap-2 border transition duration-300 border-primary-500 ms-view-btn{% if view == 'summary' %} oh-view-btn--active{% endif %}"
+                  onclick="msSetView('summary')">
+            <ion-icon name="pie-chart-outline"></ion-icon>
+          </button>
+        </div>
+
+        <!-- Modern slide-over filter panel (generic/modern_filter_panel.html)
+             -- same offcanvas used by Attendance/Late Arrival/Check-in Log/
+             Employee/Work Records this session, not a bespoke anchored
+             dropdown. Trigger/backdrop/panel ids aren't namespaced (only
+             one panel per page), so this replaces the page's earlier
+             custom #ms-filter-toggle/#ms-filter-dropdown implementation
+             entirely rather than living alongside it. -->
+        {% comment %}
+        .oh-btn on its own has no border or fill (v1_styles.css: border:none;
+        background-color:transparent) -- what gives Filter/Actions their
+        white-boxed look on every other toolbar is the wrapping .oh-btn-group
+        (main.css: border:1px solid ...), not the button class itself. Only
+        Actions was wrapped in one; Filter is now too, matched to how it
+        looks everywhere else rather than left relying on .oh-btn alone.
+        {% endcomment %}
+        <div class="oh-btn-group">
           <button type="button"
                   id="modernFilterTrigger"
                   onclick="toggleModernFilterPanel(true)"
-                  class="px-5 py-2 h-full bg-[white] rounded-md text-xs flex items-center gap-2 border border-primary-500 hover:border-primary-600 transition duration-300 cursor-pointer">
-            <ion-icon name="filter-outline"></ion-icon> {% trans "Filter" %}
+                  class="oh-btn{% if active_filter_count %} ms-filter-active{% endif %}">
+            <ion-icon name="filter" class="me-1"></ion-icon>{% trans "Filter" %}
+            <span id="ms-filter-badge" class="ms-filter-badge"
+                  {% if not active_filter_count %}style="display:none;"{% endif %}>{{ active_filter_count|default:"" }}</span>
           </button>
-          <div class="oh-filter-backdrop" id="modernFilterBackdrop" onclick="toggleModernFilterPanel(false)"></div>
+        </div>
+        <div class="oh-filter-backdrop" id="modernFilterBackdrop" onclick="toggleModernFilterPanel(false)"></div>
           <div class="oh-filter-panel oh-filter-modern" id="modernFilterPanel">
             <div class="oh-filter-panel__header">
               <h3>{% trans "Filter" %} {% trans "Monthly Attendance Summary" %}</h3>
@@ -113,6 +291,16 @@
                      autocomplete="off">
             </div>
             <div class="oh-filter-panel__body">
+              <!-- The period: every view and the export use it. Applied with the other filters. -->
+              <div class="oh-input-group">
+                <label class="oh-label">{% trans "Date Range" %}</label>
+                <div style="display:flex;gap:8px;">
+                  <input type="date" name="from_date" id="ms-from-date" value="{{ from_date }}"
+                         title="{% trans 'From' %}" class="oh-input w-100">
+                  <input type="date" name="to_date" id="ms-to-date" value="{{ to_date }}"
+                         title="{% trans 'To' %}" class="oh-input w-100">
+                </div>
+              </div>
               <!-- Outside any accordion (always visible, not collapsible) --
                    same placement as every other modernized filter panel this
                    session: primary/most-used search, shouldn't be hidden
@@ -125,6 +313,7 @@
                 <label class="oh-label">{% trans "Name or Badge ID" %}</label>
                 <input type="text" name="name_or_badge" id="ms-name-or-badge-input"
                        placeholder="{% trans 'e.g. John, PEP01, PEP02' %}"
+                       value="{{ name_or_badge }}" autocomplete="off"
                        class="oh-input w-100">
               </div>
               <div class="oh-accordion oh-accordion--show">
@@ -247,7 +436,7 @@
                 </div>
                 <div class="oh-accordion-body">
                   <div class="oh-input-group">
-                    <label class="oh-label">{% trans "Is Active" %}?</label>
+                    <label class="oh-label">{% trans "Active" %}?</label>
                     <div class="oh-segmented">
                       <label class="oh-segmented__item">
                         <input type="radio" name="is_active" value="" {% if not is_active %}checked{% endif %}>
@@ -265,15 +454,56 @@
                   </div>
                 </div>
               </div>
+              <!-- Group By: the same control the Employee directory has -- numbered levels, each a
+                   field and a remove button, "+ Add level", and a preview of the chain. Choosing
+                   a field applies it straight away. The levels post as repeated nested_fields,
+                   the parameter the grouped Employee lists use. -->
+              <div class="oh-accordion oh-accordion--top-divider">
+                <div class="oh-accordion-header"
+                     onclick="event.stopImmediatePropagation();$(this).parent().toggleClass('oh-accordion--show');">
+                  <span class="oh-filter-section-icon"><ion-icon name="layers-outline"></ion-icon></span>
+                  {% trans "Group By" %}
+                </div>
+                <div class="oh-accordion-body">
+                  <div id="nestedGroupByLevels" class="space-y-1.5" data-max-levels="{{ group_max_levels }}">
+                    {% for value in nested_selected %}
+                    <div class="flex items-center gap-1.5 nested-group-by-row">
+                      <span class="ngb-level-badge shrink-0 inline-flex items-center justify-center w-5 h-5 rounded-md bg-primary-100 text-primary-700 text-[11px] font-semibold"></span>
+                      {# Not .oh-select: rows are cloned, and cloning a Select2-initialised select breaks the copy. #}
+                      <select
+                          onchange="ngbUpdatePreview(); ngbUpdateDisabledOptions(); $('#ms-apply-filter').click();"
+                          class="ngb-field-select oh-input w-100 border border-[#DEDBD4] rounded-md px-2 py-1.5 text-sm"
+                          name="nested_fields"
+                          style="margin-bottom: 0;">
+                        <option value="">{% trans "Select" %}</option>
+                        {% for key, label in group_options %}
+                        <option value="{{ key }}"{% if key == value %} selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                      </select>
+                      <button type="button"
+                              class="shrink-0 inline-flex items-center justify-center w-5 h-5 text-sm leading-none text-red-500 hover:text-red-600"
+                              onclick="ngbRemoveLevel(this)"
+                              title="{% trans 'Remove level' %}">&times;</button>
+                    </div>
+                    {% endfor %}
+                  </div>
+                  <button type="button" class="text-xs text-primary-600 hover:underline mt-2" onclick="ngbAddLevel(this)">+ {% trans "Add level" %}</button>
+                  <div id="nestedGroupByPreview" class="text-xs text-gray-600 mt-2 pt-2 border-t border-[#EAE8E3]"></div>
+                </div>
+              </div>
             </div>
             <div class="oh-filter-panel__footer">
-              <!-- Full-page reset (not a per-field clear) -- simplest
-                   reliable way to clear every AJAX multi-select's selected
-                   chips, the date range, and search/name_or_badge together,
-                   same behavior the chip row's own "Clear All" already
-                   used (see msRenderFilterTags() below) before this panel
-                   existed. -->
-              <button type="button" class="oh-filter-panel__clear" onclick="window.location.href='{% url 'attendance-monthly-summary' %}'">
+              {% comment %}
+              msClearAllFilters() -- every field emptied directly and one
+              htmx refresh, not a page reload or a navigation to this same
+              bare URL (hx-push-url="false" means the address bar is
+              always this bare URL regardless of which filters are
+              applied, so href-to-self was a no-op in most browsers; and a
+              plain reload still left the browser free to silently refill
+              a text input with whatever was last typed into it,
+              independently of what the server actually rendered).
+              {% endcomment %}
+              <button type="button" class="oh-filter-panel__clear" onclick="msClearAllFilters()">
                 <ion-icon name="close-outline"></ion-icon>
                 {% trans "Clear all" %}
               </button>
@@ -284,18 +514,78 @@
             </div>
           </div>
 
-          <!-- Export — msSyncExportLink() switches this to exporting only
-               the checked rows whenever the table's own selection
-               (#selectedInstances) is non-empty, same idea as the
-               Select/Unselect/Update toolbar already reacting to it. -->
-          <a id="export-btn"
-             href="{% url 'attendance-monthly-summary-export' %}?{{ pd }}"
-             class="px-4 py-2 bg-brand-600 text-white rounded-md text-xs flex items-center gap-2 hover:bg-brand-800 transition duration-300 cursor-pointer">
-            <ion-icon name="download-outline"></ion-icon>
-            <span id="export-btn-label">{% trans "Export XLSX" %}</span>
-          </a>
+        {% comment %}
+        Export and the regularisation actions, both tucked behind one
+        oh-btn-group / oh-dropdown "Actions" trigger (matched class-for-
+        class against employee_nav.html's own Actions button) rather than
+        Export standing alone -- Export has no permission of its own, so it
+        is always the first item here; Summary sheet / Upload filled sheet
+        stay gated behind change_attendance underneath it, same as before.
+
+        msSyncExportLink() still switches #export-btn-label between
+        "Export XLSX" and "Export Selected (N)" from the table's own
+        selection -- only where the link sits changed, not its id or what
+        drives its label.
+
+        Upload filled sheet opens a real modal instead of auto-clicking a
+        hidden file input: the hidden-input approach left a raw, unstyled
+        "Choose file" control rendered in the toolbar in practice, and a
+        modal is also where every other page's import lives (compare
+        attendance_nav.html's own #attendanceImport).
+
+        The calendar resolves one day at a time, which does not scale to a
+        month end -- and what is actually known is "this person worked
+        nineteen days", a statement about the month rather than about any
+        date. The sheet comes pre-filled with what was counted, so only the
+        wrong figures need touching.
+        {% endcomment %}
+        {% comment %}
+        x-data lives on .oh-dropdown (the hover target), not the button:
+        @mouseenter/@mouseleave open and close it on hover rather than
+        click, and .oh-btn--dropdown is dropped entirely rather than kept
+        and hidden -- it draws its caret through a CSS content: url(...)
+        on ::after, which cannot be turned off with a color or display
+        override the way an real icon element could.
+        {% endcomment %}
+        <div class="oh-btn-group">
+          <div class="oh-dropdown" x-data="{open: false}"
+               @mouseenter="open = true" @mouseleave="open = false">
+            <button type="button" class="oh-btn">
+              <ion-icon name="settings-outline" class="me-1"></ion-icon>
+              {% trans "Actions" %}
+            </button>
+            <div class="oh-dropdown__menu oh-dropdown__menu--right" x-show="open" style="display:none;">
+              <ul class="oh-dropdown__items">
+                <li class="oh-dropdown__item">
+                  <a id="export-btn" class="oh-dropdown__link"
+                     href="{% url 'attendance-monthly-summary-export' %}?{{ pd }}">
+                    <span id="export-btn-label">{% trans "Export XLSX" %}</span>
+                  </a>
+                </li>
+                <li class="oh-dropdown__item">
+                  <a href="#" class="oh-dropdown__link"
+                     data-toggle="oh-modal-toggle" data-target="#msRangeModal"
+                     @click="open=false">
+                    {% trans "Default Date Range" %}
+                  </a>
+                </li>
+                {% if perms.attendance.change_attendance %}
+                <li class="oh-dropdown__item">
+                  <a href="#" class="oh-dropdown__link"
+                     data-toggle="oh-modal-toggle" data-target="#msRegImportModal"
+                     @click="open=false">
+                    {% trans "Import Day-Wise Sheet" %}
+                  </a>
+                </li>
+                {% endif %}
+              </ul>
+            </div>
+          </div>
+        </div>
+        <!-- /toolbar controls -->
         </div>
       </div>
+      <!-- /.ms-toolbar-row -->
 
       <!-- Active-filter chips — display toggled purely inline (no d-flex class:
            Horilla's .d-flex is display:flex !important, which would beat this
@@ -305,9 +595,145 @@
       </div>
     </form>
 
+    {% comment %}
+    Outside #summary-filter-form on purpose: this modal holds its own
+    <form>, and a <form> nested inside another <form> is invalid HTML (and
+    would submit the wrong one). Matches attendance_nav.html's own
+    #attendanceImport, likewise a sibling of the page's main filter form.
+    {% endcomment %}
+    <div class="oh-modal" id="msRangeModal" role="dialog" aria-labelledby="msRangeModalLabel" aria-hidden="true">
+      <div class="oh-modal__dialog">
+        <div class="oh-modal__dialog-header">
+          <h2 class="oh-modal__dialog-title" id="msRangeModalLabel">{% trans "Default Date Range" %}</h2>
+          <button class="oh-modal__close" aria-label="{% trans 'Close' %}">
+            <ion-icon name="close-outline"></ion-icon>
+          </button>
+        </div>
+        <div class="oh-modal__dialog-body">
+          <style>
+            .ms-range-preview { margin: 0 0 6px; font-size: .88rem; font-weight: 400; line-height: 1.4; color: #374151; }
+            .ms-range-preview b { font-weight: 600; font-size: inherit; }
+            .ms-range-warn { margin: 0 0 8px; font-size: .8rem; line-height: 1.4; color: #b7791f; }
+            .ms-range-hint { margin: 0 0 14px; font-size: .78rem; line-height: 1.4; color: #9ca3af; }
+            .ms-range-error { margin: 0 0 12px; font-size: .8rem; color: #dc2626; }
+            body.dark .ms-range-preview { color: #e5e7eb; }
+            .ms-range-tip { position: relative; display: inline-flex; vertical-align: middle; margin-left: 4px; outline: none; cursor: help; }
+            .ms-range-tip ion-icon { font-size: 15px; color: #9ca3af; }
+            .ms-range-tip:hover ion-icon, .ms-range-tip:focus ion-icon { color: #e54f38; }
+            .ms-range-tip-body { display: none; position: absolute; left: -8px; bottom: calc(100% + 8px); width: 250px; z-index: 5;
+                                 padding: 9px 12px; border-radius: 8px; background: #1f2937; color: #f9fafb; text-transform: none;
+                                 font-size: .76rem; font-weight: 400; line-height: 1.4; box-shadow: 0 8px 20px rgba(15, 23, 42, .25); }
+            .ms-range-tip-body::after { content: ""; position: absolute; left: 14px; top: 100%; border: 6px solid transparent; border-top-color: #1f2937; }
+            .ms-range-tip:hover .ms-range-tip-body, .ms-range-tip:focus .ms-range-tip-body { display: block; }
+          </style>
+          <div class="oh-input__group mb-3">
+            <label class="oh-input__label" for="ms-range-mode">{% trans "Range" %}</label>
+            <select id="ms-range-mode" class="oh-select oh-select--lg w-100" onchange="msRangeChanged()">
+              {% for choice in range_choices %}
+              <option value="{{ choice.key }}" data-text="{{ choice.text }}"
+                      {% if choice.key == range_mode %}selected{% endif %}>{{ choice.label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="oh-input__group mb-3" id="ms-range-custom" style="display:none;">
+            <label class="oh-input__label" for="ms-range-day">
+              {% trans "Start Day" %}
+              <span class="ms-range-tip" tabindex="0">
+                <ion-icon name="information-circle-outline"></ion-icon>
+                <span class="ms-range-tip-body" role="tooltip">
+                  {% trans "The Cycle Starts On The Chosen Day And Runs For As Many Days As That Month Has. From The 15th Of October It Runs To The 14th Of November." %}
+                </span>
+              </span>
+            </label>
+            <select id="ms-range-day" class="oh-select oh-select--lg w-100" onchange="msRangeChanged()">
+              {% for day, label, rule, note in start_day_choices %}
+              <option value="{{ day }}" data-text="{{ rule }}" data-note="{{ note }}" {% if day == start_day %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <p class="ms-range-preview" id="ms-range-preview"><b id="ms-range-preview-text">{% for choice in range_choices %}{% if choice.key == range_mode %}{% if choice.key == "custom" %}{% for day, label, rule, note in start_day_choices %}{% if day == start_day %}{{ rule }}{% endif %}{% endfor %}{% else %}{{ choice.text }}{% endif %}{% endif %}{% endfor %}</b></p>
+          <p class="ms-range-warn" id="ms-range-note" style="display:none;"></p>
+          <p class="ms-range-hint">{% trans "Every Option Covers One Full Month; The Dates Follow The Calendar." %}</p>
+          <p class="ms-range-error" id="ms-range-error" style="display:none;"></p>
+          <div class="oh-modal__dialog-footer p-0">
+            <button type="button" class="oh-btn oh-btn--secondary oh-btn--shadow pl-5 pr-5" onclick="msSaveRange(this)">
+              {% trans "Save And Apply" %}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {% if perms.attendance.change_attendance %}
+    <div class="oh-modal" id="msRegImportModal" role="dialog" aria-labelledby="msRegImportModal" aria-hidden="true">
+      <div class="oh-modal__dialog" style="max-width:480px;">
+        <div class="oh-modal__dialog-header">
+          <h2 class="oh-modal__dialog-title">{% trans "Import Day-Wise Sheet" %}</h2>
+          <button class="oh-modal__close" aria-label="{% trans 'Close' %}">
+            <ion-icon name="close-outline"></ion-icon>
+          </button>
+        </div>
+        <div class="oh-modal__dialog-body">
+          <form method="post" action="{% url 'attendance-daywise-import' %}"
+                enctype="multipart/form-data">
+            {% csrf_token %}
+            <label class="oh-dropdown__import-label" for="ms-reg-file">
+              <ion-icon name="cloud-upload" class="oh-dropdown__import-form-icon"></ion-icon>
+              <span class="oh-dropdown__import-form-title">{% trans "Upload A File" %}</span>
+              <span class="oh-dropdown__import-form-text">{% trans "Drag And Drop Files Here" %}</span>
+            </label>
+            <input type="file" name="regularisation_file" id="ms-reg-file"
+                   accept=".xlsx,.xls,.csv" required>
+            {% comment %}
+            The pre-filled sheet to fill in, not a generic blank template --
+            same "download what this upload expects, from right beside the
+            upload control" placement as import_block.html /
+            attendance_nav.html's own #attendanceImport, moved here from a
+            separate "Summary sheet" entry in the Actions menu since the two
+            were really one download-then-upload step split across two
+            different places.
+
+            Not .oh-dropdown__link here: that class is display:block;
+            width:100%;height:100% (main.css), sized for a menu row whose
+            surrounding <li> already constrains it -- outside that context
+            it stretched to the full width of the modal body instead of
+            reading as a small link. Styled directly instead.
+            {% endcomment %}
+            <div class="ms-template-row mt-2">
+              <a href="{% url 'attendance-daywise-template' %}?{{ pd }}" id="ms-template-link"
+                 class="ms-download-template">
+                <ion-icon name="cloud-download-outline"></ion-icon>
+                {% trans "Download The Day-Wise Template" %}
+              </a>
+              <span class="ms-range-tip" tabindex="0">
+                <ion-icon name="information-circle-outline"></ion-icon>
+                <span class="ms-range-tip-body ms-template-tip" id="ms-template-tip" role="tooltip"></span>
+              </span>
+            </div>
+            <button type="submit" class="oh-btn oh-btn--secondary w-100 mt-3">
+              {% trans "Upload" %}
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+    {% comment %}
+    This page builds its own filter-tag row (msRenderFilterTags below)
+    rather than including generic/filter_tags.html, so it doesn't get that
+    template's Save button or its saved-filter modal for free -- both
+    added here instead, reusing the same generic SavedFilter backend
+    (horilla_views.views.SavedFilter) everything else already saves to.
+    {% endcomment %}
+    <div class="oh-modal" id="msSavedFilterModal" role="dialog" aria-labelledby="msSavedFilterModal" aria-hidden="true">
+      <div class="oh-modal__dialog" style="max-width: 550px" id="msSavedFilterFormTarget"></div>
+    </div>
+
     <!-- Table container — loaded via HTMX -->
     <div id="summary-table-container"
-         hx-get="{% url 'attendance-monthly-summary-table' %}?{{ pd }}"
+         hx-get="{% url 'attendance-monthly-summary-table' %}?{{ table_pd }}"
+         hx-sync="this:replace"
          hx-trigger="load">
     </div>
 
@@ -332,6 +758,184 @@
 // $(document).ready() and htmx:afterSettle) -- no page-local select2()
 // call needed either.
 
+// Every multi-select field the "Filters:" chip row and Clear All both need
+// to know about -- one list, so adding a field to the filter panel means
+// updating it in exactly one place instead of two that could drift apart.
+var MS_MULTI_FIELDS = [
+  { name: 'employee_id', label: "{% trans 'Employee'|escapejs %}" },
+  { name: 'department_id', label: "{% trans 'Department'|escapejs %}" },
+  { name: 'job_position_id', label: "{% trans 'Job Position'|escapejs %}" },
+  { name: 'shift_id', label: "{% trans 'Shift'|escapejs %}" },
+  { name: 'work_type_id', label: "{% trans 'Work Type'|escapejs %}" },
+  { name: 'employee_work_info__company_id', label: "{% trans 'Company'|escapejs %}" },
+  { name: 'employee_work_info__reporting_manager_id', label: "{% trans 'Reporting Manager'|escapejs %}" },
+  { name: 'employee_work_info__tags', label: "{% trans 'Employee Tag'|escapejs %}" },
+];
+
+// Clear All: every field the chip row can show emptied directly, then one
+// direct refresh -- not a page reload (Chrome/Firefox restore a text
+// input's last-typed value across a plain reload independently of
+// whatever the server actually renders for it, which is exactly what kept
+// "Clear all" looking like it had done nothing: the server-side state was
+// genuinely reset, but the browser quietly refilled the input anyway).
+// Group By levels -- the Employee directory's own behaviour (generic/horilla_nav.html): numbered
+// rows, a field can be picked once, "+ Add level" up to the number of fields, a preview of the chain.
+function ngbRenumber() {
+  $('#nestedGroupByLevels .nested-group-by-row').each(function (i) {
+    $(this).find('.ngb-level-badge').text(i + 1);
+  });
+}
+function ngbUpdatePreview() {
+  var labels = [];
+  $('#nestedGroupByLevels select').each(function () {
+    if ($(this).val()) labels.push($(this).find('option:selected').text());
+  });
+  $('#nestedGroupByPreview').text(labels.length > 1 ? "{% trans 'Preview'|escapejs %}: " + labels.join(' › ') : '');
+}
+// Disables a field in the other rows once a level has picked it.
+function ngbUpdateDisabledOptions() {
+  var chosen = $('#nestedGroupByLevels select').map(function () { return $(this).val(); }).get().filter(Boolean);
+  $('#nestedGroupByLevels select').each(function () {
+    var own = $(this).val();
+    $(this).find('option').each(function () {
+      if (!$(this).val()) return;
+      $(this).prop('disabled', $(this).val() !== own && chosen.indexOf($(this).val()) !== -1);
+    });
+  });
+}
+function ngbAddLevel() {
+  var $container = $('#nestedGroupByLevels');
+  var maxLevels = parseInt($container.attr('data-max-levels'), 10) || 3;
+  if ($container.find('.nested-group-by-row').length >= maxLevels) return;
+  var $row = $container.find('.nested-group-by-row').first().clone();
+  $row.find('select').val('');
+  $container.append($row);
+  ngbRenumber(); ngbUpdatePreview(); ngbUpdateDisabledOptions();
+}
+function ngbRemoveLevel(btn) {
+  var $container = $('#nestedGroupByLevels');
+  if ($container.find('.nested-group-by-row').length <= 1) {
+    // The only level: clear it, which is the same as no grouping.
+    $container.find('select').val('');
+  } else {
+    $(btn).closest('.nested-group-by-row').remove();
+  }
+  ngbRenumber(); ngbUpdatePreview(); ngbUpdateDisabledOptions();
+  $('#ms-apply-filter').click();
+}
+function msClearGroupLevels() {
+  var $container = $('#nestedGroupByLevels');
+  $container.find('.nested-group-by-row:gt(0)').remove();
+  $container.find('select').val('');
+  ngbRenumber(); ngbUpdatePreview(); ngbUpdateDisabledOptions();
+}
+$(function () { ngbRenumber(); ngbUpdatePreview(); ngbUpdateDisabledOptions(); });
+
+// The "Grouped by" breadcrumb above the grouped table edits these same levels, so the filter
+// panel and the breadcrumb can never disagree: every change lands here, then Apply refreshes.
+function msSetGroupLevel(index, value) {
+  var $container = $('#nestedGroupByLevels');
+  var max = parseInt($container.attr('data-max-levels'), 10) || 3;
+  while ($container.find('.nested-group-by-row').length <= index && $container.find('.nested-group-by-row').length < max) {
+    ngbAddLevel();
+  }
+  $container.find('.nested-group-by-row').eq(index).find('select').val(value);
+  ngbUpdatePreview(); ngbUpdateDisabledOptions();
+  $('#ms-apply-filter').click();
+}
+function msRemoveGroupLevel(index) {
+  var $container = $('#nestedGroupByLevels');
+  var $rows = $container.find('.nested-group-by-row');
+  if ($rows.length <= 1) { $rows.find('select').val(''); } else { $rows.eq(index).remove(); }
+  ngbRenumber(); ngbUpdatePreview(); ngbUpdateDisabledOptions();
+  $('#ms-apply-filter').click();
+}
+document.addEventListener('click', function (e) {
+  if (e.target.closest && e.target.closest('.ngb-crumb-select-wrap')) return;
+  document.querySelectorAll('.ngb-crumb-select-wrap.force-open').forEach(function (w) { w.classList.remove('force-open'); });
+});
+
+function msRangeChanged() {
+  var select = document.getElementById('ms-range-mode');
+  var custom = select.value === 'custom';
+  document.getElementById('ms-range-custom').style.display = custom ? 'block' : 'none';
+  var source = custom ? document.getElementById('ms-range-day') : select;
+  var chosen = source.options[source.selectedIndex];
+  document.getElementById('ms-range-preview-text').textContent = chosen.dataset.text;
+  var note = document.getElementById('ms-range-note');
+  note.textContent = custom ? (chosen.dataset.note || '') : '';
+  note.style.display = note.textContent ? 'block' : 'none';
+}
+
+if (document.getElementById('ms-range-mode')) msRangeChanged();
+
+function msSaveRange(button) {
+  var mode = document.getElementById('ms-range-mode').value;
+  var body = new URLSearchParams({mode: mode});
+  var error = document.getElementById('ms-range-error');
+  error.style.display = 'none';
+  if (mode === 'custom') body.set('start_day', document.getElementById('ms-range-day').value);
+  fetch("{% url 'attendance-monthly-summary-default-range' %}", {
+    method: 'POST',
+    headers: {'X-CSRFToken': '{{ csrf_token }}', 'Content-Type': 'application/x-www-form-urlencoded'},
+    body: body.toString(),
+  }).then(function (r) { return r.json(); }).then(function (range) {
+    if (!range.from_date) {
+      error.textContent = range.error || '';
+      error.style.display = 'block';
+      return;
+    }
+    document.getElementById('ms-from-date').value = range.from_date;
+    document.getElementById('ms-to-date').value = range.to_date;
+    var modal = button.closest('.oh-modal');
+    if (modal) modal.classList.remove('oh-modal--show');
+    $('#ms-apply-filter').click();
+  });
+}
+
+function msSetView(view) {
+  var field = document.getElementById('ms-view');
+  if (!field || field.value === view) return;
+  field.value = view;
+  // Remembered, so the page opens on this view next time (read by the server when it renders).
+  document.cookie = 'ms_view=' + view + '; path=/; max-age=31536000; SameSite=Lax';
+  document.querySelectorAll('.ms-view-btn').forEach(function (b) {
+    b.classList.toggle('oh-view-btn--active', b.dataset.view === view);
+  });
+  var form = document.getElementById('summary-filter-form');
+  var params = new URLSearchParams(new FormData(form));
+  params.delete('page');
+  htmx.ajax('GET', "{% url 'attendance-monthly-summary-table' %}?" + params.toString(), {
+    target: '#summary-table-container',
+    swap: 'innerHTML',
+  });
+}
+
+function msClearAllFilters() {
+  msClearGroupLevels();
+  var search = document.getElementById('ms-search-input');
+  if (search) search.value = '';
+  var nameOrBadge = document.getElementById('ms-name-or-badge-input');
+  if (nameOrBadge) nameOrBadge.value = '';
+  var anyRadio = document.querySelector('[name="is_active"][value=""]');
+  if (anyRadio) anyRadio.checked = true;
+  MS_MULTI_FIELDS.forEach(function (f) {
+    var field = document.querySelector('[name="' + f.name + '"]');
+    if (!field) return;
+    Array.from(field.options || []).forEach(function (o) { o.selected = false; });
+    if (window.jQuery) jQuery(field).trigger('change');
+  });
+
+  var form = document.getElementById('summary-filter-form');
+  var params = new URLSearchParams(new FormData(form)).toString();
+  htmx.ajax('GET', "{% url 'attendance-monthly-summary-table' %}" + (params ? '?' + params : ''), {
+    target: '#summary-table-container',
+    swap: 'innerHTML',
+  });
+  msRenderFilterTags();
+  msSyncSavedFilters();
+}
+
 // ── Active-filter chips (mirrors generic/filter_tags.html's look) ──
 // The filter form never pushes its params to the browser URL
 // (hx-push-url="false"), so the chips are built from the form's own
@@ -349,17 +953,7 @@ function msRenderFilterTags() {
   if (nameOrBadgeVal) {
     chips.push({ key: 'name_or_badge', label: "{% trans 'Name or Badge ID'|escapejs %}", value: nameOrBadgeVal });
   }
-  var multiFields = [
-    { name: 'employee_id', label: "{% trans 'Employee'|escapejs %}" },
-    { name: 'department_id', label: "{% trans 'Department'|escapejs %}" },
-    { name: 'job_position_id', label: "{% trans 'Job Position'|escapejs %}" },
-    { name: 'shift_id', label: "{% trans 'Shift'|escapejs %}" },
-    { name: 'work_type_id', label: "{% trans 'Work Type'|escapejs %}" },
-    { name: 'employee_work_info__company_id', label: "{% trans 'Company'|escapejs %}" },
-    { name: 'employee_work_info__reporting_manager_id', label: "{% trans 'Reporting Manager'|escapejs %}" },
-    { name: 'employee_work_info__tags', label: "{% trans 'Employee Tag'|escapejs %}" },
-  ];
-  multiFields.forEach(function (f) {
+  MS_MULTI_FIELDS.forEach(function (f) {
     var select = document.querySelector('[name="' + f.name + '"]');
     if (!select) return;
     var selected = Array.from(select.selectedOptions || []);
@@ -370,13 +964,31 @@ function msRenderFilterTags() {
       value: selected.map(function (o) { return o.text; }).join(', '),
     });
   });
+  var groupNames = Array.from(document.querySelectorAll('#nestedGroupByLevels select'))
+    .filter(function (s) { return s.value; })
+    .map(function (s) { return s.options[s.selectedIndex].text; });
+  if (groupNames.length) {
+    chips.push({ key: 'nested_fields', label: "{% trans 'Group by'|escapejs %}", value: groupNames.join(' › ') });
+  }
   var activeEl = document.querySelector('[name="is_active"]:checked');
   if (activeEl && activeEl.value) {
     chips.push({
       key: 'is_active',
-      label: "{% trans 'Is Active'|escapejs %}",
+      label: "{% trans 'Active'|escapejs %}",
       value: activeEl.value === 'True' ? "{% trans 'Yes'|escapejs %}" : "{% trans 'No'|escapejs %}",
     });
+  }
+
+  window.msActiveChips = chips;
+
+  // Filter button: the same red accent + count badge the standard toolbar
+  // shows once its own filter panel is no longer at the unfiltered default.
+  var filterBtn = document.getElementById('modernFilterTrigger');
+  var filterBadge = document.getElementById('ms-filter-badge');
+  if (filterBtn && filterBadge) {
+    filterBtn.classList.toggle('ms-filter-active', chips.length > 0);
+    filterBadge.textContent = String(chips.length);
+    filterBadge.style.display = chips.length ? 'inline-flex' : 'none';
   }
 
   wrap.innerHTML = '<span class="oh-titlebar__tag oh-titlebar__tag--custom">{% trans "Filters"|escapejs %}:</span>';
@@ -389,46 +1001,113 @@ function msRenderFilterTags() {
     var tag = document.createElement('span');
     tag.className = 'ms-filter-tag';
     tag.innerHTML = chip.label + ': ' + chip.value +
-      ' <ion-icon name="close-outline" data-clear-key="' + chip.key + '"></ion-icon>';
+      '<span class="ms-filter-tag-close" data-clear-key="' + chip.key + '">' +
+      '<ion-icon name="close-outline"></ion-icon></span>';
     wrap.appendChild(tag);
   });
+  var saveBtn = document.createElement('button');
+  saveBtn.type = 'button';
+  saveBtn.className = 'oh-titlebar__save';
+  saveBtn.title = "{% trans 'Save filter'|escapejs %}";
+  saveBtn.innerHTML = '<ion-icon name="bookmark-outline"></ion-icon>' + "{% trans 'Save'|escapejs %}";
+  saveBtn.onclick = msSaveCurrentFilter;
+  wrap.appendChild(saveBtn);
+
   var clearAll = document.createElement('span');
   clearAll.className = 'oh-titlebar__tag oh-titlebar__tag--custom';
   clearAll.style.cursor = 'pointer';
   clearAll.title = "{% trans 'Clear All'|escapejs %}";
-  clearAll.onclick = function () { window.location.href = "{% url 'attendance-monthly-summary' %}"; };
+  clearAll.onclick = msClearAllFilters;
   clearAll.innerHTML = '<ion-icon name="close-outline"></ion-icon>';
   wrap.appendChild(clearAll);
 }
 
+// Reuses the same generic SavedFilter backend every other list page saves
+// to (horilla_views.views.SavedFilter) -- it only needs a path and a GET
+// querystring, neither of which is specific to the CBV filter system. The
+// querystring has to be built from the form's live field values rather
+// than location.search, same reason msRenderFilterTags does: this form
+// never pushes its state to the browser URL (hx-push-url="false").
+function msSaveCurrentFilter() {
+  var form = document.getElementById('summary-filter-form');
+  var params = new URLSearchParams(new FormData(form)).toString();
+  var path = "{% url 'attendance-monthly-summary' %}";
+  var url = "{% url 'saved-filter' %}?path=" + encodeURIComponent(path) +
+    "&referrer=" + encodeURIComponent(window.location.href) +
+    (params ? "&" + params : "");
+  htmx.ajax('GET', url, { target: '#msSavedFilterFormTarget', swap: 'innerHTML' }).then(function () {
+    document.getElementById('msSavedFilterModal').classList.add('oh-modal--show');
+  });
+}
+
 document.getElementById('ms-filter-tags').addEventListener('click', function (e) {
-  var key = e.target.getAttribute && e.target.getAttribute('data-clear-key');
+  // The close button now wraps an <ion-icon>, so a click can land on
+  // either -- closest() finds the [data-clear-key] element either way,
+  // where e.target's own attribute would miss it for icon clicks.
+  var closeEl = e.target.closest && e.target.closest('[data-clear-key]');
+  var key = closeEl && closeEl.getAttribute('data-clear-key');
   if (!key) return;
+
   if (key === 'search') {
     document.getElementById('ms-search-input').value = '';
-    document.getElementById('ms-search-input').dispatchEvent(new Event('input'));
-    return;
-  }
-  if (key === 'name_or_badge') {
+  } else if (key === 'name_or_badge') {
     document.getElementById('ms-name-or-badge-input').value = '';
-    document.getElementById('ms-apply-filter').click();
-    return;
-  }
-  if (key === 'is_active') {
+  } else if (key === 'is_active') {
     var anyRadio = document.querySelector('[name="is_active"][value=""]');
     if (anyRadio) anyRadio.checked = true;
-    document.getElementById('ms-apply-filter').click();
-    return;
+  } else if (key === 'nested_fields') {
+    msClearGroupLevels();
+  } else {
+    var field = document.querySelector('[name="' + key + '"]');
+    if (field) {
+      Array.from(field.options || []).forEach(function (o) { o.selected = false; });
+      // Select2 renders its own chips from the <select>'s state at the
+      // time it last saw a change event -- clearing .selected above
+      // doesn't reach it on its own, so its widget kept showing the
+      // cleared option as still picked until told to re-read the field.
+      if (window.jQuery) jQuery(field).trigger('change');
+    }
   }
-  var field = document.querySelector('[name="' + key + '"]');
-  if (field) {
-    Array.from(field.options || []).forEach(function (o) { o.selected = false; });
-    if (window.jQuery) jQuery(field).trigger('change');
-  }
-  document.getElementById('ms-apply-filter').click();
+
+  // The table refresh no longer goes through .click() on the Apply submit
+  // button -- for every key except "search" that meant relying on htmx's
+  // own interception of the form's native "submit" event correctly
+  // reaching completion before anything else read the form's state, which
+  // is more machinery than this needs. htmx.ajax() with the form's current
+  // (already-cleared) values is the same direct call msSaveCurrentFilter()
+  // above already uses for its own htmx request, applied here instead of
+  // trusting a simulated click through a different code path per field.
+  var form = document.getElementById('summary-filter-form');
+  var params = new URLSearchParams(new FormData(form)).toString();
+  htmx.ajax('GET', "{% url 'attendance-monthly-summary-table' %}" + (params ? '?' + params : ''), {
+    target: '#summary-table-container',
+    swap: 'innerHTML',
+  });
+
+  // Called directly rather than left to arrive via some other element's
+  // own event -- the field this chip belongs to has already been cleared
+  // above, so rebuilding the row now is always correct.
+  msRenderFilterTags();
+  msSyncSavedFilters();
 });
 
 document.getElementById('summary-filter-form').addEventListener('submit', msRenderFilterTags);
+
+// The shared saveFilters.js restores the last applied filter on every load and clicks Apply 250 ms
+// later. If htmx has not taken over the form by then, the browser submits it itself: a full page
+// load with the filter in the address bar, which restores and clicks again, and so on. This
+// listener runs after the form's own (htmx's) and only when nothing has handled the submit: it
+// stops the browser's navigation and sends the same request htmx would have.
+window.addEventListener('submit', function (e) {
+  if (e.target.id !== 'summary-filter-form' || e.defaultPrevented) return;
+  e.preventDefault();
+  var params = new URLSearchParams(new FormData(e.target));
+  params.delete('page');
+  htmx.ajax('GET', "{% url 'attendance-monthly-summary-table' %}?" + params.toString(), {
+    target: '#summary-table-container',
+    swap: 'innerHTML',
+  });
+});
 document.getElementById('ms-search-input').addEventListener('change', msRenderFilterTags);
 document.addEventListener('DOMContentLoaded', msRenderFilterTags);
 msRenderFilterTags();
@@ -452,6 +1131,40 @@ function msSyncExportLink() {
   }
   document.getElementById('export-btn').href =
     "{% url 'attendance-monthly-summary-export' %}?" + params.toString();
+  msSyncTemplateLink(params, selectedIds);
+}
+
+// The day-wise template covers what is on screen: the same range and filters as the export.
+function msSyncTemplateLink(params, selectedIds) {
+  var link = document.getElementById('ms-template-link');
+  var tip = document.getElementById('ms-template-tip');
+  if (!link || !tip) return;
+  link.href = "{% url 'attendance-daywise-template' %}?" + params.toString();
+  msRenderFilterTags();
+  var chips = window.msActiveChips || [];
+  var fmt = function (iso) {
+    var d = new Date(iso + 'T00:00:00');
+    return isNaN(d) ? iso : d.toLocaleDateString('en-GB', {day: '2-digit', month: 'short', year: 'numeric'});
+  };
+  var rows = [
+    [ "{% trans 'Range'|escapejs %}", fmt(params.get('from_date')) + ' \u2013 ' + fmt(params.get('to_date')) ],
+    [ "{% trans 'Filters'|escapejs %}", chips.length
+        ? chips.map(function (c) { return c.label + ': ' + c.value; }).join('; ')
+        : "{% trans 'None (All Employees)'|escapejs %}" ],
+  ];
+  if (selectedIds && selectedIds.length) {
+    rows.push([ "{% trans 'Selected Employees'|escapejs %}", String(selectedIds.length) ]);
+  }
+  tip.textContent = '';
+  var head = document.createElement('div');
+  head.innerHTML = '<b></b>';
+  head.firstChild.textContent = "{% trans 'The Template Covers'|escapejs %}";
+  tip.appendChild(head);
+  rows.forEach(function (r) {
+    var line = document.createElement('div');
+    line.textContent = r[0] + ': ' + r[1];
+    tip.appendChild(line);
+  });
 }
 document.getElementById('summary-filter-form').addEventListener('submit', msSyncExportLink);
 // htmx:afterSwap fires on the TARGET element for every HTMX request that updates
@@ -459,6 +1172,64 @@ document.getElementById('summary-filter-form').addEventListener('submit', msSync
 // fires on the issuing element and won't reach the container when the search input
 // (a sibling of the form) triggers its own request.
 document.getElementById('summary-table-container').addEventListener('htmx:afterSwap', msSyncExportLink);
+
+// The shared saveFilters.js remembers the filter at the last Apply click and puts it back on every
+// load of this page. Clearing a filter (its chip, Clear All, emptying the search) does not click
+// Apply, so the old filter came back after a reload. Keep the remembered filter equal to the form
+// as it is when a filter is cleared or the search is edited, and forget it when nothing is filtered.
+// Not on every table load: the first one runs before saveFilters.js has put the filter back.
+// Opened by clicking through the app (no full page load, so saveFilters.js did not run and did not
+// restore anything): the page is unfiltered, so forget the old filter too. Otherwise it would come back
+// at the next refresh, long after it was left.
+if (document.readyState === 'complete') {
+  try { localStorage.removeItem('savedFilters'); } catch (e) { /* nothing remembered */ }
+}
+
+function msSyncSavedFilters() {
+  var form = document.getElementById('summary-filter-form');
+  if (!form) return;
+  var data = {};
+  new FormData(form).forEach(function (value, key) {
+    if (Object.prototype.hasOwnProperty.call(data, key)) {
+      if (!Array.isArray(data[key])) data[key] = [data[key]];
+      data[key].push(value);
+    } else {
+      data[key] = value;
+    }
+  });
+  var active = Object.keys(data).some(function (key) {
+    return ['from_date', 'to_date', 'view', 'page'].indexOf(key) < 0
+      && [].concat(data[key]).some(function (value) { return value !== ''; });
+  });
+  try {
+    if (active) {
+      localStorage.setItem('savedFilters', JSON.stringify({
+        currentPath: window.location.pathname,
+        formSelector: 'form[hx-get="' + form.getAttribute('hx-get') + '"]',
+        filterData: data,
+      }));
+    } else {
+      localStorage.removeItem('savedFilters');
+    }
+  } catch (e) { /* storage unavailable: nothing to keep in step */ }
+}
+// The list's hover popover lives in <body>, outside the area that is swapped. Swapping to another
+// view while it is open (its cell is removed, so no mouseleave comes) left it on screen, now without
+// the list's styles. Hide it whenever the table area is about to change.
+document.getElementById('summary-table-container').addEventListener('htmx:beforeSwap', function () {
+  var pop = document.getElementById('ms-pop');
+  if (pop) pop.style.display = 'none';
+});
+
+// Called where a person clears a filter: its chip, Clear All, the search box emptied.
+(function () {
+  var search = document.getElementById('ms-search-input');
+  var timer;
+  if (search) search.addEventListener('input', function () {
+    clearTimeout(timer);
+    timer = setTimeout(msSyncSavedFilters, 700);
+  });
+})();
 
 // Row/header selection (Select/Unselect, highlight, count badges) is handled
 // entirely by the shared index.js functions via each checkbox's own inline
@@ -485,6 +1256,7 @@ document.getElementById('summary-table-container').addEventListener('htmx:afterS
 // ── Per-day hours editing — must live here (server-rendered template) so
 //    the functions are guaranteed to be defined regardless of HTMX reloads.
 var _MS_HOURS_EDIT_URL = "{% url 'attendance-monthly-summary-daily-hours-edit' %}";
+window._MS_HOURS_EDIT_URL = _MS_HOURS_EDIT_URL;
 
 window.msCalHoursEdit = function (empPk, dateStr, fromDate, toDate, computedSec) {
   var el = document.getElementById('crp-hours-' + empPk + '-' + dateStr);
@@ -592,4 +1364,11 @@ window.msCalHoursCancel = function (empPk, dateStr, fromDate, toDate, computedSe
 };
 </script>
 
+{% comment %}
+#relatedObjectModal, which the regularisation confirmation is loaded into. It
+lives in a per-page include rather than the base template, so a page that opens
+one has to bring it.
+{% endcomment %}
+{% include "generic/components.html" %}
+{% include "attendance/monthly_summary/_regularise_opener.html" %}
 {% endblock content %}

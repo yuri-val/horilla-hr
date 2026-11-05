@@ -9,7 +9,8 @@ import ast
 import json
 import os
 import re
-from datetime import datetime, timezone
+import secrets
+from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from urllib.parse import urlencode
 from uuid import uuid4
@@ -18,14 +19,16 @@ import django
 import requests
 from django import forms
 from django.conf import settings
+from django.contrib.auth.hashers import check_password, make_password
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.core.files.storage import default_storage
 from django.core.validators import MaxValueValidator, MinValueValidator
-from django.db import models
+from django.db import IntegrityError, models, transaction
 from django.db.models import Avg, Min
 from django.templatetags.static import static
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone as tz
+from django.utils.dateparse import parse_date
 from django.utils.functional import cached_property
 from django.utils.html import format_html
 from django.utils.text import slugify
@@ -182,7 +185,7 @@ class Recruitment(HorillaModel):
             "To publish a recruitment in website, if false then it \
             will not appear on open recruitment page."
         ),
-        verbose_name=_("Is Published"),
+        verbose_name=_("Published"),
     )
     open_positions = models.ManyToManyField(
         JobPosition,
@@ -226,7 +229,7 @@ class Recruitment(HorillaModel):
     )
     linkedin_post_id = models.CharField(max_length=150, null=True, blank=True)
     publish_in_linkedin = models.BooleanField(
-        default=True,
+        default=False,
         help_text=_(
             "To publish a recruitment in Linkedin, if active is false then it \
             will not post on LinkedIn."
@@ -432,12 +435,47 @@ class Recruitment(HorillaModel):
         This method is used to check wether the vaccancy for the recruitment is completed or not
         """
         hired_stage = Stage.objects.filter(
-            recruitment_id=self, stage_type="hired"
+            recruitment_id=self, stage_type="shortlisted"
         ).first()
         if hired_stage:
             hired_candidate = hired_stage.candidate_set.all().exclude(canceled=True)
             if len(hired_candidate) >= self.vacancy:
                 return True
+
+    def get_or_create_applied_stage(self):
+        """
+        Return this recruitment's Applied stage, creating it if missing.
+
+        The recruitment row is locked while looking up / creating so concurrent
+        submissions serialise instead of each creating a stage; the unique
+        constraint on Stage is the backstop where row locks are unsupported
+        (SQLite). Unscoped managers are used: public applicants have no
+        company session.
+        """
+        stages = Stage._base_manager.filter(recruitment_id=self)
+        with transaction.atomic():
+            Recruitment._base_manager.select_for_update().filter(pk=self.pk).first()
+            stage = stages.filter(stage_type="applied").first()
+            if stage:
+                return stage
+            first = stages.order_by("sequence").values_list("sequence", flat=True)
+            first = first.first()
+            # Applied is the pipeline entry point: put it first without
+            # renumbering existing stages.
+            sequence = 0 if first is None or first > 0 else first - 1
+            name = "Applied"
+            if stages.filter(stage__iexact=name).exists():
+                name = "Applied Candidates"
+            try:
+                with transaction.atomic():
+                    return Stage._base_manager.create(
+                        recruitment_id=self,
+                        stage=name,
+                        stage_type="applied",
+                        sequence=sequence,
+                    )
+            except IntegrityError:
+                return stages.get(stage_type="applied")
 
 
 class Stage(HorillaModel):
@@ -450,8 +488,8 @@ class Stage(HorillaModel):
         ("applied", _("Applied")),
         ("test", _("Test")),
         ("interview", _("Interview")),
-        ("cancelled", _("Cancelled")),
-        ("hired", _("Hired")),
+        ("cancelled", _("Rejected")),
+        ("shortlisted", _("Shortlisted")),
     ]
     recruitment_id = models.ForeignKey(
         Recruitment,
@@ -476,6 +514,10 @@ class Stage(HorillaModel):
         ],
     )
 
+    # Stage types allowed once per recruitment: Applied, Hired (shortlisted)
+    # and Rejected (cancelled).
+    UNIQUE_STAGE_TYPES = ("applied", "shortlisted", "cancelled")
+
     class Meta:
         """
         Meta class to add the additional info
@@ -483,12 +525,51 @@ class Stage(HorillaModel):
 
         permissions = (("archive_Stage", "Archive Stage"),)
         unique_together = ["recruitment_id", "stage"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["recruitment_id", "stage_type"],
+                condition=models.Q(
+                    stage_type__in=["applied", "shortlisted", "cancelled"]
+                ),
+                name="unique_special_stage_type_per_recruitment",
+                violation_error_message=_(
+                    "A stage of this type already exists for this recruitment."
+                ),
+            )
+        ]
         ordering = ["sequence"]
         verbose_name = _("Stage")
         verbose_name_plural = _("Stages")
 
     def __str__(self):
         return f"{self.stage} - ({self.recruitment_id.title})"
+
+    def clean(self):
+        super().clean()
+        self.stage_type = (self.stage_type or "").strip().lower()
+        if (
+            self.stage_type in self.UNIQUE_STAGE_TYPES
+            and self.recruitment_id_id
+            and Stage._base_manager.filter(
+                recruitment_id_id=self.recruitment_id_id, stage_type=self.stage_type
+            )
+            .exclude(pk=self.pk)
+            .exists()
+        ):
+            label = dict(self.stage_types).get(self.stage_type, self.stage_type)
+            raise ValidationError(
+                {
+                    "stage_type": _(
+                        "A '%(type)s' stage already exists for this recruitment."
+                    )
+                    % {"type": label}
+                }
+            )
+
+    def save(self, *args, **kwargs):
+        if self.stage_type:
+            self.stage_type = self.stage_type.strip().lower()
+        super().save(*args, **kwargs)
 
     def active_candidates(self):
         """
@@ -581,7 +662,7 @@ class Stage(HorillaModel):
             ("test", _("Test")),
             ("interview", _("Interview")),
             ("cancelled", _("Cancelled")),
-            ("hired", _("Hired")),
+            ("shortlisted", _("Shortlisted")),
         ]
 
         return dict(stage_types).get(self.stage_type)
@@ -637,6 +718,18 @@ class Candidate(HorillaModel):
     source_choices = [
         ("application", _("Application Form")),
         ("software", _("Inside software")),
+        ("other", _("Other")),
+    ]
+    referral_source_choices = [
+        ("job_board", _("Job Boards")),
+        ("company_career_site", _("Company Career Site")),
+        ("social_media", _("Social Media")),
+        ("employee_referral", _("Employee Referral")),
+        ("recruiter_headhunter", _("Recruiter / Headhunter")),
+        ("search_engine", _("Search Engine")),
+        ("college_university", _("College or University")),
+        ("advertisement_event", _("Advertisement / Event")),
+        ("resume_shortlisting", _("Resume Shortlisting")),
         ("other", _("Other")),
     ]
     name = models.CharField(max_length=100, null=True, verbose_name=_("Name"))
@@ -727,6 +820,19 @@ class Candidate(HorillaModel):
         blank=True,
         verbose_name=_("Source"),
     )
+    referral_source = models.CharField(
+        max_length=20,
+        choices=referral_source_choices,
+        null=True,
+        blank=True,
+        verbose_name=_("How Did You Hear About Us?"),
+    )
+    referral_source_other = models.CharField(
+        max_length=100,
+        null=True,
+        blank=True,
+        verbose_name=_("Please Specify"),
+    )
     start_onboard = models.BooleanField(
         default=False, verbose_name=_("Start Onboarding")
     )
@@ -741,6 +847,7 @@ class Candidate(HorillaModel):
         bases=[
             HorillaAuditInfo,
         ],
+        excluded_fields=["portal_password"],
     )
     sequence = models.IntegerField(null=True, default=0)
 
@@ -751,6 +858,16 @@ class Candidate(HorillaModel):
         default="not_sent",
         editable=False,
         verbose_name=_("Offer Letter Status"),
+    )
+    # Hash of the password the candidate logs in to the application tracking
+    # page with. Empty until an invitation has been sent; set only by
+    # `issue_portal_password`, never through a form.
+    portal_password = models.CharField(
+        max_length=128,
+        null=True,
+        blank=True,
+        editable=False,
+        verbose_name=_("Portal Password"),
     )
     objects = HorillaCompanyManager(related_company_field="recruitment_id__company_id")
     last_updated = models.DateField(null=True, auto_now=True)
@@ -765,10 +882,48 @@ class Candidate(HorillaModel):
     def __str__(self):
         return f"{self.name}"
 
+    PORTAL_PASSWORD_LENGTH = 10
+    # No look-alikes (0/O, 1/l/I) so the password survives being read off an email.
+    PORTAL_PASSWORD_ALPHABET = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+
+    @classmethod
+    def generate_portal_password(cls):
+        """
+        A new random password for the application tracking page (not stored).
+        """
+        return "".join(
+            secrets.choice(cls.PORTAL_PASSWORD_ALPHABET)
+            for _position in range(cls.PORTAL_PASSWORD_LENGTH)
+        )
+
+    def issue_portal_password(self, raw_password):
+        """
+        Make `raw_password` the one password that opens the tracking page,
+        replacing any earlier one. Only its hash is kept. Written with
+        `update()` so it neither records a history entry nor fires the
+        automations a candidate save does.
+        """
+        hashed = make_password(raw_password)
+        type(self)._base_manager.filter(pk=self.pk).update(portal_password=hashed)
+        self.portal_password = hashed
+
+    def check_portal_password(self, raw_password):
+        """
+        Whether `raw_password` is this candidate's tracking page password.
+        """
+        return bool(self.portal_password) and check_password(
+            raw_password, self.portal_password
+        )
+
     def stage_drop_down(self):
         """
         Stage drop down
         """
+        # stage_id is nullable (e.g. a candidate already converted to an
+        # employee) - there's no recruitment to pull sibling stages from,
+        # so there's nothing to build a dropdown out of.
+        if self.stage_id is None:
+            return ""
         request = getattr(_thread_locals, "request", None)
         all_rec_stages = getattr(request, "all_rec_stages", {})
         if all_rec_stages.get(self.stage_id.recruitment_id.pk) is None:
@@ -847,9 +1002,20 @@ class Candidate(HorillaModel):
         return self.resume.url
 
     def onboarding_portal_html(self):
+        # A hired candidate has no OnboardingPortal row until HR actually
+        # sends them the portal invite (see the Candidates list's "Portal
+        # Not-Sent" filter) -- that's an expected, common state, not an
+        # error, so render a neutral placeholder instead of crashing.
+        try:
+            count = self.onboarding_portal.count
+        except ObjectDoesNotExist:
+            return format_html(
+                '<div class="oh-checkpoint-badge oh-checkpoint-badge--light">{}</div>',
+                _("Not sent"),
+            )
         return format_html(
             '<div class="oh-checkpoint-badge oh-checkpoint-badge--secondary">{}/4</div>',
-            self.onboarding_portal.count,
+            count,
         )
 
     def rating(self):
@@ -876,10 +1042,18 @@ class Candidate(HorillaModel):
         """
         This method for get custome coloumn for tasks.
         """
-        from onboarding.models import CandidateStage, CandidateTask
+        from onboarding.models import CandidateTask
 
-        cand_stage = self.onboarding_stage.id
-        cand_stage_obj = CandidateStage.objects.get(id=cand_stage)
+        # Same "not started onboarding yet" state as onboarding_portal_html
+        # above -- a hired candidate has no CandidateStage until the portal
+        # invite is sent, so this reverse accessor legitimately has nothing
+        # to return yet rather than being a data error.
+        try:
+            cand_stage_obj = self.onboarding_stage
+        except ObjectDoesNotExist:
+            return format_html(
+                '<span class="text-muted">{}</span>', _("Onboarding not started yet")
+            )
         choices = CandidateTask.choice
 
         return render_template(
@@ -901,6 +1075,45 @@ class Candidate(HorillaModel):
         else:
             return _("Un-Archive")
 
+    def self_tracking_enabled(self):
+        """
+        Whether this candidate's own company has application tracking enabled.
+
+        The company switcher ("All Company" or a single company) must not change
+        which row actions a candidate shows, so the setting is resolved from the
+        candidate's company rather than from the selected one. Falls back to
+        the setting for the selected company when the candidate has no company.
+        Lookups are cached per request, one per distinct company.
+        """
+        request = getattr(_thread_locals, "request", None)
+        cache = None
+        if request is not None:
+            cache = request.__dict__.setdefault("_self_tracking_by_company", {})
+        company_id = (
+            Recruitment.objects.filter(pk=self.recruitment_id_id)
+            .values_list("company_id_id", flat=True)
+            .first()
+            if self.recruitment_id_id
+            else None
+        )
+        if cache is not None and company_id in cache:
+            return cache[company_id]
+        enabled = None
+        if company_id:
+            setting = RecruitmentGeneralSetting.objects.filter(
+                company_id_id=company_id
+            ).first()
+            if setting:
+                enabled = bool(setting.candidate_self_tracking)
+        if enabled is None:
+            from base.context_processors import check_candidate_recruitment_setting
+
+            setting = check_candidate_recruitment_setting(request) if request else None
+            enabled = bool(setting and setting.candidate_self_tracking)
+        if cache is not None:
+            cache[company_id] = enabled
+        return enabled
+
     def resume_pdf(self):
         """
         This method for get custome coloumn for resume.
@@ -911,9 +1124,9 @@ class Candidate(HorillaModel):
             context={"instance": self},
         )
 
-    def options(self):
+    def actions_col(self):
         """
-        This method for get custom coloumn for options.
+        This method for get custom column for actions.
         """
 
         request = getattr(_thread_locals, "request", None)
@@ -928,18 +1141,8 @@ class Candidate(HorillaModel):
         )
 
         return render_template(
-            path="cbv/candidates/option.html",
-            context={"instance": self, "emp_list": emp_list},
-        )
-
-    def actions_col(self):
-        """
-        This method for get custom column for actions.
-        """
-
-        return render_template(
             path="cbv/candidates/actions.html",
-            context={"instance": self},
+            context={"instance": self, "emp_list": emp_list},
         )
 
     def get_profile_url(self):
@@ -1007,6 +1210,12 @@ class Candidate(HorillaModel):
         url = reverse_lazy("candidate-conversion", kwargs={"cand_id": self.pk})
         return url
 
+    def get_send_mail_url(self):
+        """
+        This method to get send mail url of the candidate
+        """
+        return reverse_lazy("send-mail", kwargs={"cand_id": self.pk})
+
     def get_add_to_skill(self):
         """
         This method to get add to talent pool employee url
@@ -1049,6 +1258,12 @@ class Candidate(HorillaModel):
         """
         url = reverse_lazy("rec-candidate-delete", kwargs={"cand_id": self.pk})
         return url
+
+    def get_list_url(self):
+        """
+        This method to get the candidate list page url
+        """
+        return reverse_lazy("candidate-view")
 
     def get_self_tracking_url(self):
         """
@@ -1155,6 +1370,7 @@ class Candidate(HorillaModel):
         """
         return get_diff(self)
 
+    @cached_property
     def get_last_sent_mail(self):
         """
         This method is used to get last send mail
@@ -1204,22 +1420,53 @@ class Candidate(HorillaModel):
             context={"instance": self, "interviews": interviews},
         )
 
+    # Read by DynamicBulkUpdateForm.save(): a bulk update otherwise applies each
+    # field with one raw SQL UPDATE, which never calls save(). Moving candidates
+    # to the cancelled/hired stage that way changed `stage_id` only, so the
+    # Rejected ribbon (`canceled`) and `hired` were never set. Naming the method
+    # here routes the stage through it, per selected candidate.
+    bulk_update_setters = {"stage_id": "set_stage"}
+
+    def set_stage(self, stage):
+        """
+        Move the candidate to ``stage``. ``save()`` derives ``canceled`` and
+        ``hired`` from the stage type.
+        """
+        self.stage_id = stage
+        self.save()
+
     def save(self, *args, **kwargs):
         if self.stage_id is not None:
-            self.hired = self.stage_id.stage_type == "hired"
+            self.hired = self.stage_id.stage_type == "shortlisted"
+
+        if isinstance(self.joining_date, str):
+            self.joining_date = parse_date(self.joining_date)
 
         should_validate_job_position = not self.pk
+        joining_date_changed = bool(self.joining_date)
         if self.pk:
             previous = (
                 Candidate.objects.filter(pk=self.pk)
-                .values("recruitment_id", "job_position_id")
+                .values("recruitment_id", "job_position_id", "stage_id", "joining_date")
                 .first()
             )
             if previous:
+                joining_date_changed = previous["joining_date"] != self.joining_date
                 should_validate_job_position = (
                     previous["recruitment_id"] != self.recruitment_id_id
                     or previous["job_position_id"] != self.job_position_id_id
                 )
+                # Moving a candidate to a stage other than the cancelled one
+                # re-opens a rejected candidate. Without this, `canceled`
+                # stayed True and the block below snapped the candidate
+                # straight back into the cancelled stage.
+                if (
+                    self.canceled
+                    and self.stage_id_id != previous["stage_id"]
+                    and self.stage_id
+                    and self.stage_id.stage_type != "cancelled"
+                ):
+                    self.canceled = False
 
         if not self.recruitment_id.is_event_based and self.job_position_id is None:
             self.job_position_id = self.recruitment_id.job_position_id
@@ -1228,20 +1475,13 @@ class Candidate(HorillaModel):
                 raise ValidationError({"job_position_id": _("Choose valid choice")})
             if self.recruitment_id.is_event_based and self.job_position_id is None:
                 raise ValidationError({"job_position_id": _("This field is required.")})
-        if self.stage_id and self.stage_id.stage_type == "cancelled":
-            self.canceled = True
+
+        if self.stage_id is not None:
+            self.canceled = self.stage_id.stage_type == "cancelled"
+
         if self.canceled:
-            cancelled_stage = Stage.objects.filter(
-                recruitment_id=self.recruitment_id, stage_type="cancelled"
-            ).first()
-            if not cancelled_stage:
-                cancelled_stage = Stage.objects.create(
-                    recruitment_id=self.recruitment_id,
-                    stage="Cancelled Candidates",
-                    stage_type="cancelled",
-                    sequence=50,
-                )
-            self.stage_id = cancelled_stage
+            self.move_to_rejected_stage()
+
         if (
             self.converted_employee_id
             and Candidate.objects.filter(
@@ -1256,7 +1496,72 @@ class Candidate(HorillaModel):
             self.hired = False
             self.canceled = False
 
+        if self.joining_date and joining_date_changed:
+            company_id = self.recruitment_id.company_id_id
+            setting = (
+                RecruitmentGeneralSetting.objects.filter(
+                    company_id_id=company_id
+                ).first()
+                or RecruitmentGeneralSetting.objects.filter(
+                    company_id__isnull=True
+                ).first()
+            )
+            default_period = (
+                setting.default_probation_period
+                if setting and setting.default_probation_period is not None
+                else 90
+            )
+            self.probation_end = self.joining_date + timedelta(days=default_period)
+
         super().save(*args, **kwargs)
+
+    def move_to_rejected_stage(self):
+        """
+        Assign the recruitment's rejected stage, creating it if missing, without saving.
+        """
+        if self.stage_id is not None and self.stage_id.stage_type == "cancelled":
+            return
+        rejected_stage = Stage.objects.filter(
+            recruitment_id=self.recruitment_id, stage_type="cancelled"
+        ).first()
+        if not rejected_stage:
+            try:
+                with transaction.atomic():
+                    rejected_stage = Stage.objects.create(
+                        recruitment_id=self.recruitment_id,
+                        stage="Rejected Candidates",
+                        stage_type="cancelled",
+                        sequence=50,
+                    )
+            except IntegrityError:
+                rejected_stage = Stage._base_manager.get(
+                    recruitment_id=self.recruitment_id, stage_type="cancelled"
+                )
+        self.stage_id = rejected_stage
+
+    def move_to_applied_stage(self):
+        """
+        Assign the recruitment's applied stage, creating it if missing,
+        without saving -- the reverse of move_to_rejected_stage(), used to
+        un-reject a candidate. save() flips `canceled` back to False on its
+        own once stage_id.stage_type is no longer "cancelled" (see the
+        re-open logic in save() above), so nothing else needs to change here.
+        """
+        self.stage_id = self.recruitment_id.get_or_create_applied_stage()
+
+    def get_remove_rejection_url(self):
+        """
+        This method returns the URL to delete this candidate's rejection
+        record (and, via delete_candidate_rejection, move them back to the
+        recruitment's Applied stage), or "" if they are not currently
+        rejected.
+        """
+        rejection = getattr(self, "rejected_candidate", None)
+        if not rejection:
+            return ""
+        return reverse_lazy(
+            "delete-candidate-rejection", kwargs={"rej_id": rejection.pk}
+        )
 
     def last_email(self):
         """
@@ -1461,6 +1766,16 @@ class RejectedCandidate(HorillaModel):
         ],
     )
 
+    def save(self, *args, **kwargs):
+        """
+        Move the candidate to the rejected stage when a rejection record is first created.
+        """
+        is_new = self._state.adding
+        super().save(*args, **kwargs)
+        if is_new and not self.candidate_id.canceled:
+            self.candidate_id.move_to_rejected_stage()
+            self.candidate_id.save()
+
     def __str__(self) -> str:
         reasons = ", ".join(self.reject_reason_id.values_list("title", flat=True))
         return f"{self.candidate_id} - {reasons if reasons else _('No Reason')}"
@@ -1518,13 +1833,12 @@ class RecruitmentSurvey(HorillaModel):
         ("rating", _("Rating")),
     ]
     template_id = models.ManyToManyField(
-        SurveyTemplate, verbose_name="Template", blank=True
+        SurveyTemplate,
+        verbose_name="Template",
+        blank=True,
+        related_name="questions",
     )
     is_mandatory = models.BooleanField(default=False)
-    recruitment_ids = models.ManyToManyField(
-        Recruitment,
-        verbose_name=_("Recruitment"),
-    )
     question = models.TextField(null=False)
     job_position_ids = models.ManyToManyField(
         JobPosition, verbose_name=_("Job Positions"), editable=False
@@ -1537,7 +1851,7 @@ class RecruitmentSurvey(HorillaModel):
     options = models.TextField(
         null=True, default="", help_text=_("Separate choices by ',  '"), max_length=255
     )
-    objects = HorillaCompanyManager(related_company_field="recruitment_ids__company_id")
+    objects = HorillaCompanyManager(related_company_field="template_id__company_id")
 
     def __str__(self) -> str:
         return str(self.question)
@@ -1573,13 +1887,11 @@ class RecruitmentSurvey(HorillaModel):
         )
         return url
 
-    def recruitment_col(self):
+    def template_col(self):
         """
-        Manager in detail view
+        Templates this question belongs to, for the detail view.
         """
-        recruitment = self.recruitment_ids.all()
-        recruitment_string = "<br>".join([str(rec) for rec in recruitment])
-        return recruitment_string
+        return ", ".join(str(template) for template in self.template_id.all())
 
     def get_question_type(self):
         return dict(self.question_types).get(self.type)
@@ -1589,16 +1901,6 @@ class RecruitmentSurvey(HorillaModel):
         Used to split the choices
         """
         return self.options.split(", ")
-
-    def save(self, *args, **kwargs):
-        super().save(*args, **kwargs)
-        if self.template_id is None:
-            general_template = SurveyTemplate.objects.filter(
-                is_general_template=True
-            ).first()
-            if general_template:
-                self.template_id.add(general_template)
-                super().save(*args, **kwargs)
 
     class Meta:
         ordering = [
@@ -1614,7 +1916,7 @@ class QuestionOrdering(HorillaModel):
     question_id = models.ForeignKey(RecruitmentSurvey, on_delete=models.CASCADE)
     recruitment_id = models.ForeignKey(Recruitment, on_delete=models.CASCADE)
     sequence = models.IntegerField(default=0)
-    objects = HorillaCompanyManager(related_company_field="recruitment_ids__company_id")
+    objects = HorillaCompanyManager(related_company_field="recruitment_id__company_id")
 
 
 class RecruitmentSurveyAnswer(HorillaModel):
@@ -1787,6 +2089,15 @@ class RecruitmentGeneralSetting(HorillaModel):
 
     candidate_self_tracking = models.BooleanField(default=False)
     show_overall_rating = models.BooleanField(default=False)
+    default_probation_period = models.IntegerField(
+        default=90,
+        validators=[MinValueValidator(0)],
+        verbose_name=_("Probation Period (Days)"),
+        help_text=_(
+            "Default probation period in days, used to auto-fill a "
+            "candidate's probation end date from their joining date"
+        ),
+    )
     company_id = models.OneToOneField(
         Company, on_delete=models.CASCADE, null=True, blank=True, unique=True
     )
@@ -1812,21 +2123,12 @@ class InterviewSchedule(HorillaModel):
         blank=True,
     )
     completed = models.BooleanField(
-        default=False, verbose_name=_("Is Interview Completed")
+        default=False, verbose_name=_("Interview Completed")
     )
     objects = HorillaCompanyManager("candidate_id__recruitment_id__company_id")
 
     def __str__(self) -> str:
         return f"{self.candidate_id} -Interview."
-
-    def candidate_custom_col(self):
-        """
-        method for candidate coloumn
-        """
-        return render_template(
-            path="cbv/interview/candidate_custom_col.html",
-            context={"instance": self},
-        )
 
     def interviewer_custom_col(self):
         """
@@ -1836,27 +2138,6 @@ class InterviewSchedule(HorillaModel):
             path="cbv/interview/interviewer_custom_col.html",
             context={"instance": self},
         )
-
-    def custom_color(self):
-        """
-        Custom background color for all rows with hover effect
-        """
-        # interviews = InterviewSchedule.objects.filter(
-        #     employee_id=self.user.employee_get.id
-        # )
-        request = getattr(_thread_locals, "request", None)
-        if not getattr(self, "request", None):
-            self.request = request
-        user = request.user
-        if user.employee_get in self.employee_id.all():
-            color = "rgba(255, 166, 0, 0.158)"
-            hovering = "white"
-
-            return (
-                f'style="background-color: {color};" '
-                f"onmouseover=\"this.style.backgroundColor='{hovering}';\" "
-                f"onmouseout=\"this.style.backgroundColor='{color}';\""
-            )
 
     def interviewer_detail(self):
         """
@@ -1883,6 +2164,22 @@ class InterviewSchedule(HorillaModel):
         else:
             return _("None")
 
+    def interview_state(self):
+        """
+        Return completed, expired, today_passed, today_upcoming or upcoming.
+        """
+        if self.completed:
+            return "completed"
+        now = tz.localtime() if settings.USE_TZ else datetime.now()
+        now = now.replace(tzinfo=None)
+        if self.interview_date < now.date():
+            return "expired"
+        if self.interview_date > now.date():
+            return "upcoming"
+        if datetime.combine(self.interview_date, self.interview_time) < now:
+            return "today_passed"
+        return "today_upcoming"
+
     def status_custom_col(self):
         """
         method for status coloumn
@@ -1890,7 +2187,7 @@ class InterviewSchedule(HorillaModel):
         now = datetime.now(tz=timezone.utc if settings.USE_TZ else None)
         return render_template(
             path="cbv/interview/status_custom_col.html",
-            context={"instance": self, "now": now},
+            context={"instance": self, "now": now, "state": self.interview_state()},
         )
 
     def custom_action_col(self):

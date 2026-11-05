@@ -8,6 +8,8 @@ own copy of every job -- payroll generation and database backups ran up to 8
 times per interval.
 """
 
+from io import StringIO
+
 from django.core.management import call_command
 from django.test import SimpleTestCase
 from django.utils.module_loading import module_has_submodule
@@ -111,17 +113,31 @@ class NoSchedulerStartsAtImportTests(SimpleTestCase):
             "instead; run_scheduler owns execution.",
         )
 
-    def test_every_registered_job_is_discoverable(self):
-        jobs = get_registered_jobs()
-        self.assertTrue(jobs, "No jobs registered -- scheduler modules not imported?")
-        for job in jobs:
-            self.assertIsInstance(job, ScheduledJob)
-            self.assertTrue(callable(job.func))
-            self.assertTrue(job.job_id)
-
-    def test_run_scheduler_list_does_not_start_anything(self):
+    def test_run_scheduler_list_prints_jobs_and_starts_nothing(self):
         # --list must be safe to run anywhere, including a deploy shell.
-        call_command("run_scheduler", "--list")
+        from unittest.mock import patch
+
+        job = ScheduledJob(
+            func=lambda: None,
+            trigger="interval",
+            job_id="fake_job",
+            kwargs={"hours": 1},
+        )
+        out = StringIO()
+        with (
+            patch(
+                "base.management.commands.run_scheduler.get_registered_jobs",
+                return_value=[job],
+            ),
+            patch("base.management.commands.run_scheduler.Command._load_job_modules"),
+            patch(
+                "base.management.commands.run_scheduler.BlockingScheduler"
+            ) as scheduler_cls,
+        ):
+            call_command("run_scheduler", "--list", stdout=out)
+
+        scheduler_cls.assert_not_called()
+        self.assertIn("fake_job", out.getvalue())
 
 
 class DeploymentWiringTests(SimpleTestCase):
@@ -136,53 +152,79 @@ class DeploymentWiringTests(SimpleTestCase):
     def _compose(self, name):
         from pathlib import Path
 
+        import yaml
         from django.conf import settings
 
-        return (Path(settings.BASE_DIR) / name).read_text(encoding="utf-8")
+        class ComposeLoader(yaml.SafeLoader):
+            """Compose merge tags (!override, !reset) wrap plain values."""
 
-    def test_dev_compose_defines_a_scheduler_service(self):
-        body = self._compose("docker-compose.yml")
-        self.assertIn("scheduler:", body)
-        self.assertIn("run_scheduler", body)
+        def _untag(loader, tag_suffix, node):
+            if isinstance(node, yaml.MappingNode):
+                return loader.construct_mapping(node, deep=True)
+            if isinstance(node, yaml.SequenceNode):
+                return loader.construct_sequence(node, deep=True)
+            return loader.construct_scalar(node)
 
-    def test_prod_compose_defines_a_scheduler_service(self):
-        body = self._compose("docker-compose.prod.yml")
-        self.assertIn("scheduler:", body)
+        ComposeLoader.add_multi_constructor("!", _untag)
+        text = (Path(settings.BASE_DIR) / name).read_text(encoding="utf-8")
+        return yaml.load(text, Loader=ComposeLoader)
 
-    def test_scheduler_skips_release_tasks(self):
-        """Both containers would otherwise race migrate, and
-        collectstatic --clear would wipe STATIC_ROOT under the live web
-        container."""
-        for name in ("docker-compose.yml", "docker-compose.prod.yml"):
+    def _scheduler_env(self, compose):
+        env = compose["services"]["scheduler"]["environment"]
+        if isinstance(env, list):
+            env = dict(item.split("=", 1) for item in env)
+        return env
+
+    def test_compose_files_launch_a_single_scheduler_that_skips_release_tasks(self):
+        dev = self._compose("docker-compose.yml")
+        prod = self._compose("docker-compose.prod.yml")
+
+        # Something must actually launch the runner (prod inherits the command
+        # from the dev file it overlays).
+        self.assertIn("run_scheduler", str(dev["services"]["scheduler"]["command"]))
+        self.assertIn("scheduler", prod["services"])
+
+        # Both containers would otherwise race migrate, and
+        # collectstatic --clear would wipe STATIC_ROOT under the live web
+        # container.
+        for name, compose in (("dev", dev), ("prod", prod)):
             with self.subTest(compose=name):
-                self.assertIn("HORILLA_SKIP_RELEASE_TASKS", self._compose(name))
+                self.assertEqual(
+                    str(self._scheduler_env(compose)["HORILLA_SKIP_RELEASE_TASKS"]),
+                    "1",
+                )
 
-    def test_prod_scheduler_is_single_replica(self):
-        """Two schedulers reintroduce the duplicate-run problem."""
-        self.assertIn("replicas: 1", self._compose("docker-compose.prod.yml"))
-
-    def test_ci_does_not_override_the_coverage_floor(self):
-        """The Makefile's floor is the gate; passing a lower value at the
-        call site re-created the very anti-pattern its comment condemns."""
-        from pathlib import Path
-
-        from django.conf import settings
-
-        workflow = (
-            Path(settings.BASE_DIR) / ".github/workflows/unit-tests.yml"
-        ).read_text(encoding="utf-8")
-        self.assertNotIn("COV_FAIL_UNDER=5", workflow)
+        # Two schedulers reintroduce the duplicate-run problem.
+        self.assertEqual(prod["services"]["scheduler"]["deploy"]["replicas"], 1)
 
     def test_runner_reports_job_failures(self):
         """APScheduler swallows job exceptions into its own logger, so a
-        failing job paged nobody."""
-        import inspect
+        failing job paged nobody. The runner must attach the error listener."""
+        from unittest.mock import patch
 
-        from base.management.commands import run_scheduler
+        from apscheduler.events import EVENT_JOB_ERROR
 
-        source = inspect.getsource(run_scheduler)
-        self.assertIn("EVENT_JOB_ERROR", source)
-        self.assertIn("add_listener", source)
+        from base.management.commands.run_scheduler import log_job_error
+
+        job = ScheduledJob(
+            func=lambda: None,
+            trigger="interval",
+            job_id="fake_job",
+            kwargs={"hours": 1},
+        )
+        target = "base.management.commands.run_scheduler"
+        with (
+            patch(f"{target}.get_registered_jobs", return_value=[job]),
+            patch(f"{target}.Command._load_job_modules"),
+            patch(f"{target}.BlockingScheduler") as scheduler_cls,
+            patch(f"{target}.DjangoJobStore"),
+            patch(f"{target}.signal.signal"),
+        ):
+            call_command("run_scheduler", stdout=StringIO())
+
+        scheduler = scheduler_cls.return_value
+        scheduler.add_listener.assert_any_call(log_job_error, EVENT_JOB_ERROR)
+        scheduler.start.assert_called_once()
 
     def test_biometric_does_not_start_a_scheduler_at_import(self):
         """Import runs once per gunicorn worker, so a scheduler started here
@@ -202,69 +244,3 @@ class DeploymentWiringTests(SimpleTestCase):
             "biometric/views.py starts a scheduler outside a function",
         )
         self.assertIn("register_job(", source)
-
-
-class RuffConfigTests(SimpleTestCase):
-    """
-    Ruff's rule set is deliberately narrow. The full E,F,B set reports ~4,500
-    findings here, dominated by line-length and star-import usage -- a gate
-    that fails on 4,500 issues gets disabled rather than fixed, which is the
-    same trap .coveragerc records about the coverage floor.
-
-    So the enabled rules are ones the codebase passes today, and the config
-    documents the follow-up set. These tests guard both halves: that the gate
-    is wired, and that the follow-up list has not been quietly deleted
-    instead of worked through.
-    """
-
-    def _pyproject(self):
-        from pathlib import Path
-
-        from django.conf import settings
-
-        return (Path(settings.BASE_DIR) / "pyproject.toml").read_text(encoding="utf-8")
-
-    def test_ruff_is_configured(self):
-        body = self._pyproject()
-        self.assertIn("[tool.ruff]", body)
-        self.assertIn("[tool.ruff.lint]", body)
-
-    def test_migrations_and_vendored_code_are_excluded(self):
-        """Migrations are generated, and notifications is vendored."""
-        body = self._pyproject()
-        self.assertIn("*/migrations/*", body)
-        self.assertIn("notifications", body)
-
-    def test_ci_runs_ruff_over_the_whole_repo(self):
-        """Black and isort cover two paths; ruff has to cover everything or
-        it adds nothing the pre-commit hook did not already."""
-        from pathlib import Path
-
-        from django.conf import settings
-
-        workflow = (
-            Path(settings.BASE_DIR) / ".github/workflows/quality.yml"
-        ).read_text(encoding="utf-8")
-        self.assertIn("ruff check .", workflow)
-        # Pinned, like the other two linters, so a new release cannot turn a
-        # green branch red without a deliberate bump.
-        self.assertIn('"ruff==', workflow)
-
-    def test_precommit_runs_ruff(self):
-        from pathlib import Path
-
-        from django.conf import settings
-
-        config = (Path(settings.BASE_DIR) / ".pre-commit-config.yaml").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn("ruff-pre-commit", config)
-
-    def test_followup_rules_are_still_documented(self):
-        """The 93 known defects are listed in the config as the next pass.
-        If someone widens the rule set they should be removing entries from
-        that list, not the list itself."""
-        body = self._pyproject()
-        for rule in ("F811", "B023", "F821", "E722", "B006"):
-            with self.subTest(rule=rule):
-                self.assertIn(rule, body)

@@ -21,7 +21,11 @@ from base.methods import (
     has_export_access,
     is_reportingmanager,
 )
-from horilla_views.cbv_methods import hx_request_required, login_required
+from horilla_views.cbv_methods import (
+    EmployeeScopeMixin,
+    hx_request_required,
+    login_required,
+)
 from horilla_views.generic.cbv.views import (
     HorillaDetailedView,
     HorillaFormView,
@@ -147,7 +151,6 @@ class HourAccountNav(HorillaNavView):
                 data-target="#hourAccountExport"
                 hx-get="{reverse('hour-account-export')}"
                 hx-target="#hourAccountExportModalBody"
-                hx-vals='js:{{"has_selection": (JSON.parse(document.getElementById("selectedInstances")?.getAttribute("data-ids")||"[]").length>0)}}'
                 style="cursor: pointer;"
                 """,
                 }
@@ -209,7 +212,6 @@ class HourExportView(TemplateView):
         export_obj = AttendanceOverTimeFilter(queryset=attendances)
         context["export_fields"] = export_fields
         context["export_obj"] = export_obj
-        context["hide_export_filters"] = self.request.GET.get("has_selection") == "true"
         return context
 
 
@@ -243,10 +245,13 @@ class HourAccountDetailView(HorillaDetailedView):
 @method_decorator(
     manager_can_enter("attendance.add_attendanceovertime"), name="dispatch"
 )
-class HourAccountFormView(HorillaFormView):
+class HourAccountFormView(EmployeeScopeMixin, HorillaFormView):
     """
     Form View
     """
+
+    scope_perm = "attendance.add_attendanceovertime"
+    scope_include_self = False
 
     model = AttendanceOverTime
     form_class = AttendanceOverTimeForm

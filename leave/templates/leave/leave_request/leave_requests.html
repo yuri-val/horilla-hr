@@ -212,7 +212,7 @@
                             >
                                 <i class="material-icons" style="font-size: 33px">groups</i>
                                 <span class="oh-badge oh-badge--secondary oh-badge--small oh-badge--round ms-1">
-                                    {{ leave_request.leave_clashes_count }}
+                                    {{ leave_request.get_leave_clash_count }}
                                 </span>
                             </div>
                         </div>
@@ -262,7 +262,7 @@
                                                 hx-target="#penaltyModalBody"
                                                 hx-get="{% url 'leave-cut-penalty' leave_request.id %}?{{pd}}"
                                                 type="submit"
-                                                class="oh-btn oh-btn--danger w-100"
+                                                class="oh-btn oh-btn--warning w-100"
                                                 title="{% trans 'Penalty' %}"
                                             >
                                                 <ion-icon name="information-circle-outline"></ion-icon>

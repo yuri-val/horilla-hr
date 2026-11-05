@@ -1,0 +1,11 @@
+{% load i18n %}
+<div class="d-flex align-items-center">
+    <span
+        class="oh-dot oh-dot--small me-1 oh-dot--color {% if instance.status == 'Completed' %} oh-dot--success {% elif instance.status == 'Rejected' %} oh-dot--danger {% elif instance.status == 'In Progress' %} oh-dot--warning {% elif instance.status == 'Requested' %} oh-dot--info {% else %} oh-dot--secondary {% endif %}"
+    >
+    </span>
+    <span
+        class="{% if instance.status == 'Completed' %} link-success {% elif instance.status == 'Rejected' %} link-danger {% elif instance.status == 'In Progress' %} link-warning {% elif instance.status == 'Requested' %} link-info {% else %} link-secondary {% endif %}"
+    >{% trans instance.status %}
+    </span>
+</div>

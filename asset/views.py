@@ -6,6 +6,7 @@ This module is used to"""
 import csv
 import json
 import os
+import uuid
 from datetime import date, datetime
 from urllib.parse import parse_qs
 
@@ -14,12 +15,15 @@ from django.contrib import messages
 from django.core.files.base import ContentFile
 from django.core.files.storage import FileSystemStorage
 from django.core.paginator import Paginator
+from django.db import transaction
 from django.db.models import ProtectedError
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
+from django.utils.translation import gettext_noop
 
 from asset.filters import (
     AssetAllocationFilter,
@@ -48,16 +52,21 @@ from asset.models import (
     AssetAssignment,
     AssetCategory,
     AssetDocuments,
+    AssetGeneralSetting,
     AssetLot,
     AssetRequest,
+    AssetServiceRequest,
+    AssetServiceRequestNote,
     ReturnImages,
 )
+from base.import_template_data import import_template_frame, write_import_xlsx
 from base.methods import (
     closest_numbers,
     eval_validate,
     filtersubordinates,
     get_key_instances,
     get_pagination,
+    get_session_company,
     has_export_access,
     paginator_qry,
     sortby,
@@ -648,8 +657,9 @@ def asset_category_view(request):
         None
     """
 
-    if not AssetCategory.objects.exists():
-        return render(request, "category/asset_empty.html")
+    # Always the list page, even with no categories yet: an asset's category is
+    # chosen (or created) in the asset form now, so the page has to be there to
+    # start from.
     return render(
         request,
         "category/asset_category_view.html",
@@ -783,7 +793,7 @@ def asset_request_approve(request, req_id):
                 notify.send(
                     request.user.employee_get,
                     recipient=allocation.assigned_to_employee_id.employee_user_id,
-                    verb=_("Your asset request has been approved!"),
+                    verb=gettext_noop("Your asset request has been approved!"),
                     redirect=reverse("asset-request-allocation-view")
                     + f"?asset_request_date={asset_request.asset_request_date}&"
                     f"asset_request_status={asset_request.asset_request_status}",
@@ -869,11 +879,7 @@ def asset_request_reject(request, req_id):
     notify.send(
         request.user.employee_get,
         recipient=asset_request.requested_employee_id.employee_user_id,
-        verb="Your asset request rejected!.",
-        verb_ar="تم رفض طلب الأصول الخاص بك!",
-        verb_de="Ihr Antragsantrag wurde abgelehnt!",
-        verb_es="¡Se ha rechazado su solicitud de activo!",
-        verb_fr="Votre demande d'actif a été rejetée !",
+        verb=gettext_noop("Your asset request rejected!"),
         redirect=reverse("asset-request-allocation-view")
         + f"?asset_request_date={asset_request.asset_request_date}\
         &asset_request_status={asset_request.asset_request_status}",
@@ -946,16 +952,13 @@ def asset_allocate_return_request(request, asset_id):
     notify.send(
         request.user.employee_get,
         recipient=permed_users,
-        verb=f"Return request for {asset_assign.asset_id} initiated from\
-            {asset_assign.assigned_to_employee_id}",
-        verb_ar=f"تم بدء طلب الإرجاع للمورد {asset_assign.asset_id}\
-            من الموظف {asset_assign.assigned_to_employee_id}",
-        verb_de=f"Rückgabewunsch für {asset_assign.asset_id} vom Mitarbeiter\
-            {asset_assign.assigned_to_employee_id} initiiert",
-        verb_es=f"Solicitud de devolución para {asset_assign.asset_id}\
-            iniciada por el empleado {asset_assign.assigned_to_employee_id}",
-        verb_fr=f"Demande de retour pour {asset_assign.asset_id}\
-            initiée par l'employé {asset_assign.assigned_to_employee_id}",
+        verb=gettext_noop(
+            "Return request for %(asset_id)s initiated from %(assigned_to_employee_id)s"
+        ),
+        verb_params={
+            "asset_id": str(asset_assign.asset_id),
+            "assigned_to_employee_id": str(asset_assign.assigned_to_employee_id),
+        },
         redirect=reverse("asset-request-allocation-view")
         + f"?assigned_to_employee_id={asset_assign.assigned_to_employee_id}&\
         asset_id={asset_assign.asset_id}&assigned_date={asset_assign.assigned_date}",
@@ -994,6 +997,9 @@ def asset_allocate_return(request, assignment_id):
             asset_return_status = asset_return_form.cleaned_data["return_status"]
             asset_return_date = asset_return_form.cleaned_data["return_date"]
             asset_return_condition = asset_return_form.cleaned_data["return_condition"]
+            AssetServiceRequest.objects.filter(
+                assignment_id=asset_allocation, status__in=["Requested", "In Progress"]
+            ).update(status="Returned")
             files = request.FILES.getlist("return_images")
             attachments = []
             context = {
@@ -1031,6 +1037,11 @@ def asset_allocate_return(request, assignment_id):
             asset_allocation.return_status = asset_return_status
             asset_allocation.return_condition = asset_return_condition
             asset_allocation.save()
+            if asset_return_status == "Lost" and asset_allocation.asset_item_id_id:
+                # A lost unit is gone for good, so it must not stay "In use"
+                asset_item = asset_allocation.asset_item_id
+                asset_item.status = "Lost"
+                asset_item.save()
             if request.FILES:
                 for file in files:
                     attachment = ReturnImages()
@@ -1358,80 +1369,98 @@ def convert_nan(val):
 fs = FileSystemStorage(location="csv_tmp/")
 
 
-def csv_asset_import(file):
-    file_content = ContentFile(file.read())
-    file_name = fs.save("_tmp.csv", file_content)
-    tmp_file = fs.path(file_name)
-
-    with open(tmp_file, errors="ignore") as csv_file:
-        reader = csv.reader(csv_file)
-        next(reader)  # Skip header row
-
-        asset_list = []
-        for row in reader:
-            (
-                asset_name,
-                asset_description,
-                asset_tracking_id,
-                asset_purchase_date,
-                asset_purchase_cost,
-                asset_category_name,
-                asset_status,
-                asset_lot_number,
-            ) = row
-
-            # Helper function to get or create categories and lots
-            asset_category, _ = AssetCategory.objects.get_or_create(
-                asset_category_name=asset_category_name
-            )
-            asset_lot, _ = AssetLot.objects.get_or_create(lot_number=asset_lot_number)
-
-            asset_list.append(
-                Asset(
-                    asset_name=asset_name,
-                    asset_description=asset_description,
-                    asset_tracking_id=asset_tracking_id,
-                    asset_purchase_date=asset_purchase_date,
-                    asset_purchase_cost=asset_purchase_cost,
-                    asset_status=asset_status,
-                    asset_category_id=asset_category,
-                    asset_lot_number_id=asset_lot,
-                )
-            )
-
-    # Bulk create assets from CSV
-    Asset.objects.bulk_create(asset_list)
-
-    # Delete the temporary file
-    if os.path.exists(tmp_file):
-        os.remove(tmp_file)
+ASSET_IMPORT_COLUMNS = [
+    "Asset name",
+    "Description",
+    "Serial No.",
+    "Purchase date",
+    "Purchase cost",
+    "Category",
+    "Batch number",
+    "Status",
+]
 
 
 def spreadsheetml_asset_import(dataframe):
-    for index, row in dataframe.iterrows():
-        asset_name = convert_nan(row["Asset name"])
-        asset_description = convert_nan(row["Description"])
-        asset_tracking_id = convert_nan(row["Tracking id"])
-        purchase_date = convert_nan(row["Purchase date"])
-        purchase_cost = convert_nan(row["Purchase cost"])
-        category_name = convert_nan(row["Category"])
-        lot_number = convert_nan(row["Batch number"])
-        status = convert_nan(row["Status"])
+    """
+    Import assets row by row; returns (created_count, error_rows) where each
+    error row is the original row data plus an "Error" column.
+    """
+    created_count = 0
+    error_rows = []
+    for _index, row in dataframe.iterrows():
+        try:
+            with transaction.atomic():
+                _import_asset_row(row)
+            created_count += 1
+        except Exception as exception:
+            error_row = {
+                column: convert_nan(row.get(column)) for column in ASSET_IMPORT_COLUMNS
+            }
+            error_row["Error"] = _friendly_import_error(exception)
+            error_rows.append(error_row)
+    return created_count, error_rows
 
-        asset_category, create = AssetCategory.objects.get_or_create(
-            asset_category_name=category_name
-        )
-        asset_lot_number, create = AssetLot.objects.get_or_create(lot_number=lot_number)
-        Asset.objects.create(
-            asset_name=asset_name,
-            asset_description=asset_description,
-            asset_tracking_id=asset_tracking_id,
-            asset_purchase_date=purchase_date,
-            asset_purchase_cost=purchase_cost,
-            asset_category_id=asset_category,
-            asset_status=status,
-            asset_lot_number_id=asset_lot_number,
-        )
+
+def _friendly_import_error(exception):
+    """Turn raw database errors into messages users can act on."""
+    message = str(exception)
+    if "UNIQUE constraint failed" in message or "duplicate key" in message:
+        if "asset_tracking_id" in message:
+            return _("Serial No. already exists. Each asset needs a unique Serial No.")
+        return _("This record already exists.")
+    if "NOT NULL constraint failed" in message or "null value in column" in message:
+        return _("A required value is missing in this row.")
+    if "FOREIGN KEY constraint failed" in message:
+        return _("A related Category or Batch number is invalid.")
+    return message
+
+
+def _import_asset_row(row):
+    asset_name = convert_nan(row["Asset name"])
+    asset_description = convert_nan(row["Description"])
+    asset_tracking_id = convert_nan(row["Serial No."])
+    purchase_date = convert_nan(row["Purchase date"])
+    purchase_cost = convert_nan(row["Purchase cost"])
+    category_name = convert_nan(row["Category"])
+    lot_number = convert_nan(row["Batch number"])
+    status = convert_nan(row["Status"])
+
+    asset_category, _created = AssetCategory.objects.get_or_create(
+        asset_category_name=category_name
+    )
+    asset_lot_number, _created = AssetLot.objects.get_or_create(lot_number=lot_number)
+    asset = Asset(
+        asset_name=asset_name,
+        asset_description=asset_description,
+        asset_tracking_id=asset_tracking_id,
+        asset_purchase_date=purchase_date,
+        asset_purchase_cost=purchase_cost,
+        asset_category_id=asset_category,
+        asset_status=status,
+        asset_lot_number_id=asset_lot_number,
+    )
+    asset.save()
+
+
+def handle_asset_import_errors(error_rows):
+    """Build a downloadable error sheet and return its dynamic URL path."""
+    from asset.urls import path, urlpatterns
+
+    data_frame = pd.DataFrame(error_rows)
+    response = HttpResponse(content_type="application/ms-excel")
+    response["Content-Disposition"] = 'attachment; filename="ImportError.xlsx"'
+    write_import_xlsx(data_frame, response)
+
+    path_info = f"error-sheet-{uuid.uuid4()}"
+
+    def get_error_sheet(request):
+        # one-time download: drop the temporary route once it is served
+        urlpatterns[:] = [p for p in urlpatterns if p.name != path_info]
+        return response
+
+    urlpatterns.append(path(path_info, get_error_sheet, name=path_info))
+    return f"asset/{path_info}"
 
 
 @login_required
@@ -1448,34 +1477,56 @@ def asset_import(request):
     Args:
         request (HttpRequest): The HTTP request object containing metadata about the request.
     """
-    if request.META.get("HTTP_HX_REQUEST"):
+    if request.method != "POST":
         return render(request, "asset/asset_import.html")
+
+    def error_response(message):
+        response = render(
+            request,
+            "attendance/attendance/import_error_alert.html",
+            {"error_message": message},
+        )
+        response["HX-Retarget"] = "#AssetImportResponse"
+        response["HX-Reswap"] = "innerHTML"
+        return response
+
+    file = request.FILES.get("asset_import")
+    if file is None:
+        return error_response(_("Please select a file to upload."))
     try:
-        if request.method == "POST":
-            file = request.FILES.get("asset_import")
-            if file is not None and file.content_type == "text/csv":
-                try:
-                    csv_asset_import(file)
-                    messages.success(request, _("Successfully imported Assets"))
-                except Exception as exception:
-                    messages.error(request, f"{exception}")
-            elif (
-                file is not None
-                and file.content_type
-                == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            ):
-                try:
-                    dataframe = pd.read_excel(file)
-                    spreadsheetml_asset_import(dataframe)
-                    messages.success(request, _("Successfully imported Assets"))
-                except KeyError as exception:
-                    messages.error(request, f"{exception}")
-            else:
-                messages.error(request, _("File Error"))
-            return redirect(asset_category_view)
+        return _asset_import_file(request, file, error_response)
     except Exception as exception:
-        messages.error(request, f"{exception}")
-    return redirect(asset_category_view)
+        return error_response(str(exception))
+
+
+def _asset_import_file(request, file, error_response):
+    """Run the import for an uploaded file; returns the HTMX response."""
+    name = file.name.lower()
+    if name.endswith(".csv"):
+        dataframe = pd.read_csv(file)
+    elif name.endswith((".xlsx", ".xls")):
+        dataframe = pd.read_excel(file)
+    else:
+        return error_response(
+            _("Unsupported file type. Please upload a .csv or .xlsx file.")
+        )
+    missing = [c for c in ASSET_IMPORT_COLUMNS if c not in dataframe.columns]
+    if missing:
+        return error_response(
+            _("These required headers are missing in the uploaded file: ")
+            + ", ".join(missing)
+        )
+    created_count, error_rows = spreadsheetml_asset_import(dataframe)
+    context = {
+        "created_count": created_count,
+        "error_count": len(error_rows),
+        "model": _("Assets"),
+        "path_info": handle_asset_import_errors(error_rows) if error_rows else None,
+    }
+    response = render(request, "import_popup.html", context)
+    response["HX-Retarget"] = "#objectCreateModal"
+    response["HX-Reswap"] = "innerHTML"
+    return response
 
 
 @login_required
@@ -1483,35 +1534,37 @@ def asset_excel(_request):
     """asset excel download view"""
 
     try:
-        columns = [
-            "Asset name",
-            "Description",
-            "Tracking id",
-            "Purchase date",
-            "Purchase cost",
-            "Category",
-            "Status",
-            "Batch number",
-        ]
-        # Create a pandas DataFrame with columns but no data
-        dataframe = pd.DataFrame(columns=columns)
+        dataframe = import_template_frame("asset")
         # Write the DataFrame to an Excel file
         response = HttpResponse(content_type="application/ms-excel")
         response["Content-Disposition"] = 'attachment; filename="my_excel_file.xlsx"'
-        dataframe.to_excel(response, index=False)
+        write_import_xlsx(dataframe, response)
         return response
     except Exception as exception:
         return HttpResponse(exception)
 
 
+# (field on Asset, column heading in the file) -- also the column picker in the
+# export modal.
+ASSET_EXPORT_COLUMNS = [
+    ("asset_name", "Asset name"),
+    ("asset_description", "Description"),
+    ("asset_tracking_id", "Serial No."),
+    ("asset_purchase_date", "Purchase date"),
+    ("asset_purchase_cost", "Purchase cost"),
+    ("asset_category_id", "Category"),
+    ("asset_status", "Status"),
+    ("asset_lot_number_id", "Batch number"),
+]
+
+
 @login_required
-@hx_request_required
 @permission_required("asset.view_assetcategory")
 def asset_export_excel(request):
     """asset export view"""
     if not has_export_access(request, Asset):
         return HorillaRedirect(
-            request, message=_("You dont have access to export this data")
+            request, message=_("You don't have access to export this data")
         )
 
     asset_export_filter = AssetExportFilter(request.GET, queryset=Asset.objects.all())
@@ -1601,25 +1654,24 @@ def asset_export_excel(request):
 
         # Convert any date fields to the desired format
         # Rename the columns as needed
-        dataframe = dataframe.rename(
-            columns={
-                "asset_name": "Asset name",
-                "asset_description": "Description",
-                "asset_tracking_id": "Tracking id",
-                "asset_purchase_date": "Purchase date",
-                "asset_purchase_cost": "Purchase cost",
-                "asset_category_id": "Category",
-                "asset_status": "Status",
-                "asset_lot_number_id": "Batch number",
-            }
-        )
+        dataframe = dataframe.rename(columns=dict(ASSET_EXPORT_COLUMNS))
+
+        chosen = request.POST.getlist("selected_fields")
+        columns_map = dict(ASSET_EXPORT_COLUMNS)
+        headings = [columns_map[field] for field in chosen if field in columns_map] or [
+            heading for _field, heading in ASSET_EXPORT_COLUMNS
+        ]
+        dataframe = dataframe[headings]
 
         # Write the DataFrame to an Excel file
         response = HttpResponse(content_type="application/vnd.ms-excel")
         response["Content-Disposition"] = 'attachment; filename="assets.xlsx"'
         dataframe.to_excel(response, index=False)
         return response
-    context = {"asset_export_filter": asset_export_filter}
+    context = {
+        "asset_export_filter": asset_export_filter,
+        "export_columns": ASSET_EXPORT_COLUMNS,
+    }
     return render(request, "category/asset_filter_export.html", context)
 
 
@@ -2123,3 +2175,76 @@ def asset_request_tab(request, emp_id):
         "requests_ids": requests_ids,
     }
     return render(request, "tabs/asset_request_tab.html", context=context)
+
+
+@login_required
+def asset_rule_settings_view(request):
+    """
+    "Asset Rule" settings page, gathering company-scoped asset settings.
+    """
+    company = get_session_company(request)
+    setting, _created = AssetGeneralSetting.objects.get_or_create(company_id=company)
+    return render(
+        request,
+        "asset/settings/asset_rule.html",
+        {"asset_general_setting": setting},
+    )
+
+
+@login_required
+@hx_request_required
+@permission_required("asset.change_assetgeneralsetting")
+def enable_disable_asset_fine(request):
+    """
+    Enables or disables the asset fine feature for the active company.
+    """
+    if request.method == "POST":
+        is_checked = request.POST.get("isChecked")
+        setting_id = request.POST.get("setting_Id")
+        enable = bool(is_checked)
+
+        updated = AssetGeneralSetting.objects.filter(id=setting_id).update(
+            enable_asset_fine=enable
+        )
+
+        if updated:
+            message = _("Asset fine has been successfully {}.").format(
+                _("enabled") if enable else _("disabled")
+            )
+            messages.success(request, message)
+
+    return HttpResponse("")
+
+
+@login_required
+@hx_request_required
+@permission_required(perm="asset.change_assetassignment")
+def asset_service_request_add_note(request, pk):
+    """
+    Standalone modal to add a note on a service request, launched from
+    the Service Request list row.
+    """
+    instance = AssetServiceRequest.objects.filter(pk=pk).first()
+    if not instance:
+        messages.error(request, _("Service request not found."))
+        return HorillaRedirect(request)
+    if request.method == "POST":
+        note_text = request.POST.get("note", "").strip()
+        if note_text:
+            AssetServiceRequestNote.objects.create(
+                request_id=instance,
+                employee_id=request.user.employee_get,
+                note=note_text,
+            )
+            messages.success(request, _("Note added."))
+        return render(
+            request,
+            "cbv/request_and_allocation/forms/service_request_add_note_success.html",
+            {"instance": instance},
+        )
+    context = {"service_request": instance}
+    return render(
+        request,
+        "cbv/request_and_allocation/forms/service_request_add_note_form.html",
+        context,
+    )

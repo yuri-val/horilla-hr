@@ -4,7 +4,6 @@ from django.urls import reverse
 from django.utils.decorators import method_decorator
 from django.utils.translation import gettext_lazy as _
 
-from attendance.cbv.tab_shell import AttendanceTabContentShell
 from base.methods import filtersubordinates, is_reportingmanager
 from helpdesk.filter import TicketFilter
 from helpdesk.models import Ticket
@@ -13,6 +12,7 @@ from horilla_views.generic.cbv.kanban import HorillaKanbanView
 from horilla_views.generic.cbv.views import (
     HorillaListView,
     HorillaNavView,
+    HorillaTabContentShell,
     HorillaTabView,
     TemplateView,
 )
@@ -51,6 +51,12 @@ class _TicketTabNavBase(HorillaNavView):
         ("priority", _("Priority")),
         ("tags", _("Tags")),
         ("assigned_to", _("Assigner")),
+        ("employee_id__employee_work_info__company_id", _("Company")),
+    ]
+
+    search_in = [
+        ("employee_id", _("Owner")),
+        ("ticket_type", _("Ticket Type")),
         ("employee_id__employee_work_info__company_id", _("Company")),
     ]
 
@@ -173,19 +179,19 @@ class AllTicketsNav(_TicketTabNavBase):
         ]
 
 
-class MyTicketsTabShell(AttendanceTabContentShell):
+class MyTicketsTabShell(HorillaTabContentShell):
     nav_url_name = "my-tickets-nav"
     container_id = "myTicketsListContainer"
     tabs_root_id = "ticketPipelineContainer"
 
 
-class SuggestedTicketsTabShell(AttendanceTabContentShell):
+class SuggestedTicketsTabShell(HorillaTabContentShell):
     nav_url_name = "suggested-tickets-nav"
     container_id = "suggestedTicketsListContainer"
     tabs_root_id = "ticketPipelineContainer"
 
 
-class AllTicketsTabShell(AttendanceTabContentShell):
+class AllTicketsTabShell(HorillaTabContentShell):
     nav_url_name = "all-tickets-nav"
     container_id = "allTicketsListContainer"
     tabs_root_id = "ticketPipelineContainer"
@@ -240,6 +246,9 @@ class TicketTabView(HorillaTabView):
         suggested_qs |= base_qs.filter(
             raised_on=employee.id, assigning_type="individual"
         )
+        suggested_qs = suggested_qs.filter(assigned_to__isnull=True) | base_qs.filter(
+            assigned_to=employee
+        )
         suggested_tickets_count = TicketFilter(
             self.request.GET, queryset=suggested_qs.distinct()
         ).qs.count()
@@ -274,11 +283,6 @@ class TicketTabView(HorillaTabView):
                 }
             )
 
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        context["show_filter_tags"] = True
-        return context
-
 
 @method_decorator(login_required, name="dispatch")
 class TicketListBase(HorillaListView):
@@ -288,7 +292,7 @@ class TicketListBase(HorillaListView):
 
     model = Ticket
     filter_class = TicketFilter
-    filter_keys_to_remove = ["ticket_tab", "view_type"]
+    filter_keys_to_remove = ["ticket_tab", "view_type", "open_tab"]
     # custom_empty_template = "cbv/pipeline/empty_list.html"
     bulk_update_fields = [
         "ticket_type",
@@ -306,6 +310,7 @@ class TicketListBase(HorillaListView):
         (_("Assigned to"), "get_assigned_to"),
         (_("Status"), "get_status_col"),
         (_("Priority"), "get_priority_stars"),
+        (_("Deadline"), "deadline"),
         (_("Tags"), "get_tags_col"),
     ]
 
@@ -454,6 +459,9 @@ class SuggestedTicketsList(TicketListBase):
                 )
 
         queryset |= qs_cpy.filter(raised_on=employee.id, assigning_type="individual")
+        queryset = queryset.filter(assigned_to__isnull=True) | qs_cpy.filter(
+            assigned_to=employee
+        )
         return queryset.distinct()
 
 
@@ -495,7 +503,7 @@ class TicketCardBase(HorillaKanbanView):
     group_key = "status"
     records_per_page = 10
     show_kanban_confirmation = False
-    filter_keys_to_remove = ["ticket_tab", "view_type"]
+    filter_keys_to_remove = ["ticket_tab", "view_type", "open_tab"]
 
     details = {
         "title": "{title} ({ticket_type__prefix}-{pk})",
@@ -565,6 +573,9 @@ class SuggestedTicketsCard(TicketCardBase):
                 )
 
         queryset |= base_qs.filter(raised_on=employee.id, assigning_type="individual")
+        queryset = queryset.filter(assigned_to__isnull=True) | base_qs.filter(
+            assigned_to=employee
+        )
         self.queryset = queryset.distinct()
         return self.queryset
 

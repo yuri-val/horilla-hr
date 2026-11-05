@@ -15,12 +15,24 @@
             {% if level > 0 %}
                 <ion-icon name="return-down-forward-outline" style="font-size:13px; color:#C7C4BA; flex-shrink:0;"></ion-icon>
             {% endif %}
+            {% if bulk_select_option and node.count %}
+                <span class="inline-flex items-center" onclick="event.stopPropagation()">
+                    <input
+                        type="checkbox"
+                        class="hlv-group-select custom-checkbox w-4 h-4 bg-[#E9EDF7] rounded-sm text-primary-600 cursor-pointer"
+                        data-select-ids="{{ node|node_ids_json }}"
+                        data-store-key="{{ selected_instances_key_id|default:'selectedInstances' }}"
+                        title="{% trans 'Select all in this group' %}"
+                        onchange="hlvToggleGroupSelect(this, '#{{ view_id|safe }}', '{{ selected_instances_key_id|default:'selectedInstances' }}')"
+                    >
+                </span>
+            {% endif %}
             <span class="inline-flex items-center {% if level > 0 %}gap-1.5 bg-[#F6F5F1] rounded-md pl-1 pr-2 py-0.5{% else %}gap-2.5{% endif %}">
                 <span
                     class="inline-flex items-center justify-center rounded-full font-semibold {% if level == 0 %}min-w-[22px] h-[22px] px-1.5 text-[11px] bg-primary-600 text-white{% else %}min-w-[18px] h-[18px] px-1 text-[10px] bg-white text-[#6F6D66] border border-[#DEDBD4]{% endif %}"
                     title="{{node.count}} {% trans 'Records' %}"
                 >{{ node.count }}</span>
-                <span class="{% if level == 0 %}text-[13.5px] font-semibold text-[#26251F]{% else %}text-[12.5px] font-semibold text-[#26251F]{% endif %}">
+                <span class="{% if level == 0 %}text-[13.5px] font-semibold text-gray-700{% else %}text-[12.5px] font-semibold text-gray-700{% endif %}">
                     {{ node.grouper|capfirst }}
                 </span>
             </span>
@@ -113,7 +125,7 @@
                         Passing view_id back tells that same __init__ to
                         reuse it instead of generating a new one.
                     {% endcomment %}
-                    <div class="hlv-pagination inline-flex items-center h-8 gap-0.5 bg-white border border-[#e6e6e6] rounded-md px-1 flex-shrink-0">
+                    <div class="hlv-pagination inline-flex items-center h-8 gap-0.5 bg-white border border-primary-500 rounded-md px-1 flex-shrink-0">
                         <button
                             type="button"
                             class="w-7 h-7 flex items-center justify-center rounded text-xs leading-none transition duration-300 {% if node.list.has_previous %}text-[#666] hover:bg-[#f5f5f5]{% else %}text-[#ccc] cursor-not-allowed{% endif %}"
@@ -186,7 +198,7 @@
             {% with field_label=nested_fields_active|index:level %}
                 {% if field_label %}
                     <span
-                        class="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide {% if level == 0 %}text-primary-600{% else %}text-[#9C9A92]{% endif %}"
+                        class="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide {% if level == 0 %}text-primary-600{% else %}text-gray-600{% endif %}"
                     >
                         {% if not node.children %}
                             <ion-icon name="list-outline" style="font-size:11px;" title="{% trans 'Shows a table of records' %}"></ion-icon>
@@ -196,7 +208,7 @@
                 {% endif %}
             {% endwith %}
             <span class="{% if level == 0 %}w-6 h-6{% else %}w-[18px] h-[18px]{% endif %} flex items-center justify-center rounded-full hover:bg-[#F3F2EE] transition-colors shrink-0">
-                <ion-icon name="chevron-down-outline" class="icon {% if level == 0 %}text-sm{% else %}text-xs{% endif %} text-[#9C9A92]"></ion-icon>
+                <ion-icon name="chevron-down-outline" class="icon {% if level == 0 %}text-sm{% else %}text-xs{% endif %} text-gray-600"></ion-icon>
             </span>
         </div>
     </div>

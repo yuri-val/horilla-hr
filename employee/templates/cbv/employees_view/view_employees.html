@@ -43,7 +43,7 @@
 </style>
 
 <div id="employeeListNavBar">
-<div hx-get="{% url "employees-nav" %}?{{initial_nav_query|default:request.GET.urlencode}}" hx-trigger="load">
+<div hx-get="{% url "employees-nav" %}?{{initial_nav_query|default:request.GET.urlencode}}" hx-trigger="load[this.children.length===0]">
 </div>
 </div>
 {% comment %} my_app/templates/my_app/generic/index.html {% endcomment %}
@@ -154,7 +154,7 @@
       </button>
       <div class="oh-modal__dialog-body p-0 pt-2" id="employeeExportModalBody">
         <form
-          action="{%url 'employee-export' %}"
+          action="{%url 'work-info-export' %}"
           method="get"
           onsubmit="event.stopPropagation();
             $(this).find('[name=instance_ids]').val($('#selectedInstances').attr('data-ids') || '[]');
@@ -229,7 +229,7 @@
 
 
 <script src="{% static 'employee/importExport.js' %}"></script>
-<script src="{% static '/cbv/employee_view/actions.js' %}"></script>
+<script src="{% static '/cbv/employee_view/actions.js' %}?v=9"></script>
 <script>
   (function () {
     function isEmployeeDetailPath() {

@@ -38,6 +38,7 @@ from horilla_views.cbv_methods import render_template
 from leave.methods import (
     calculate_requested_days,
     company_leave_dates_list,
+    due_available_leaves,
     holiday_dates_list,
 )
 from leave.threading import LeaveClashThread
@@ -145,15 +146,26 @@ CARRYFORWARD_TYPE = [
     ("carryforward expire", _("Carry Forward with Expire")),
 ]
 
+CARRYFORWARD_EXPIRY_METHOD = [
+    ("first_expiry_date", _("First Expiry Date")),
+    ("assignment_date", _("Employee Assignment Date")),
+]
+
 ACCRUAL_PLAN = [("job_position", _("Job Position")), ("job_role", _("Job Role"))]
 
 
 LEAVE_STATUS = (
     ("requested", _("Requested")),
     ("approved", _("Approved")),
+    ("cancel_requested", _("Cancel Requested")),
     ("cancelled", _("Cancelled")),
     ("rejected", _("Rejected")),
 )
+
+# An approved leave stays in force (balance deducted, attendance marked, on
+# the calendar) until its cancellation is approved, so "Cancel Requested"
+# counts wherever "approved" does.
+LEAVE_IN_EFFECT_STATUSES = ["approved", "cancel_requested"]
 
 LEAVE_ALLOCATION_STATUS = (
     ("requested", _("Requested")),
@@ -236,14 +248,14 @@ class LeaveType(HorillaModel):
     )
     name = models.CharField(max_length=30, null=False, verbose_name=_("Name"))
     payment = models.CharField(
-        max_length=30, choices=PAYMENT, default="unpaid", verbose_name=_("Is Paid")
+        max_length=30, choices=PAYMENT, default="unpaid", verbose_name=_("Paid")
     )
     count = models.FloatField(null=True, default=1)
     period_in = models.CharField(max_length=30, choices=TIME_PERIOD, default="day")
     limit_leave = models.BooleanField(default=True, verbose_name=_("Limit Leave Days"))
     total_days = models.FloatField(null=True, default=1)
     reset = models.BooleanField(default=False, verbose_name=_("Reset"))
-    is_encashable = models.BooleanField(default=False, verbose_name=_("Is Encashable"))
+    is_encashable = models.BooleanField(default=False, verbose_name=_("Encashable"))
     reset_based = models.CharField(
         max_length=30,
         choices=RESET_BASED,
@@ -289,6 +301,12 @@ class LeaveType(HorillaModel):
     carryforward_expire_date = models.DateField(
         null=True, blank=True, verbose_name=_("Carryforward Expire Date")
     )
+    carryforward_expiry_method = models.CharField(
+        max_length=30,
+        choices=CARRYFORWARD_EXPIRY_METHOD,
+        default="first_expiry_date",
+        verbose_name=_("Carryforward Expiry Method"),
+    )
     require_approval = models.CharField(
         max_length=30,
         choices=CHOICES,
@@ -309,7 +327,7 @@ class LeaveType(HorillaModel):
         max_length=30,
         choices=CHOICES,
         default="no",
-        verbose_name=_("Exclude Company Holidays"),
+        verbose_name=_("Exclude Company Weekoff"),
     )
     exclude_holiday = models.CharField(
         max_length=30, choices=CHOICES, default="no", verbose_name=_("Exclude Holidays")
@@ -411,7 +429,13 @@ class LeaveType(HorillaModel):
                 ).date()
 
         elif self.reset_based == "weekly":
-            target_weekday = WEEK_DAYS[self.reset_day]
+            # reset_weekend (not reset_day, which is day-of-month for
+            # monthly/custom resets) holds the target weekday, already
+            # "0"-"6" matching date.weekday()'s own Monday=0..Sunday=6
+            # numbering -- no WEEK_DAYS choices lookup needed. Mirrors
+            # set_reset_date()'s weekly branch, which already reads this
+            # field correctly.
+            target_weekday = int(self.reset_weekend)
             days_until_reset = (target_weekday - today.weekday()) % 7 or 7
             reset_date = today + timedelta(days=days_until_reset)
 
@@ -420,16 +444,62 @@ class LeaveType(HorillaModel):
 
         return reset_date
 
-    def set_expired_date(self, assigned_date):
+    def _expiry_offset(self, multiplier=1):
+        """
+        The configured expiry duration (carryforward_expire_in, in
+        carryforward_expire_period units) as a relativedelta scaled by
+        `multiplier`. None if no positive duration is configured.
+        """
         period = self.carryforward_expire_in
+        if not period or period < 0:
+            return None
+        count = period * multiplier
         if self.carryforward_expire_period == "day":
-            expired_date = assigned_date + relativedelta(days=period)
-        elif self.carryforward_expire_period == "month":
-            expired_date = assigned_date + relativedelta(months=period)
-        else:
-            expired_date = assigned_date + relativedelta(years=period)
+            return relativedelta(days=count)
+        if self.carryforward_expire_period == "month":
+            return relativedelta(months=count)
+        return relativedelta(years=count)
 
-        return expired_date
+    def set_expired_date(self, assigned_date):
+        offset = self._expiry_offset()
+        if offset is None:
+            return assigned_date
+        return assigned_date + offset
+
+    def assignment_expiry_date(self, assigned_date, today=None):
+        """
+        Employee Assignment Date method: the first expiry boundary after
+        `today` (the assigned date itself when omitted, i.e. the very first
+        expiry), where boundaries are assigned_date + n * duration.
+
+        Each boundary is computed from the assigned date instead of
+        chaining off the previous one, so month-end and leap-day anchors
+        don't drift (Jan 31 + 1 month = Feb 28, but + 2 months = Mar 31).
+        """
+        if hasattr(assigned_date, "date") and callable(assigned_date.date):
+            assigned_date = assigned_date.date()
+        if hasattr(today, "date") and callable(today.date):
+            today = today.date()
+        today = today or assigned_date
+        if self._expiry_offset() is None:
+            return assigned_date
+        n = 1
+        expiry = assigned_date + self._expiry_offset(n)
+        while expiry <= today:
+            n += 1
+            expiry = assigned_date + self._expiry_offset(n)
+        return expiry
+
+    def initial_expiry_date(self, assigned_date):
+        """
+        Expiry date a freshly assigned AvailableLeave starts with, or None
+        if this leave type's carryforward never expires.
+        """
+        if self.carryforward_type != "carryforward expire":
+            return None
+        if self.carryforward_expiry_method == "assignment_date":
+            return self.assignment_expiry_date(assigned_date)
+        return self.carryforward_expire_date or assigned_date
 
     def save(self, *args, **kwargs):
         from base.auth_backends import stamp_company_on_create
@@ -444,17 +514,44 @@ class LeaveType(HorillaModel):
         if self.pk and LeaveType.objects.get(id=self.pk).is_compensatory_leave:
             self.is_compensatory_leave = True
 
-        if (
-            self.carryforward_type == "carryforward expire"
-            and not self.carryforward_expire_date
-        ):
-            self.carryforward_expire_date = self.set_expired_date(
-                assigned_date=self.created_at
+        previous_expire_date = None
+        if self.pk:
+            previous_expire_date = (
+                LeaveType.objects.filter(pk=self.pk)
+                .values_list("carryforward_expire_date", flat=True)
+                .first()
             )
-        elif self.carryforward_type != "carryforward expire":
+
+        uses_first_expiry_date = (
+            self.carryforward_type == "carryforward expire"
+            and self.carryforward_expiry_method == "first_expiry_date"
+        )
+        if uses_first_expiry_date:
+            if not self.carryforward_expire_date:
+                # created_at isn't populated yet on the very first save
+                base_date = self.created_at or timezone.now()
+                if hasattr(base_date, "date"):
+                    base_date = base_date.date()
+                self.carryforward_expire_date = self.set_expired_date(
+                    assigned_date=base_date
+                )
+        else:
+            # Per-employee dates (or no expiry at all): there is no shared
+            # date to keep.
             self.carryforward_expire_date = None
 
         super().save()
+
+        # An admin changing the shared first expiry date applies it to the
+        # existing balances too, so every employee expires together.
+        if (
+            uses_first_expiry_date
+            and previous_expire_date
+            and previous_expire_date != self.carryforward_expire_date
+        ):
+            AvailableLeave.objects.filter(leave_type_id=self).update(
+                expired_date=self.carryforward_expire_date
+            )
 
     def __str__(self):
         return self.name
@@ -468,6 +565,18 @@ class LeaveType(HorillaModel):
             path="cbv/leave_types/leave_type_list_actions.html",
             context={"instance": self},
         )
+
+    def has_due_resets(self):
+        """
+        Whether this type resets and any of its balances has a reset or expiry already due.
+        """
+        return bool(self.reset) and due_available_leaves(self).exists()
+
+    def due_reset_count(self):
+        """
+        Number of this type's balances with a reset or expiry already due.
+        """
+        return due_available_leaves(self).count() if self.reset else 0
 
     def leave_detail_reset(self):
         """
@@ -719,6 +828,13 @@ class AvailableLeave(HorillaModel):
                 self.carryforward_days = self.total_leave_days
             else:
                 self.carryforward_days = self.leave_type_id.carryforward_max
+        else:
+            # Otherwise a stale carryforward_days value (e.g. left over
+            # from before the policy was switched to "no carryforward")
+            # would survive every future reset -- same "no carryforward"
+            # semantics already used for balance validation, see the local
+            # (non-persisted) computation in LeaveRequest's clean().
+            self.carryforward_days = 0
         self.available_days = self.leave_type_id.total_days
 
     # Setting the reset date for carryforward leaves
@@ -788,24 +904,384 @@ class AvailableLeave(HorillaModel):
             leave_type_id=self.leave_type_id,
             employee_id=self.employee_id,
             start_date__gte=self.assigned_date,  # Considering leaves taken after assigned date
-            status="approved",
+            status__in=["approved", "cancel_requested"],
         ).aggregate(total_sum=Sum("requested_days"))
 
         return leave_taken["total_sum"] if leave_taken["total_sum"] else 0
 
+    def build_ledger(self):
+        """
+        Chronological running-balance ledger combining this AvailableLeave's
+        own history (assignment, reset, carryforward expiry, manual edits,
+        and any approval that itself decremented available_days/
+        carryforward_days -- every one of them ends in a `.save()`, so
+        every real balance change already has a history row) with every
+        approved LeaveRequest taken against it.
+
+        A given approved LeaveRequest is represented exactly once: if its
+        approval already shows up as a matching negative delta in this
+        history (matched by date -- see approved_by_date below), that
+        delta's row is labeled from the request instead of a generic
+        "Balance updated", and the request is *not* added again (adding it
+        separately would double-count the same deduction, since some
+        approval code paths -- LeaveRequest.no_approval(), the
+        compensatory-leave paths -- already decrement the balance and
+        save() before this method ever runs). If the approval never
+        touched this AvailableLeave's own fields at all (a LeaveRequest
+        created/approved through some other path -- bulk import, admin
+        edit, demo fixtures -- that never called those methods), it gets
+        its own debit row instead, dated by when it was actually approved,
+        so it isn't silently invisible just because the balance field
+        itself was never adjusted. In that case the running balance will
+        not equal the live available_days + carryforward_days -- that's
+        the underlying data being genuinely inconsistent (approved leave
+        that was never deducted), not a bug in this method.
+
+        Returns a list of dicts: {date, label, credit, debit, balance},
+        newest first (matching how the ledger sidebar displays it).
+        """
+        history_rows = list(self.history.order_by("history_date"))
+        if not history_rows:
+            return []
+
+        def as_date(value):
+            # Datetimes here are tz-aware UTC: history_date always, and
+            # assigned_date until the instance round-trips through the DB
+            # (its default is timezone.now). .date() on those gives the UTC
+            # day -- a day behind the user's calendar for UTC+ zones until
+            # UTC midnight -- so convert to TIME_ZONE first.
+            if isinstance(value, datetime):
+                return (
+                    timezone.localdate(value)
+                    if timezone.is_aware(value)
+                    else value.date()
+                )
+            return value
+
+        def reason_source(history_row):
+            """
+            Who applied a reset/expiry row: ("manual", name) or ("scheduler", None).
+            """
+            if not history_row.history_change_reason:
+                return None, None
+            user = history_row.history_user
+            if not user:
+                return "scheduler", None
+            employee = getattr(user, "employee_get", None)
+            name = employee.get_full_name() if employee else user.get_username()
+            return "manual", name
+
+        # For labeling debits only (see docstring). Keyed by the date the
+        # request's OWN history shows it actually became "approved" -- not
+        # start_date, since a leave is very commonly approved on a
+        # different day than the leave itself falls on (e.g. approved
+        # today for a request starting next week). The approval save() and
+        # this AvailableLeave's own save() happen together, so their dates
+        # line up; start_date and the save date generally do not.
+        approved_by_date = {}
+        for request in LeaveRequest.objects.filter(
+            leave_type_id=self.leave_type_id,
+            employee_id=self.employee_id,
+            start_date__gte=self.assigned_date,
+            status__in=["approved", "cancel_requested"],
+        ):
+            approved_snapshot = (
+                request.history.filter(status="approved")
+                .order_by("history_date")
+                .first()
+            )
+            approval_date = (
+                as_date(approved_snapshot.history_date)
+                if approved_snapshot
+                else request.start_date
+            )
+            approved_by_date.setdefault(approval_date, []).append(request)
+
+        entries = []
+        first = history_rows[0]
+        # Split out any starting carryforward as its own row instead of
+        # lumping it into "Initial assignment" -- otherwise, for an
+        # AvailableLeave created with a pre-existing carryforward balance
+        # (e.g. imported from an older system, or backdated data), that
+        # portion is invisible; every later change already gets its own
+        # distinctly-labeled row, so the opening balance should too.
+        opening_available = round(first.available_days or 0, 2)
+        opening_carryforward = round(first.carryforward_days or 0, 2)
+        if opening_available:
+            entries.append(
+                {
+                    "date": as_date(self.assigned_date),
+                    "label": _("Initial assignment"),
+                    "kind": "allocation",
+                    "credit": opening_available,
+                    "debit": 0,
+                    "carryforward_amount": 0,
+                }
+            )
+        if opening_carryforward:
+            entries.append(
+                {
+                    "date": as_date(self.assigned_date),
+                    "label": _("Initial carryforward"),
+                    "kind": "carryforward",
+                    "credit": opening_carryforward,
+                    "debit": 0,
+                    "carryforward_amount": 0,
+                }
+            )
+        for previous, current in zip(history_rows, history_rows[1:]):
+            # Round before comparing to zero and before display -- adding
+            # two independently-stored floats (e.g. 3.9 + 2.7) routinely
+            # reintroduces binary floating-point noise past the 2nd
+            # decimal (6.6 becomes 6.6000000000000005), which would both
+            # show ugly long decimals AND, worse, create a spurious
+            # near-zero "phantom" row if left unrounded before this check.
+            delta = round(
+                ((current.available_days or 0) + (current.carryforward_days or 0))
+                - ((previous.available_days or 0) + (previous.carryforward_days or 0)),
+                2,
+            )
+            kind = self._ledger_kind(current.history_change_reason)
+            available_before = round(previous.available_days or 0, 2)
+            available_after = round(current.available_days or 0, 2)
+            carryforward_before = round(previous.carryforward_days or 0, 2)
+            carryforward_after = round(current.carryforward_days or 0, 2)
+            # A reset/expiry always belongs in the ledger, even when the two
+            # buckets moved in opposite directions and netted to zero.
+            if delta == 0 and not (
+                kind in ("reset", "carryforward_expired")
+                and (
+                    available_before != available_after
+                    or carryforward_before != carryforward_after
+                )
+            ):
+                continue
+            entry_date = as_date(current.history_date)
+            source, by = reason_source(current)
+            breakdown = {
+                "available_before": available_before,
+                "available_after": available_after,
+                "carryforward_before": carryforward_before,
+                "carryforward_after": carryforward_after,
+            }
+            if kind == "reset":
+                # What the reset carried over into the new period.
+                breakdown["carried_forward"] = carryforward_after
+            elif kind == "carryforward_expired":
+                breakdown["expired_amount"] = carryforward_before
+            if delta >= 0:
+                entries.append(
+                    {
+                        **breakdown,
+                        "kind": kind if kind != "other" else "allocation",
+                        "date": entry_date,
+                        "label": (
+                            _(current.history_change_reason)
+                            if current.history_change_reason
+                            else _("Balance updated")
+                        ),
+                        "credit": delta,
+                        "debit": 0,
+                        "carryforward_amount": 0,
+                        "source": source,
+                        "by": by,
+                    }
+                )
+            else:
+                label = (
+                    _(current.history_change_reason)
+                    if current.history_change_reason
+                    else None
+                )
+                if not label:
+                    matches = approved_by_date.get(entry_date)
+                    carryforward_amount = 0
+                    if matches:
+                        request = matches.pop(0)
+                        label = _("Leave taken (%(start)s - %(end)s)") % {
+                            "start": request.start_date,
+                            "end": request.end_date or request.start_date,
+                        }
+                        carryforward_amount = round(
+                            request.approved_carryforward_days or 0, 2
+                        )
+                    else:
+                        label = _("Balance updated")
+                else:
+                    carryforward_amount = 0
+                entries.append(
+                    {
+                        **breakdown,
+                        "kind": kind if kind != "other" else "taken",
+                        "date": entry_date,
+                        "label": label,
+                        "credit": 0,
+                        "debit": -delta,
+                        "carryforward_amount": carryforward_amount,
+                        "source": source,
+                        "by": by,
+                    }
+                )
+
+        # Any request left in approved_by_date was never claimed above --
+        # its approval never actually decremented available_days/
+        # carryforward_days (see docstring), so it would otherwise be
+        # completely invisible here despite being "taken". Give it its own
+        # row rather than silently dropping it.
+        for unclaimed_requests in approved_by_date.values():
+            for request in unclaimed_requests:
+                entries.append(
+                    {
+                        "kind": "taken",
+                        "date": request.start_date,
+                        "label": _("Leave taken (%(start)s - %(end)s)")
+                        % {
+                            "start": request.start_date,
+                            "end": request.end_date or request.start_date,
+                        },
+                        "credit": 0,
+                        "debit": round(request.requested_days or 0, 2),
+                        "carryforward_amount": round(
+                            request.approved_carryforward_days or 0, 2
+                        ),
+                    }
+                )
+
+        # Unclaimed-request rows appended above aren't necessarily in
+        # order relative to the history-derived rows already collected --
+        # re-sort chronologically (stable, so same-day ties keep the order
+        # they were appended in) before accumulating the running balance.
+        entries.sort(key=lambda entry: entry["date"])
+
+        balance = 0
+        ledger = []
+        for entry in entries:
+            balance = round(balance + entry["credit"] - entry["debit"], 2)
+            ledger.append({**entry, "balance": balance})
+        # The running balance must be accumulated oldest-to-newest (each
+        # row depends on the one before it) -- reverse only the final,
+        # already-computed list so callers see newest first.
+        ledger.reverse()
+        return ledger
+
+    @staticmethod
+    def _ledger_kind(change_reason):
+        """
+        Category of a history row, from the reason the reset/expiry code
+        stamps on it ("Leave reset[ manually]", "Carryforward expired[ manually]").
+        """
+        reason = (change_reason or "").lower()
+        if reason.startswith("leave reset"):
+            return "reset"
+        if reason.startswith("carryforward expired"):
+            return "carryforward_expired"
+        return "other"
+
+    def forecast_carryforward_expiry(self):
+        """
+        Upcoming expiry of this balance's carryforward -- {date, amount} --
+        or None if the leave type's carryforward never expires. The amount
+        is 0 when nothing is currently carried forward.
+        """
+        if (
+            self.leave_type_id.carryforward_type != "carryforward expire"
+            or not self.expired_date
+        ):
+            return None
+        expired_date = self.expired_date
+        if hasattr(expired_date, "date") and callable(expired_date.date):
+            expired_date = expired_date.date()
+        return {"date": expired_date, "amount": round(self.carryforward_days or 0, 2)}
+
+    def forecast_next_reset(self):
+        """
+        Preview of the next reset, if one is scheduled -- computed the
+        same way update_carryforward() would, but without saving anything
+        or waiting for the scheduler to actually run it. Returns None if
+        this leave type doesn't reset, or no reset_date is set.
+        """
+        if not self.leave_type_id.reset or not self.reset_date:
+            return None
+
+        current_total = round(
+            (self.available_days or 0) + (self.carryforward_days or 0), 2
+        )
+        if self.leave_type_id.carryforward_type != "no carryforward":
+            forecasted_carryforward = min(
+                current_total, self.leave_type_id.carryforward_max or 0
+            )
+        else:
+            forecasted_carryforward = 0
+        forecasted_available = self.leave_type_id.total_days or 0
+        forecasted_total = round(forecasted_available + forecasted_carryforward, 2)
+
+        reset_date = self.reset_date
+        if hasattr(reset_date, "date") and callable(reset_date.date):
+            # Same DateField-holding-a-raw-datetime quirk as assigned_date
+            # in build_ledger() -- reset_date is auto-computed at save()
+            # time and can still be a full datetime in memory until the
+            # instance round-trips through the DB.
+            reset_date = reset_date.date()
+
+        return {
+            "date": reset_date,
+            "credit": round(forecasted_total - current_total, 2),
+            "balance": forecasted_total,
+        }
+
+    def is_reset_due(self, today_date=None):
+        """
+        Whether this balance's reset or carryforward expiry date has already passed.
+        """
+        if not self.leave_type_id.reset:
+            return False
+        today_date = today_date or timezone.localdate()
+        return bool(
+            (self.reset_date and self.reset_date <= today_date)
+            or (self.expired_date and self.expired_date <= today_date)
+        )
+
     # Setting the expiration date for carryforward leaves
     def set_expired_date(self, available_leave, assigned_date):
-        period = available_leave.leave_type_id.carryforward_expire_in
-        if available_leave.leave_type_id.carryforward_expire_period == "day":
-            expired_date = assigned_date + relativedelta(days=period)
-        elif available_leave.leave_type_id.carryforward_expire_period == "month":
-            expired_date = assigned_date + relativedelta(months=period)
-        else:
-            expired_date = assigned_date + relativedelta(years=period)
-
+        expired_date = available_leave.leave_type_id.set_expired_date(assigned_date)
         available_leave.carryforward_days = 0
         available_leave.available_days = available_leave.leave_type_id.total_days
         return expired_date
+
+    def next_expiry_date(self, today):
+        """
+        The expiry date to move to once the current one has passed, per the
+        leave type's expiry method.
+        """
+        leave_type = self.leave_type_id
+        if leave_type.carryforward_expiry_method == "assignment_date":
+            return leave_type.assignment_expiry_date(self.assigned_date, today)
+        shared = leave_type.carryforward_expire_date
+        if shared and shared > today:
+            return shared
+        return leave_type.set_expired_date(today)
+
+    def expire_carryforward(self, today, reason="Carryforward expired"):
+        """
+        Expire this balance's carryforward if its expiry date has been
+        reached. Returns True if it did anything.
+
+        Idempotent: the expiry date moves past `today` in the same save,
+        so the balance can't be deducted a second time on a later run.
+        """
+        if (
+            self.leave_type_id.carryforward_type != "carryforward expire"
+            or not self.expired_date
+            or self.expired_date > today
+        ):
+            return False
+        new_expired_date = self.next_expiry_date(today)
+        self.carryforward_days = 0
+        self.available_days = self.leave_type_id.total_days
+        self.expired_date = new_expired_date
+        self._change_reason = reason
+        self.save()
+        return True
 
     def pre_save_processing(self):
         """
@@ -817,12 +1293,12 @@ class AvailableLeave(HorillaModel):
                 assigned_date=self.assigned_date, available_leave=self
             )
 
-        # Logic for expired_date
-        if self.leave_type_id.carryforward_type == "carryforward expire":
-            expiry_date = self.assigned_date
-            if self.leave_type_id.carryforward_expire_date:
-                expiry_date = self.leave_type_id.carryforward_expire_date
-            self.expired_date = expiry_date
+        # Logic for expired_date. Only seeded when empty: a date that was
+        # already calculated (per employee, or by the scheduler) is kept.
+        if self.expired_date is None:
+            self.expired_date = self.leave_type_id.initial_expiry_date(
+                self.assigned_date
+            )
 
         # Compute total_leave_days and ensure carryforward_days >= 0
         self.total_leave_days = round(
@@ -873,7 +1349,7 @@ def cal_effective_requested_days(
         )
     holidays = set(holiday_dates_list(holiday_qs))
     company_leave_dates = set(
-        company_leave_dates_list(CompanyLeaves.objects.all(), start_date)
+        company_leave_dates_list(CompanyLeaves.objects.all(), start_date, end_date)
     )
 
     if (
@@ -936,6 +1412,15 @@ class LeaveRequest(HorillaModel):
         choices=LEAVE_STATUS,
         default="requested",
         verbose_name=_("Status"),
+    )
+    cancellation_requested = models.BooleanField(
+        default=False,
+        editable=False,
+        verbose_name=_("Cancellation Requested"),
+        help_text=_(
+            "Set once the employee has asked to cancel this approved leave. "
+            "It stays set if the request is rejected, so it can't be asked twice."
+        ),
     )
     requested_date = models.DateField(
         default=timezone.now, verbose_name=_("Created Date")
@@ -1031,31 +1516,32 @@ class LeaveRequest(HorillaModel):
     def clashed_due_to(self):
         """
         method for rendering clashed_due_to col in clashes
-        """
-        overlapping_requests = LeaveRequest.objects.filter(
-            Q(
-                employee_id__employee_work_info__department_id=self.employee_id.get_department()
-            )
-            | Q(
-                employee_id__employee_work_info__job_position_id=self.employee_id.get_job_position()
-            ),
-            start_date__lte=self.end_date,
-            end_date__gte=self.start_date,
-        )
 
-        clashed_due_to_department = overlapping_requests.filter(
-            employee_id__employee_work_info__department_id=self.employee_id.get_department()
+        Each row is a request that clashes with the one whose clash list is
+        open (the pk in the view-clashes URL), so compare the row's employee
+        against that reference request's employee.
+        """
+        reference = self
+        request = getattr(_thread_locals, "request", None)
+        match = getattr(request, "resolver_match", None)
+        if match and match.url_name == "view-clashes":
+            reference = (
+                LeaveRequest.objects.filter(pk=match.kwargs.get("pk")).first() or self
+            )
+        same_department = (
+            self.employee_id.get_department() == reference.employee_id.get_department()
         )
-        clashed_due_to_job_position = overlapping_requests.filter(
-            employee_id__employee_work_info__job_position_id=self.employee_id.get_job_position()
+        same_job_position = (
+            self.employee_id.get_job_position()
+            == reference.employee_id.get_job_position()
         )
 
         return render_template(
             path="cbv/leave_requests/clashed_due_to.html",
             context={
                 "instance": self,
-                "clashed_due_to_department": clashed_due_to_department,
-                "clashed_due_to_job_position": clashed_due_to_job_position,
+                "same_department": same_department,
+                "same_job_position": same_job_position,
             },
         )
 
@@ -1185,12 +1671,44 @@ class LeaveRequest(HorillaModel):
             context={"instance": self},
         )
 
-    def penality_col(self):
+    def available_balance_col(self):
         """
-        method for penality coloumn
+        Available balance for the employee/leave type. Uses the value annotated
+        by the list view; falls back to a single lookup elsewhere.
+        """
+        balance = getattr(self, "available_balance", None)
+        if balance is None:
+            balance = (
+                AvailableLeave.objects.filter(
+                    employee_id=self.employee_id_id, leave_type_id=self.leave_type_id_id
+                )
+                .values_list("total_leave_days", flat=True)
+                .first()
+            )
+        return "-" if balance is None else f"{round(balance, 2):g}"
+
+    def penalty_col(self):
+        """
+        method for penalty coloumn
         """
         return render_template(
-            path="cbv/leave_requests/penality.html",
+            path="cbv/leave_requests/penalty.html",
+            context={"instance": self},
+        )
+
+    def get_penalty_tab_url(self):
+
+        return (
+            reverse("policies-discipline-view")
+            + f"?tab=penalty&leave_request_id={self.id}"
+        )
+
+    def penalty_detail_col(self):
+        """
+        penalty count with label for the detail view
+        """
+        return render_template(
+            path="cbv/leave_requests/penalty_detail.html",
             context={"instance": self},
         )
 
@@ -1239,11 +1757,11 @@ class LeaveRequest(HorillaModel):
 
     def is_attendance_request_cancelled(self):
         """
-        method to change background if they are cancelled
+        row attribute hook for cancelled requests; cancelled rows are not
+        highlighted, so there is nothing to add
         """
 
-        if self.status == "cancelled":
-            return 'style="background-color: lightgrey"'
+        return ""
 
     def leave_requests_detail_view(self):
         """
@@ -1333,16 +1851,22 @@ class LeaveRequest(HorillaModel):
             start_date__lte=today, end_date__gte=today, is_active=True
         )
 
-        if status is not None:
+        if isinstance(status, (list, tuple)):
+            queryset = queryset.filter(status__in=status)
+        elif status is not None:
             queryset = queryset.filter(status=status)
 
         return queryset
 
     def get_penalties_count(self):
         """
-        This method is used to return the total penalties in the late early instance
+        Total penalties on this leave request. Uses the value annotated by the
+        list view; falls back to a single count elsewhere.
         """
-        return self.penaltyaccounts_set.count()
+        count = getattr(self, "penalties_count", None)
+        if count is None:
+            count = self.penaltyaccounts_set.count()
+        return count
 
     def requested_dates(self):
         """
@@ -1380,49 +1904,52 @@ class LeaveRequest(HorillaModel):
 
     def company_leave_dates(self):
         """
-        :return: This function returns a list of all company leave dates"""
+        :return: This function returns a list of all company leave dates,
+        covering every year from the start date to the end date"""
         from datetime import date
 
         company_leaves = CompanyLeaves.objects.all()
         company_leave_dates = []
-        for company_leave in company_leaves:
-            if self:
-                year = self.start_date.year
-            else:
-                year = date.today().year
-            based_on_week = company_leave.based_on_week
-            based_on_week_day = company_leave.based_on_week_day
-            for month in range(1, 13):
-                if based_on_week != None:
-                    # Set Sunday as the first day of the week
-                    calendar.setfirstweekday(6)
-                    month_calendar = calendar.monthcalendar(year, month)
-                    try:
-                        weeks = month_calendar[int(based_on_week)]
-                        weekdays_in_weeks = [day for day in weeks if day != 0]
-                        for day in weekdays_in_weeks:
-                            date = datetime.strptime(
-                                f"{year}-{month:02}-{day:02}", "%Y-%m-%d"
-                            ).date()
-                            if (
-                                date.weekday() == int(based_on_week_day)
-                                and date not in company_leave_dates
-                            ):
-                                company_leave_dates.append(date)
-                    except IndexError:
-                        pass
-                else:
-                    # Set Monday as the first day of the week
-                    calendar.setfirstweekday(0)
-                    month_calendar = calendar.monthcalendar(year, month)
-                    for week in month_calendar:
-                        if week[int(based_on_week_day)] != 0:
-                            date = datetime.strptime(
-                                f"{year}-{month:02}-{week[int(based_on_week_day)]:02}",
-                                "%Y-%m-%d",
-                            ).date()
-                            if date not in company_leave_dates:
-                                company_leave_dates.append(date)
+        if self:
+            start_year = self.start_date.year
+            end_year = (self.end_date or self.start_date).year
+        else:
+            start_year = end_year = date.today().year
+        for year in range(start_year, max(start_year, end_year) + 1):
+            for company_leave in company_leaves:
+                based_on_week = company_leave.based_on_week
+                based_on_week_day = company_leave.based_on_week_day
+                for month in range(1, 13):
+                    if based_on_week != None:
+                        # Set Sunday as the first day of the week
+                        calendar.setfirstweekday(6)
+                        month_calendar = calendar.monthcalendar(year, month)
+                        try:
+                            weeks = month_calendar[int(based_on_week)]
+                            weekdays_in_weeks = [day for day in weeks if day != 0]
+                            for day in weekdays_in_weeks:
+                                date = datetime.strptime(
+                                    f"{year}-{month:02}-{day:02}", "%Y-%m-%d"
+                                ).date()
+                                if (
+                                    date.weekday() == int(based_on_week_day)
+                                    and date not in company_leave_dates
+                                ):
+                                    company_leave_dates.append(date)
+                        except IndexError:
+                            pass
+                    else:
+                        # Set Monday as the first day of the week
+                        calendar.setfirstweekday(0)
+                        month_calendar = calendar.monthcalendar(year, month)
+                        for week in month_calendar:
+                            if week[int(based_on_week_day)] != 0:
+                                date = datetime.strptime(
+                                    f"{year}-{month:02}-{week[int(based_on_week_day)]:02}",
+                                    "%Y-%m-%d",
+                                ).date()
+                                if date not in company_leave_dates:
+                                    company_leave_dates.append(date)
         return company_leave_dates
 
     def leaveoverlapping(self):
@@ -1669,7 +2196,8 @@ class LeaveRequest(HorillaModel):
             # Check if requested days intersect with restricted days
             if requ_days & restri_days:
                 if (
-                    restrict.department == emp_dep
+                    emp_dep
+                    and restrict.department.filter(pk=emp_dep.pk).exists()
                     and not restrict.job_position.exists()
                 ) or (emp_job and emp_job in restrict.job_position.all()):
                     raise ValidationError(
@@ -1689,11 +2217,17 @@ class LeaveRequest(HorillaModel):
             requested_date in total_leaves for requested_date in requested_dates
         )
 
-        if (self.start_date in total_leaves or self.end_date in total_leaves) and (
-            self.start_date_breakdown == "second_half"
-            or self.end_date_breakdown == "first_half"
-        ):
-            self.requested_days += 0.5
+        # A half day that is itself an off day was counted as 0.5 but a full 1
+        # is subtracted for it, so add the 0.5 back once per such end date.
+        half_off_days = {
+            day
+            for day, breakdown in (
+                (self.start_date, self.start_date_breakdown),
+                (self.end_date, self.end_date_breakdown),
+            )
+            if day in total_leaves and breakdown != "full_day"
+        }
+        self.requested_days += 0.5 * len(half_off_days)
 
         self.requested_days = self.requested_days - total_leave_count
 
@@ -1826,7 +2360,7 @@ class LeaveRequest(HorillaModel):
         Method to count leave clashes where this employee's leave request overlaps
         with other employees' requested dates.
         """
-        if self.status in ["cancelled", "rejected"]:
+        if self.status in ["cancelled", "rejected"] or not self.employee_id.is_active:
             return 0
         work_info = EmployeeWorkInformation.objects.filter(employee_id=self.employee_id)
         if work_info.exists() and self.status not in ["cancelled", "rejected"]:
@@ -1841,6 +2375,9 @@ class LeaveRequest(HorillaModel):
                             employee_id__employee_work_info__job_position_id=self.employee_id.get_job_position()
                         )
                     ),
+                    # same scope as the clash list (LeaveClashListView)
+                    employee_id__employee_work_info__company_id=work_info.first().company_id,
+                    employee_id__is_active=True,
                     start_date__lte=self.end_date,
                     end_date__gte=self.start_date,
                 )
@@ -1849,6 +2386,42 @@ class LeaveRequest(HorillaModel):
 
             return overlapping_requests.count()
         return 0
+
+    def clashing_requests(self):
+        """
+        Active requests from the same company and the same department or job
+        position whose dates overlap this request.
+        """
+        work_info = getattr(self.employee_id, "employee_work_info", None)
+        if (
+            not work_info
+            or self.status in ["cancelled", "rejected"]
+            or not self.employee_id.is_active
+        ):
+            return LeaveRequest.objects.none()
+        return (
+            LeaveRequest.objects.exclude(id=self.id)
+            .filter(
+                Q(
+                    employee_id__employee_work_info__department_id=work_info.department_id_id
+                )
+                | Q(
+                    employee_id__employee_work_info__job_position_id=work_info.job_position_id_id
+                ),
+                employee_id__employee_work_info__company_id=work_info.company_id_id,
+                employee_id__is_active=True,
+                start_date__lte=self.end_date,
+                end_date__gte=self.start_date,
+            )
+            .exclude(Q(status="cancelled") | Q(status="rejected"))
+            .distinct()
+        )
+
+    def get_leave_clash_count(self):
+        """
+        Live number of active requests clashing with this one.
+        """
+        return self.clashing_requests().count()
 
 
 class LeaverequestFile(models.Model):
@@ -2039,8 +2612,11 @@ class LeaveAllocationRequest(HorillaModel):
         )
 
     def diff_cell(self):
-        if self.status == "rejected":
-            return 'style="background-color: rgba(255, 166, 0, 0.158);"'
+        """
+        row attribute hook; rejected allocation requests are no longer
+        highlighted, so there is nothing to add
+        """
+        return ""
 
     def leave_request_allocation_detail_subtitle(self):
         """
@@ -2089,8 +2665,8 @@ class RestrictLeave(HorillaModel):
     title = models.CharField(max_length=200, verbose_name=_("Title"))
     start_date = models.DateField(verbose_name=_("Start Date"))
     end_date = models.DateField(verbose_name=_("End Date"))
-    department = models.ForeignKey(
-        Department, verbose_name=_("Department"), on_delete=models.CASCADE
+    department = models.ManyToManyField(
+        Department, verbose_name=_("Department"), related_name="restrict_leaves"
     )
     job_position = models.ManyToManyField(
         JobPosition,
@@ -2132,6 +2708,13 @@ class RestrictLeave(HorillaModel):
 
     def __str__(self) -> str:
         return f"{self.title}"
+
+    def department_col(self):
+        """
+        For department column
+        """
+
+        return ", ".join(str(dep) for dep in self.department.all()) or "-"
 
     def job_position_col(self):
         """

@@ -6,6 +6,9 @@
     <div hx-get="{% url 'assigned-leave-nav' %}" hx-trigger="load"></div>
 
     {% include "generic/components.html" %}
+    <div class="oh-activity-sidebar pb-5" id="leaveLedgerSidebar" style="z-index: 1000;">
+        <div class="oh-activity-sidebar__body h-full" id="leaveLedgerContainer"></div>
+    </div>
     <div class="oh-checkpoint-badge mb-2" id="selectedInstances" data-ids="[]" data-clicked="" style="display: none">
     </div>
 
@@ -48,14 +51,15 @@
                         hx-post="{% url 'assign-leave-type-info-import' %}"
                         hx-encoding="multipart/form-data"
                         hx-target="#assignLeaveTypeImport"
+                        hx-timeout="600000"
+                        hx-indicator="#uploading"
                         id="assignLeaveTypeImportForm"
                     >
                         {% csrf_token %}
-                        <div class="oh-modal__dialog-body mr-5" id="uploading" style="display: none">
-                            <div class="loader-container">
-                                <div class="loader"></div>
-                                <div class="loader-text">{% trans "Uploading..." %}</div>
-                            </div>
+                        <div id="uploading" class="oh-upload-loader" role="status" aria-live="polite">
+                            <p class="oh-upload-loader__title">{% trans "Uploading..." %}</p>
+                            <p class="oh-upload-loader__hint">{% trans "Don't refresh the page" %}</p>
+                            <div class="oh-upload-loader__bar"><span></span></div>
                         </div>
                         <div id="uploadContainer">
                             <label class="oh-dropdown__import-label" for="uploadFile">
@@ -99,7 +103,7 @@
     </div>
     <!-- End of import assigned leaves form !-->
 
-    <script src="{% static 'cbv/assigned_leave/assigned_leave.js' %}"></script>
+    <script src="{% static 'cbv/assigned_leave/assigned_leave.js' %}?v=3"></script>
     <script>
         $(document).on('submit', '#deletebtn', function () {
             $('.oh-modal--show').removeClass('oh-modal--show');

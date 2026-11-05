@@ -35,24 +35,40 @@
                 type="button"
                 id="select_{{ view_id }}"
                 data-total-count="{{ queryset.paginator.count }}"
-                data-select-ids="{{ select_all_ids }}"
+                data-select-url="{{ request.get_full_path }}"
+                data-store-key="{{ selected_instances_key_id }}"
                 class="quick-bulk-action px-4 py-2 bg-transparent border border-primary-600 text-primary-600 rounded-md text-xs hover:bg-primary-600 hover:text-white transition duration-300"
                 onclick="hlvSelectAllRecords(this, '#{{ root_view_id|default:view_id|safe }}', '{{ selected_instances_key_id }}')"
             >
                 <span class="label">{% trans 'Select' %}</span>
                 ({{ queryset.paginator.count }})
             </button>
-        {% elif group_select and queryset.paginator.count %}
+        {% elif grouped_select_total and not group_select %}
+            {# Grouped list: the "queryset" is a stub, so the count and ids come from the full filtered set via ?select_all=true #}
             <button
                 type="button"
                 id="select_{{ view_id }}"
-                data-total-count="{{ queryset.paginator.count }}"
-                data-select-ids="{{ select_all_ids|default:'[]' }}"
+                data-total-count="{{ grouped_select_total }}"
+                data-select-url="{{ request.get_full_path }}"
+                data-store-key="{{ selected_instances_key_id }}"
                 class="quick-bulk-action px-4 py-2 bg-transparent border border-primary-600 text-primary-600 rounded-md text-xs hover:bg-primary-600 hover:text-white transition duration-300"
                 onclick="hlvSelectAllRecords(this, '#{{ root_view_id|default:view_id|safe }}', '{{ selected_instances_key_id }}')"
             >
                 <span class="label">{% trans 'Select' %}</span>
-                ({{ queryset.paginator.count }})
+                ({{ grouped_select_total }})
+            </button>
+        {% elif group_select and queryset.paginator.count %}
+            <button
+                type="button"
+                id="select_{{ view_id }}"
+                data-total-count="{{ select_total_count|default:queryset.paginator.count }}"
+                data-select-ids="{{ select_all_ids|default:'[]' }}"
+                data-store-key="{{ selected_instances_key_id }}"
+                class="quick-bulk-action px-4 py-2 bg-transparent border border-primary-600 text-primary-600 rounded-md text-xs hover:bg-primary-600 hover:text-white transition duration-300"
+                onclick="hlvSelectAllRecords(this, '#{{ root_view_id|default:view_id|safe }}', '{{ selected_instances_key_id }}')"
+            >
+                <span class="label">{% trans 'Select' %}</span>
+                ({{ select_total_count|default:queryset.paginator.count }})
             </button>
         {% endif %}
         {% if quick_export %}
@@ -119,17 +135,17 @@
     {% endif %}
 
     <div class="flex flex-nowrap items-center gap-2 ml-auto flex-shrink-0 self-center">
-    {% if stored_filters or row_status_indications %}
+    {% if stored_filters or show_quick_date_filters or row_status_indications %}
         {# All saved quick filters live behind one "Filters" dropdown, so the toolbar's guaranteed-visible width stays small and constant no matter how many filters a user saves. row_status_indications (e.g. Online/Offline) are few and page-defined, so they stay directly visible. #}
         <div class="flex flex-wrap gap-2 items-center">
-            {% if stored_filters %}
+            {% if stored_filters or show_quick_date_filters %}
                 <div class="relative flex-shrink-0" x-data="{ open: false }">
                     <button
                         @click="open = !open"
-                        class="px-4 py-2 bg-white border border-[#e6e6e6] rounded-md text-xs flex gap-1 items-center whitespace-nowrap"
+                        class="px-4 py-2 bg-white border border-primary-500 hover:border-primary-600 rounded-md text-xs flex gap-1 items-center whitespace-nowrap transition duration-300"
                     >
                         <ion-icon name="funnel-outline"></ion-icon>
-                        {% blocktrans with counter=stored_filters|length %}Filter ({{ counter }}){% endblocktrans %}
+                        {% trans "Quick filter" %}
                         <ion-icon name="chevron-down-outline"></ion-icon>
                     </button>
                     <div
@@ -137,6 +153,17 @@
                         @click.outside="open = false"
                         class="absolute right-0 mt-1 z-20 bg-white border border-[#e6e6e6] rounded-md shadow-lg p-2 flex flex-col gap-1 min-w-[200px] max-h-64 overflow-y-auto"
                     >
+                        {% if show_quick_date_filters %}
+                            {% for label, attrs in quick_date_filters %}
+                                <button
+                                    class="px-3 py-2 text-xs text-left whitespace-nowrap transition duration-300 hover:bg-primary-100 hover:border-primary-600 rounded-md"
+                                    {{ attrs|safe }}
+                                    @click="open = false"
+                                >
+                                    {{ label }}
+                                </button>
+                            {% endfor %}
+                        {% endif %}
                         {% for filter in stored_filters %}
                             {% include "generic/_saved_filter_chip.html" with filter=filter %}
                         {% endfor %}
@@ -146,7 +173,7 @@
             {% if not hide_row_status_indications %}
                 {% for indication in row_status_indications %}
                     <button
-                        class="px-4 py-2 bg-[white] border border-[#e6e6e6] rounded-md text-xs flex gap-2 items-center flex-shrink-0 whitespace-nowrap"
+                        class="oh-row-status-indication px-4 py-2 bg-[white] border border-primary-500 hover:border-primary-600 rounded-md text-xs flex gap-2 items-center flex-shrink-0 whitespace-nowrap transition duration-300"
                         {{ indication.2|safe }}
                     >
                         <span class="h-3 w-3 rounded-full flex {{ indication.0 }}"></span>{{ indication.1 }}
@@ -155,8 +182,9 @@
             {% endif %}
         </div>
     {% endif %}
+        {% if not hide_pagination %}
         {% if queryset.has_previous or queryset.has_next %}
-            <div class="hlv-pagination inline-flex items-center h-8 gap-0.5 bg-white border border-[#e6e6e6] rounded-md px-1 flex-shrink-0">
+            <div class="hlv-pagination inline-flex items-center h-8 gap-0.5 bg-white border border-primary-500 rounded-md px-1 flex-shrink-0">
                 <button
                     type="button"
                     class="w-7 h-7 flex items-center justify-center rounded text-xs leading-none transition duration-300 {% if queryset.has_previous %}text-[#666] hover:bg-[#f5f5f5]{% else %}text-[#ccc] cursor-not-allowed{% endif %}"
@@ -223,6 +251,7 @@
                     <i class="fa-solid fa-angles-right"></i>
                 </button>
             </div>
+        {% endif %}
         {% endif %}
     </div>
 </div>

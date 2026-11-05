@@ -17,6 +17,7 @@ def activity_history_feed(
     context,
     tracking=None,
     log_entries=None,
+    entries=None,
     show_header=True,
     show_search=True,
     title=None,
@@ -27,6 +28,7 @@ def activity_history_feed(
     has_perm_to_revert=False,
     object=None,
     model=None,
+    search=None,
 ):
     """
     Render the shared activity-history timeline.
@@ -43,9 +45,12 @@ def activity_history_feed(
             return value
         return str(value).lower() in {"1", "true", "yes", "on"}
 
-    feed = build_activity_history_feed(tracking=tracking, log_entries=log_entries)
+    feed = build_activity_history_feed(
+        tracking=tracking, log_entries=log_entries, entries=entries
+    )
     return {
         **feed,
+        "search": search or feed["search"],
         "show_header": _as_bool(show_header, True),
         "show_search": _as_bool(show_search, True),
         "title": title or _("Activity history"),

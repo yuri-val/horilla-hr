@@ -12,6 +12,7 @@ from django.shortcuts import render
 from django.urls import reverse, reverse_lazy
 from django.utils.decorators import method_decorator
 from django.utils.translation import gettext_lazy as _
+from django.utils.translation import gettext_noop
 
 from base.filters import WorkTypeRequestFilter
 from base.forms import WorkTypeForm, WorkTypeRequestColumnForm, WorkTypeRequestForm
@@ -25,6 +26,7 @@ from base.models import WorkType, WorkTypeRequest
 from base.views import include_employee_instance
 from employee.models import Employee
 from horilla_views.cbv_methods import (
+    EmployeeScopeMixin,
     hx_request_required,
     login_required,
     permission_required,
@@ -221,7 +223,6 @@ class WorkRequestNavView(HorillaNavView):
                 data-toggle = "oh-modal-toggle"
                 data-target = "#genericModal"
                 hx-get ="{reverse('work-export-candidate')}"
-                hx-vals='js:{{"has_selection": (JSON.parse(document.getElementById("selectedInstances")?.getAttribute("data-ids")||"[]").length>0)}}'
                 style="cursor: pointer;"
             """,
                 },
@@ -279,7 +280,7 @@ class WorkTypeDetailView(HorillaDetailedView):
         (_("Previous Work Type"), "previous_work_type_id"),
         (_("Requested Date"), "requested_date"),
         (_("Requested Till"), "requested_till"),
-        (_("Is Permanent Work Type"), "is_permanent_work_type_display"),
+        (_("Permanent Work Type"), "is_permanent_work_type_display"),
         (_("Description"), "description"),
     ]
 
@@ -316,7 +317,6 @@ class WorkExportCandidate(TemplateView):
         context = super().get_context_data(**kwargs)
         context["export_fields"] = export_fields
         context["export_filter"] = export_filter
-        context["hide_export_filters"] = self.request.GET.get("has_selection") == "true"
         return context
 
 
@@ -379,10 +379,13 @@ class WorkTypesCreateForm(DynamicWorkTypeCreateForm):
 
 
 @method_decorator(login_required, name="dispatch")
-class WorkTypeFormView(HorillaFormView):
+class WorkTypeFormView(EmployeeScopeMixin, HorillaFormView):
     """
     form view for creating work types in app
     """
+
+    scope_perm = "base.add_worktyperequest"
+    scope_include_self = True
 
     model = WorkTypeRequest
     form_class = WorkTypeRequestForm
@@ -438,19 +441,11 @@ class WorkTypeFormView(HorillaFormView):
                 with contextlib.suppress(Exception):
                     notify.send(
                         instance.employee_id,
-                        recipient=(
-                            instance.employee_id.employee_work_info.reporting_manager_id.employee_user_id
+                        recipient=instance.employee_id.employee_work_info.reporting_manager_id.employee_user_id,
+                        verb=gettext_noop(
+                            "You have new work type request to validate for %(employee)s"
                         ),
-                        verb=f"You have new work type request to \
-                            validate for {instance.employee_id}",
-                        verb_ar=f"لديك طلب نوع وظيفة جديد للتحقق من \
-                                {instance.employee_id}",
-                        verb_de=f"Sie haben eine neue Arbeitstypanfrage zur \
-                                Validierung für {instance.employee_id}",
-                        verb_es=f"Tiene una nueva solicitud de tipo de trabajo para \
-                                validar para {instance.employee_id}",
-                        verb_fr=f"Vous avez une nouvelle demande de type de travail\
-                                à valider pour {instance.employee_id}",
+                        verb_params={"employee": str(instance.employee_id)},
                         icon="information",
                         redirect=reverse("work-type-request-view")
                         + f"?id={instance.id}",
@@ -462,10 +457,17 @@ class WorkTypeFormView(HorillaFormView):
 
 
 @method_decorator(login_required, name="dispatch")
-class WorkTypeDuplicateForm(HorillaFormView):
+class WorkTypeDuplicateForm(EmployeeScopeMixin, HorillaFormView):
     """
     duplicate form
     """
+
+    scope_perm = "base.add_worktyperequest"
+    scope_include_self = True
+
+    def get_scope_perm(self):
+        # Always creates a new record, although the route carries a pk.
+        return self.scope_perm
 
     model = WorkTypeRequest
     form_class = WorkTypeRequestForm

@@ -8,10 +8,11 @@ from typing import Any
 
 from django.contrib import messages
 from django.http import HttpResponse
-from django.shortcuts import render
+from django.shortcuts import redirect, render
 from django.urls import reverse, reverse_lazy
 from django.utils.decorators import method_decorator
 from django.utils.translation import gettext_lazy as _
+from django.utils.translation import gettext_noop
 
 from base.cbv.rotating_shift import DynamicRotatingShiftTypeFormView
 from base.decorators import manager_can_enter
@@ -25,7 +26,11 @@ from base.methods import (
 )
 from base.models import RotatingShiftAssign
 from employee.models import Employee
-from horilla_views.cbv_methods import hx_request_required, login_required
+from horilla_views.cbv_methods import (
+    EmployeeScopeMixin,
+    hx_request_required,
+    login_required,
+)
 from horilla_views.generic.cbv.views import (
     HorillaDetailedView,
     HorillaFormView,
@@ -179,7 +184,6 @@ class RotatingShiftAssignNav(HorillaNavView):
                         data-target="#genericModal"
                         hx-get="{reverse('export-rshift')}"
                         hx-target ="#genericModalBody"
-                        hx-vals='js:{{"has_selection": (JSON.parse(document.getElementById("selectedInstances")?.getAttribute("data-ids")||"[]").length>0)}}'
                         style="cursor: pointer;"
                         """,
                 },
@@ -307,21 +311,34 @@ class RotatingExportView(TemplateView):
         export_filter = RotatingShiftAssignFilters(queryset=rshift_requests)
         context["export_columns"] = export_columns
         context["export_filter"] = export_filter
-        context["hide_export_filters"] = self.request.GET.get("has_selection") == "true"
         return context
 
 
 @method_decorator(login_required, name="dispatch")
 @method_decorator(manager_can_enter("base.add_rotatingshiftassign"), name="dispatch")
-class RotatingShiftFormView(HorillaFormView):
+class RotatingShiftFormView(EmployeeScopeMixin, HorillaFormView):
     """
     Create and edit form
     """
+
+    scope_perm = "base.add_rotatingshiftassign"
+    scope_include_self = False
 
     model = RotatingShiftAssign
     form_class = RotatingShiftAssignForm
     new_display_title = _("Rotating Shift Assign")
     dynamic_create_fields = [("rotating_shift_id", DynamicRotatingShiftTypeFormView)]
+
+    def dispatch(self, request, *args, **kwargs):
+        # This endpoint returns only the modal form fragment, loaded from
+        # an employee's individual profile "Shift" tab (see shift-tab.html)
+        # via ?emp_id=. There's no generic standalone page for it to send a
+        # genuine top-level navigation to (rotating-shift-assign-view is
+        # itself just another fragment), so show nothing instead of a raw,
+        # unstyled fragment or a wrong redirect.
+        if request.headers.get("Sec-Fetch-Mode") == "navigate":
+            return HttpResponse()
+        return super().dispatch(request, *args, **kwargs)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -366,11 +383,7 @@ class RotatingShiftFormView(HorillaFormView):
                     notify.send(
                         self.request.user.employee_get,
                         recipient=users,
-                        verb="You are added to rotating shift",
-                        verb_ar="تمت إضافتك إلى وردية الدورية",
-                        verb_de="Sie werden der rotierenden Arbeitsschicht hinzugefügt",
-                        verb_es="Estás agregado a turno rotativo",
-                        verb_fr="Vous êtes ajouté au quart de travail rotatif",
+                        verb=gettext_noop("You are added to rotating shift"),
                         icon="infinite",
                         redirect=reverse("employee-profile"),
                     )

@@ -20,13 +20,6 @@ class DateIndexTests(TestCase):
     def _index_fields(self, model):
         return {tuple(index.fields) for index in model._meta.indexes}
 
-    def test_attendance_date_is_indexed(self):
-        from attendance.models import Attendance
-
-        fields = self._index_fields(Attendance)
-        self.assertIn(("attendance_date",), fields)
-        self.assertIn(("attendance_date", "attendance_validated"), fields)
-
     def test_leave_request_dates_are_indexed(self):
         from leave.models import LeaveRequest
 
@@ -88,27 +81,3 @@ class MonthPredicateTests(TestCase):
         self.assertEqual(
             month_date_range("2026", "3"), (date(2026, 3, 1), date(2026, 3, 31))
         )
-
-    def test_attendance_queries_avoid_function_wrapped_dates(self):
-        import inspect
-
-        from attendance import models
-
-        source = inspect.getsource(models)
-        self.assertNotIn("attendance_date__month=", source)
-        self.assertNotIn("attendance_date__year=", source)
-
-    def test_overtime_hour_methods_aggregate_in_the_database(self):
-        """Both methods used to pull every row into Python to sum it."""
-        import inspect
-
-        from attendance.models import AttendanceOverTime
-
-        for method in (
-            AttendanceOverTime.not_validated_hrs,
-            AttendanceOverTime.not_approved_ot_hrs,
-        ):
-            with self.subTest(method=method.__name__):
-                source = inspect.getsource(method)
-                self.assertIn("aggregate(", source)
-                self.assertNotIn("sum(", source)

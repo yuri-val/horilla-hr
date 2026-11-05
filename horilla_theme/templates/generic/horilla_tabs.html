@@ -55,6 +55,14 @@
 
     <div class="bg-white p-3 rounded-md shadow-card oh-tabs">
         {% if not tabs %}
+            {% if tab_create_attrs %}
+                <div class="flex justify-end">
+                    <button type="button" class="oh-btn oh-btn--secondary" {{ tab_create_attrs|safe }}>
+                        <ion-icon name="add-outline"></ion-icon>
+                        {{ tab_create_label|default:_("Create") }}
+                    </button>
+                </div>
+            {% endif %}
             <div class="flex flex-col items-center justify-center py-10">
                 <img src="/static/horilla_theme/assets/img/no-records.svg" alt="" width="200" class="mb-4">
                 <p class="text-[#666]">{% trans "No records available at the moment" %}</p>
@@ -102,6 +110,14 @@
                     </div>
                 {% endfor %}
             </div>
+            {% if tab_create_attrs %}
+                <div class="flex items-start">
+                    <button type="button" class="oh-btn oh-btn--secondary" {{ tab_create_attrs|safe }}>
+                        <ion-icon name="add-outline"></ion-icon>
+                        {{ tab_create_label|default:_("Create") }}
+                    </button>
+                </div>
+            {% endif %}
         </div>
 
         <div class="oh-tabs__contents">
@@ -163,7 +179,16 @@
     		detail: { tabUrl: $elem.attr('data-tab-url'), target: target }
     	}));
 
-    	let url_target = `[data-target="${target}"]`
+    	// Persisted by tab POSITION, not by this render's `target` id: `target`
+    	// embeds `view_id`, a fresh random string generated on every request
+    	// (HorillaTabView.__init__), so a selector like `[data-target="#htv95a4"]`
+    	// saved now can never match anything after a reload regenerates
+    	// `view_id` to e.g. `htv5de1` -- the stored preference silently failed
+    	// to restore every single time, always falling back to the first tab.
+    	// `data-tab-index` is the tab's 0-based position, stable across
+    	// `view_id` regeneration, so this selector still resolves next load.
+    	let tabIndex = $elem.data("tab-index")
+    	let url_target = `[data-tab-index="${tabIndex}"]`
     	$.ajax({
     		type: "get",
     		url: "{% url 'active-tab' %}",
@@ -194,6 +219,31 @@
     		}
     		if (!$preferred.length) {
     			$preferred = $tabs.first();
+    		}
+
+    		// Guarantee exactly one tab is marked active before any content
+    		// loads. The markup above only pre-applies the active classes when
+    		// there's no `active_target`, on the assumption that a stored
+    		// target will match one of these tabs -- but `view_id` is a fresh
+    		// random id on every request (get_short_uuid in HorillaTabView),
+    		// while `active_target` is a selector persisted from an EARLIER
+    		// render (`[data-target="#htv21d1"]`, keyed only by request.path).
+    		// So a stored target can never match the current generation's ids:
+    		// the markup's conditional suppressed the render-time active
+    		// class, the selector above found nothing, and the page was left
+    		// with content loaded but every .oh-tabs__content still
+    		// display:none -- a blank page. Applying it here (rather than
+    		// trusting switchTab() later, which bails out for a detached
+    		// $elem) makes the fallback choice and the visible state agree
+    		// no matter which branch above won.
+    		if (!$preferred.hasClass("oh-tabs__tab--active")) {
+    			$tabs.removeClass("oh-tabs__tab--active");
+    			$preferred.addClass("oh-tabs__tab--active");
+    		}
+    		var preferredTarget = $preferred.attr("data-target");
+    		if (preferredTarget) {
+    			$scope.find(".oh-tabs__content").removeClass("oh-tabs__content--active");
+    			$(preferredTarget).addClass("oh-tabs__content--active");
     		}
 
     		// Load one tab's content and resolve once its swap has settled.

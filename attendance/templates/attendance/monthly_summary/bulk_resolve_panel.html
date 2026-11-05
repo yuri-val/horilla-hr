@@ -1,0 +1,113 @@
+{% load i18n %}
+{% include "attendance/monthly_summary/_crp_dd_styles.html" %}
+<style>
+.crpb-date-chip {
+  display: inline-block;
+  font-size: .68rem;
+  font-weight: 600;
+  color: #374151;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 5px;
+  padding: 2px 7px;
+  margin: 0 4px 4px 0;
+}
+</style>
+
+<div>
+
+  <!-- ── Title row — sticky at the top of the popover's own scroll area ─── -->
+  <div style="position:sticky;top:0;z-index:5;background:#fff;
+              padding:12px 20px 11px;border-bottom:1px solid #f1f5f9;
+              display:flex;align-items:center;justify-content:space-between;
+              border-radius:10px 10px 0 0;">
+    <div style="display:flex;align-items:center;gap:8px;">
+      <ion-icon name="checkbox-outline" style="color:#6366f1;font-size:1.1rem;flex-shrink:0;"></ion-icon>
+      <span style="font-weight:700;font-size:.88rem;color:#1e1b4b;">
+        {% blocktrans count counter=dates|length %}{{ counter }} day selected{% plural %}{{ counter }} days selected{% endblocktrans %}
+      </span>
+    </div>
+    <button onclick="msCalClosePanel()"
+            style="background:none;border:none;color:#9ca3af;cursor:pointer;font-size:1rem;padding:2px 6px;" title="{% trans 'Close' %}">✕</button>
+  </div>
+
+  <div style="padding:12px 20px 16px;">
+
+    <!-- ── Selected dates ───────────────────────────────────────────────── -->
+    <div style="margin-bottom:12px;max-height:70px;overflow-y:auto;">
+      {% for d in dates %}<span class="crpb-date-chip">{{ d|date:"d M" }}</span>{% endfor %}
+    </div>
+
+    <!-- ── Mark all as: the same dropdown the single day uses ──────────────── -->
+    <div style="font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:#6c757d;margin-bottom:7px;">
+      {% trans "Mark all selected days as" %}
+    </div>
+    <div class="crp-pick">
+      <div class="crp-choice-wrap">
+        <select id="crpb-choice" data-dd
+                onchange="msCalBulkChoiceChange(); var s = document.getElementById('crpb-save'); if (s) { s.disabled = !this.value && s.dataset.approved !== '1'; }">
+          <option value="" data-color="#e5e7eb" selected>{% trans "Choose Status" %}</option>
+          <optgroup label="{% trans 'Present' %}">
+            <option value="full_present" data-color="#86efac">{% trans "Full Present" %}</option>
+          </optgroup>
+          <optgroup label="{% trans 'Away' %}">
+            <option value="absent" data-color="#fca5a5">{% trans "Absent" %}</option>
+            <option value="paid_leave" data-color="#93c5fd">{% trans "Paid Leave" %}</option>
+            <option value="unpaid_leave" data-color="#fdba74">{% trans "Unpaid Leave" %}</option>
+          </optgroup>
+          <optgroup label="{% trans 'Days off' %}">
+            <option value="holiday" data-color="#5eead4">{% trans "Holiday" %}</option>
+            <option value="week_off" data-color="#c4b5fd">{% trans "Week Off" %}</option>
+          </optgroup>
+          <optgroup label="{% trans 'Split' %}">
+            <option value="split" data-color="split">{% trans "Split Day (two halves)" %}</option>
+          </optgroup>
+        </select>
+      </div>
+    </div>
+
+    <div class="crp-split" id="crp-split-box" data-crp-split style="display:none;margin-top:10px;">
+      <label>{% trans "First half" %}
+        <select id="crp-split-a" data-dd onchange="msCalSplitPreview()">
+          <option value="P" data-color="#86efac" selected>{% trans "Present" %}</option>
+          <option value="A" data-color="#fca5a5">{% trans "Absent" %}</option>
+          <option value="PL" data-color="#93c5fd">{% trans "Paid Leave" %}</option>
+          <option value="UL" data-color="#fdba74">{% trans "Unpaid Leave" %}</option>
+        </select>
+      </label>
+      <span class="crp-split-plus">+</span>
+      <label>{% trans "Second half" %}
+        <select id="crp-split-b" data-dd onchange="msCalSplitPreview()">
+          <option value="P" data-color="#86efac">{% trans "Present" %}</option>
+          <option value="A" data-color="#fca5a5" selected>{% trans "Absent" %}</option>
+          <option value="PL" data-color="#93c5fd">{% trans "Paid Leave" %}</option>
+          <option value="UL" data-color="#fdba74">{% trans "Unpaid Leave" %}</option>
+        </select>
+      </label>
+      <div class="crp-split-bar" id="crp-split-bar"></div>
+    </div>
+
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:nowrap;gap:8px;margin-top:16px;">
+      <button type="button" onclick="msCalClosePanel()" title="{% trans 'Clear Selection' %}"
+              style="background:#f9fafb;color:#6b7280;border:1px solid #d1d5db;border-radius:10px;height:38px;
+                     padding:0 10px;font-size:.76rem;font-weight:600;cursor:pointer;flex:0 0 auto;
+                     display:flex;align-items:center;gap:3px;white-space:nowrap;">
+        <ion-icon name="close-outline" style="font-size:.9rem;"></ion-icon>
+        {% trans "Clear" %}
+      </button>
+      <div style="display:flex;align-items:center;gap:6px;margin-left:auto;flex:0 0 auto;">
+        {% if ot_dates %}
+        <button type="button" class="oh-btn oh-btn--success" id="crpb-approve-ot"
+                style="height:38px;padding:0 12px;font-size:.76rem;font-weight:700;white-space:nowrap;"
+                title="{% blocktrans count counter=ot_dates|length %}Approve The Overtime On {{ counter }} Selected Day{% plural %}Approve The Overtime On {{ counter }} Selected Days{% endblocktrans %}"
+                data-approving="{% trans 'Approving...' %}" data-done="{% trans 'Overtime Approved' %}"
+                onclick="msCalBulkApproveOt(this)">
+          <ion-icon class="me-1" name="checkmark-outline"></ion-icon><span>{% trans "Approve Overtime" %}</span>
+        </button>
+        {% endif %}
+        <button type="button" class="crp-apply" id="crpb-save" disabled style="padding:0 16px;" onclick="msCalBulkSave()">{% trans "Save" %}</button>
+      </div>
+    </div>
+
+  </div>
+</div>

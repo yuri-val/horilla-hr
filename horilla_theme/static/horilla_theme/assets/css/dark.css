@@ -227,6 +227,7 @@ body.dark .select2-container--default .select2-selection--single,
 body.dark .select2-search__field,
 body.dark .oh-accordion-header,
 body.dark input,
+body.dark textarea,
 body.dark .oh-btn-group button:hover,
 body.dark .bg-\[\#e9edf090\],
 body.dark .oh-sticky-table__tr--custom:hover,
@@ -543,4 +544,50 @@ body.dark .oh-sticky-dropdown_btn.is-column-config-trigger:hover,
 body.dark .oh-sticky-dropdown_btn.is-column-config-trigger[aria-expanded="true"] {
   background: rgba(229, 79, 56, 0.12);
   border-color: rgba(229, 79, 56, 0.35);
+}
+
+body.dark .bg-gray-100 {
+  background-color: #2a2a2a !important;
+}
+body.dark .hover\:bg-gray-200:hover {
+  background-color: #3a3a3a !important;
+}
+
+body.dark .select2-container--default .select2-results__option {
+  color: #dfdfdf;
+}
+body.dark .select2-container--default .select2-results__option--selected,
+body.dark .select2-container--default .select2-results__option[aria-selected="true"] {
+  background-color: #333333;
+  color: #ffffff;
+}
+body.dark .select2-container--default .select2-results__option--highlighted[aria-selected],
+body.dark .select2-container--default .select2-results__option--highlighted.select2-results__option--selectable {
+  background-color: rgba(229, 79, 56, 0.18) !important;
+  color: var(--primary-300, #fcedeb);
+}
+/* Helpdesk ticket detail: hardcoded light backgrounds that left the
+   white dark-mode text unreadable. */
+body.dark .bg-\[\#f7f7f7\] {
+  background-color: #333333 !important;
+}
+body.dark .bg-\[\#fff6e8\] {
+  background-color: #3a3126 !important;
+  border-color: #5c4a2e !important;
+}
+body.dark .bg-\[\#d944bb1a\] {
+  background-color: #2f2a2e !important;
+}
+body.dark .bg-\[\#f1f1f1\] {
+  background-color: #333333 !important;
+  color: white;
+}
+
+/* The browser draws the picker icon, and only knows it is on a dark page from this. */
+body.dark input[type="date"],
+body.dark input[type="time"],
+body.dark input[type="datetime-local"],
+body.dark input[type="month"],
+body.dark input[type="week"] {
+  color-scheme: dark;
 }

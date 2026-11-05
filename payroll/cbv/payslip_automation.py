@@ -48,7 +48,7 @@ class PaySlipAutomationListView(HorillaListView):
     columns = [
         (_("Payslip creation date"), "get_generate_day_display"),
         (_("Company"), "get_company"),
-        (_("Is active"), "is_active_col"),
+        (_("Active"), "is_active_col"),
     ]
 
     header_attrs = {
@@ -178,11 +178,15 @@ class DeleteAutoPayslipView(View):
     Redirects to the referring page or root URL.
     """
 
-    def post(self, request, auto_id):
+    def post(self, request, *args, **kwargs):
         """
         Deletes the PayslipAutoGenerate object and redirects.
         """
-        auto_payslip = get_object_or_404(PayslipAutoGenerate, id=auto_id)
+        auto_id = kwargs.get("auto_id")
+        auto_payslip = PayslipAutoGenerate.objects.filter(id=auto_id).first()
+        if not auto_payslip:
+            messages.error(request, _("Payslip auto generate not found."))
+            return HorillaRedirect(request)
         if not auto_payslip.auto_generate:
             company = (
                 auto_payslip.company_id

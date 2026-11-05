@@ -42,6 +42,10 @@ from horilla.methods import get_horilla_model_class
 from horilla.models import HorillaModel, has_xss, upload_path
 from horilla_audit.methods import get_diff
 from horilla_audit.models import HorillaAuditInfo, HorillaAuditLog
+from horilla_auth.methods import (
+    generate_random_password,
+    generate_unique_fallback_username,
+)
 from horilla_auth.models import HorillaUser
 from horilla_views.cbv_methods import render_template
 
@@ -230,7 +234,7 @@ class Employee(models.Model):
                 and self.employee_work_info.reporting_manager_id
                 == request.user.employee_get
             ):
-                return 'style="color: inherit; text-decoration: none; background-color: hsl(38.08deg 100% 50% / 8%);"'
+                return 'style="color: inherit; text-decoration: none; background-color: rgba(255, 166, 0, 0.158);"'
             else:
                 return ""
         else:
@@ -321,7 +325,9 @@ class Employee(models.Model):
         )
         status = _("Expected working")
         if leaves_requests.exists():
-            if leaves_requests.filter(status="approved").exists():
+            if leaves_requests.filter(
+                status__in=["approved", "cancel_requested"]
+            ).exists():
                 status = _("On Leave")
             elif leaves_requests.filter(status="requested"):
                 status = _("Waiting Approval")
@@ -408,6 +414,29 @@ class Employee(models.Model):
         return self.employee_attendances.filter(
             attendance_date=datetime.today()
         ).first()
+
+    def sync_login_access(self):
+        """Mirror ``is_active`` onto the linked user account.
+
+        Archiving an employee is the expected way to offboard someone, but the
+        login gate is ``HorillaUser.is_active`` -- ``CompanyScopedBackend``
+        inherits ``ModelBackend.user_can_authenticate``, which reads that flag
+        and knows nothing about ``Employee.is_active``. Setting the employee
+        flag alone therefore hid the person from every list while leaving their
+        credentials working.
+
+        Call this immediately after a save that changed ``is_active``. It is
+        deliberately NOT wired into ``save()``: ``ToggleDashboardAccess``
+        revokes a login while leaving the employee active, and syncing on every
+        save would silently hand that access back.
+
+        Derives the user's value from ``self.is_active`` rather than negating
+        anything, so it cannot reintroduce the inversion this replaces.
+        """
+        user = self.employee_user_id
+        if user is not None and user.is_active != self.is_active:
+            user.is_active = self.is_active
+            user.save(update_fields=["is_active"])
 
     def get_archive_condition(self):
         """
@@ -565,6 +594,61 @@ class Employee(models.Model):
         url = reverse_lazy("employee-view-individual", kwargs={"obj_id": self.pk})
         return url
 
+    def get_pay_contract(self):
+        """
+        The contract this employee's pay is read from: the active one, and
+        nothing when there is none. Pay lives on the contract; the salary fields
+        on the work information are the old copy and are no longer shown or
+        edited.
+        """
+        if not apps.is_installed("payroll"):
+            return None
+        return (
+            self.contract_set.filter(contract_status="active")
+            .order_by("-contract_start_date", "-id")
+            .first()
+        )
+
+    def get_pay_summary(self):
+        """
+        The one figure to show for this employee's pay, and what it is called:
+        the monthly CTC when the contract is on a CTC Down structure (that is
+        the number the structure divides), the hourly rate for an hourly
+        contract, the basic salary otherwise. None when there is no active
+        contract.
+        """
+        contract = self.get_pay_contract()
+        if contract is None:
+            return None
+        structure = contract.salary_structure_id
+        if structure is not None and (structure.structure_mode or "") == "ctc_down":
+            return {
+                "label": _("CTC"),
+                "amount": contract.monthly_ctc or contract.wage,
+                "contract": contract,
+            }
+        if contract.wage_type == "hourly":
+            return {
+                "label": _("Hourly"),
+                "amount": contract.hourly_wage or contract.wage,
+                "contract": contract,
+            }
+        return {"label": _("Basic"), "amount": contract.wage, "contract": contract}
+
+    def get_pay_contracts_list_url(self):
+        """The contracts list showing just this employee's contracts."""
+        return f"{reverse('view-contract')}?employee_id={self.pk}&filter_applied=true"
+
+    def get_pay_contract_url(self):
+        """
+        Where the pay is changed: the edit form of the active contract, or, with
+        no active contract, the contracts list showing just this employee's.
+        """
+        contract = self.get_pay_contract()
+        if contract is not None:
+            return reverse("update-contract", kwargs={"contract_id": contract.pk})
+        return f"{reverse('view-contract')}?employee_id={self.pk}&filter_applied=true"
+
     def get_profile_url(self):
         """
         This method to get individual  url
@@ -634,7 +718,7 @@ class Employee(models.Model):
             ("view_ownprofile", "View Own Profile"),
         )
         ordering = [
-            "employee_first_name",
+            "id",
         ]
         constraints = [
             models.UniqueConstraint(
@@ -752,17 +836,25 @@ class Employee(models.Model):
         if employee.employee_user_id is None:
             # Create user if no corresponding user exists
             username = self.email
-            password = str(self.phone)
+            password = generate_random_password()
+
+            # The email is unique among Employees, but an unrelated
+            # HorillaUser can already own it as a username -- e.g. an
+            # orphaned account left behind by a deleted employee. Fall back
+            # to a random username rather than crashing on the uniqueness
+            # constraint; email stays the real address either way.
+            if HorillaUser.objects.filter(username=username).exists():
+                username = generate_unique_fallback_username()
 
             user = HorillaUser.objects.create_user(
                 username=username,
-                email=username,
+                email=self.email,
                 password=password,
                 is_new_employee=True,
             )
             if not user:
                 user = HorillaUser.objects.create_user(
-                    username=username, email=username, password=password
+                    username=username, email=self.email, password=password
                 )
             self.employee_user_id = user
             # default permissions
@@ -1074,6 +1166,12 @@ class NoteFiles(HorillaModel):
     def __str__(self):
         return self.files.name.split("/")[-1]
 
+    @property
+    def is_image(self):
+        """Whether the attachment has an image file extension."""
+        name = (self.files.name or "").lower()
+        return name.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"))
+
 
 class EmployeeNote(HorillaModel):
     """
@@ -1124,6 +1222,22 @@ class PolicyMultipleFile(HorillaModel):
             (".png", ".jpg", ".jpeg", ".gif", ".webp")
         )
 
+    @property
+    def icon_class(self):
+        """Modifier for ``oh-file-icon`` so each file type gets its own icon."""
+        name = self._attachment_name
+        if name.endswith(".pdf"):
+            return "oh-file-icon--pdf"
+        if self.is_image or name.endswith(".svg"):
+            return "oh-file-icon--image"
+        if name.endswith((".xls", ".xlsx", ".xlsm", ".csv")):
+            return "oh-file-icon--excel"
+        if name.endswith((".doc", ".docx")):
+            return "oh-file-icon--word"
+        if name.endswith((".ppt", ".pptx")):
+            return "oh-file-icon--powerpoint"
+        return "oh-file-icon--default"
+
 
 class Policy(HorillaModel):
     """
@@ -1132,10 +1246,34 @@ class Policy(HorillaModel):
 
     title = models.CharField(max_length=50)
     body = models.TextField()
-    is_visible_to_all = models.BooleanField(default=True)
-    specific_employees = models.ManyToManyField(Employee, blank=True, editable=False)
+    employees = models.ManyToManyField(
+        Employee,
+        related_name="policy_employees",
+        blank=True,
+        help_text=_(
+            "Used only when 'Publish' is disabled below -- restricts the "
+            "policy to these employees plus anyone in the selected department(s) "
+            "or job position(s)."
+        ),
+    )
+    department = models.ManyToManyField(Department, blank=True)
+    job_position = models.ManyToManyField(
+        JobPosition, blank=True, verbose_name=_("Job Position")
+    )
+    filtered_employees = models.ManyToManyField(
+        Employee, related_name="policy_filtered_employees", editable=False
+    )
     attachments = models.ManyToManyField(PolicyMultipleFile, blank=True)
     company_id = models.ManyToManyField(Company, blank=True, verbose_name=_("Company"))
+    is_visible_to_all = models.BooleanField(
+        default=True,
+        verbose_name=_("Publish to all"),
+        help_text=_(
+            "When enabled, the policy is visible to every employee in the "
+            "selected company. Disable it to restrict visibility to the "
+            "employees/department/job position selected above."
+        ),
+    )
 
     objects = HorillaCompanyManager("company_id")
 
@@ -1155,7 +1293,7 @@ class BonusPoint(HorillaModel):
 
     CONDITIONS = [
         ("==", _("equals")),
-        (">", _("grater than")),
+        (">", _("greater than")),
         ("<", _("less than")),
         (">=", _("greater than or equal")),
         ("<=", _("less than or equal")),

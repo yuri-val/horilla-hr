@@ -28,6 +28,36 @@ def convert_emp(request, instance, user_perm):
         return True
 
 
+def _is_eligible_candidate(instance):
+    """
+    Active, non-rejected candidate check
+    """
+    return (
+        instance.is_active and not instance.canceled and not instance.is_offer_rejected
+    )
+
+
+def profile_convert_emp(request, instance, user_perm):
+    """
+    Convert to employee accessibility for the candidate profile
+    (active, non-rejected candidates only)
+    """
+    return bool(
+        _is_eligible_candidate(instance) and convert_emp(request, instance, user_perm)
+    )
+
+
+def profile_add_skill_zone(request, instance, user_perm):
+    """
+    Add to talent pool accessibility for the candidate profile
+    (active, non-rejected candidates only)
+    """
+    return bool(
+        _is_eligible_candidate(instance)
+        and add_skill_zone(request, instance, user_perm)
+    )
+
+
 def add_skill_zone(request, instance, user_perm):
     """
     Add talent pool  accessibility
@@ -77,6 +107,16 @@ def edit_reject(request, instance, user_perm):
                 return True
 
 
+def remove_reject(request, instance, user_perm):
+    """
+    Remove rejection accessibility -- shown only once the candidate actually
+    has a rejection record to remove.
+    """
+    first = RejectedCandidate.objects.filter(candidate_id=instance).first()
+    if first and request.user.has_perm("recruitment.delete_rejectedcandidate"):
+        return True
+
+
 def archive_status(request, instance, user_perm):
     """
     To acces archive in list candidates
@@ -91,6 +131,27 @@ def unarchive_status(request, instance, user_perm):
     """
     if not instance.is_active:
         return True
+
+
+def archive_perm(request, instance, *args, **kwargs):
+    """
+    Archive option on the candidate profile
+    """
+    return instance.is_active and delete_candidate_perm(request, instance)
+
+
+def unarchive_perm(request, instance, *args, **kwargs):
+    """
+    Un-archive option on the candidate profile
+    """
+    return not instance.is_active and delete_candidate_perm(request, instance)
+
+
+def delete_candidate_perm(request, instance, *args, **kwargs):
+    """
+    To access archive/un-archive/delete on the candidate profile
+    """
+    return request.user.has_perm("recruitment.delete_candidate")
 
 
 def onboarding_accessibility(
@@ -143,15 +204,21 @@ def empl_scheduled_interview_accessibility(
     """
     sheduled interview tab accessibility for candidate individual view, employee individual view and employee profile
     """
-    employee = Employee.objects.get(id=instance.pk)
-    if (
-        request.user.has_perm("recruitment.view_interviewschedule")
-        or check_manager(request.user.employee_get, instance)
-        or request.user == employee.employee_user_id
-        or is_recruitmentmanager(request)
-    ):
+    if request.user.has_perm(
+        "recruitment.view_interviewschedule"
+    ) or is_recruitmentmanager(request):
         return True
-    return False
+    # This is also the Scheduled Interviews tab of the *candidate* profile.
+    # A candidate's pk is not an employee id, so looking an Employee up by it
+    # either raised (tab missing) or matched an unrelated employee -- which is
+    # why only the first few candidates showed the tab. Only the employee
+    # checks below need an Employee.
+    if not isinstance(instance, Employee):
+        return is_stagemanager(request)
+    return bool(
+        check_manager(request.user.employee_get, instance)
+        or request.user == instance.employee_user_id
+    )
 
 
 def view_candidate_self_tracking(request, instance, *args, **kwargs):
@@ -179,6 +246,8 @@ def check_candidate_self_tracking(request, instance, user_perm):
     """
     This method is used to get the candidate self tracking is enabled or not
     """
+    if hasattr(instance, "self_tracking_enabled"):
+        return instance.self_tracking_enabled()
     selected_company = request.session.get("selected_company")
     if selected_company and selected_company != "all":
         setting = RecruitmentGeneralSetting.objects.filter(

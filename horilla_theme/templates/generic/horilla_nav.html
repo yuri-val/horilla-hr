@@ -1,79 +1,35 @@
 ﻿{% load static i18n %}
 {% comment %}
-    modern_filter_panel.html carries the .oh-filter-modern/.oh-filter-panel
-    CSS and toggleModernFilterPanel/filterModernPanelFields JS -- shared
-    with any plain FBV page building its own modern-style filter dropdown
-    (e.g. attendance/work_record). filter_count_and_custom_builder.html
-    (included below) carries the applied-filter-count badge and the
-    custom filter builder, shared with inline_nav.html. Everything else
-    below stays specific to HorillaNavView's OWN markup/behavior (nested
-    group-by, ajax field wiring).
+    Nav bar for HorillaNavView: title, search, view buttons, Filter (classic
+    dropdown or modern slide-over), Actions and Create.
+    Panel CSS/JS is in modern_filter_panel.html; the filter count badge and
+    custom filter builder are in filter_count_and_custom_builder.html.
 {% endcomment %}
 {% include 'generic/modern_filter_panel.html' %}
 <style>
-    /* .dropdown-content is only ever revealed via :hover/:focus-within
-       (see global.css) -- it's shown/hidden with opacity+visibility, not
-       display, so an override has to flip the SAME properties or it's a
-       no-op. .force-open is an additive path so something OUTSIDE this
-       dropdown (the nested group-by "Grouped by" header's reconfigure
-       action) can open it programmatically without touching that shared
-       hover behavior. */
+    /* Lets the "Grouped by" reconfigure action open the Filter dropdown.
+       .dropdown-content is shown via opacity/visibility, so flip those. */
     #filterDropdownWrapper.force-open .dropdown-content {
         opacity: 1 !important;
         visibility: visible !important;
         transform: translateY(0) !important;
     }
 </style>
-{% comment %}
-    Filter-count badge counter and the custom filter builder ("+ Add
-    filter", Advanced section) -- shared with inline_nav.html (the same
-    two features apply there too, once a page sets modern_filter=True and
-    a FilterSet's own custom_filter_fields), see that partial's own
-    docstring for the full explanation.
-{% endcomment %}
 {% include 'generic/filter_count_and_custom_builder.html' %}
 <script>
-    // Grouping can be configured from two independent places: this Filter
-    // dropdown's own Group By section, and (once a grouping is active)
-    // the "Grouped by" breadcrumb's inline controls in
-    // nested_group_by_table.html -- both submit name="nested_fields" to
-    // the SAME form. Without this, a submission from either one would
-    // ALSO carry the other's currently-selected values along, since a
-    // form collects every matching field regardless of which container
-    // it's in. A disabled field is excluded from submission entirely, so
-    // disabling whichever container the user is NOT currently acting in
-    // keeps exactly one source of truth per submit. Defined here (nav
-    // always renders) rather than in nested_group_by_table.html (only
-    // renders once grouping is already active) so it's always callable
-    // from either side regardless of which one loaded first.
+    // The Filter dropdown and the "Grouped by" breadcrumb both submit
+    // nested_fields to the same form, so disable the other one for this submit.
     function ngbDisableOtherGroupBySource(exceptContainerId) {
-        // Only needs to hold for the instant $('#applyFilter').click()
-        // synchronously serializes the form's fields -- htmx builds that
-        // request body synchronously within the click handling, before any
-        // network activity starts. Re-enabling on the next tick (rather
-        // than leaving it disabled) matters because #nestedGroupByLevels
-        // (the Filter dropdown) is never swapped/re-rendered by the list's
-        // own submissions, so a lasting disabled state here would never
-        // get reversed and the Filter dropdown's Group By would stay
-        // stuck unusable after the first breadcrumb interaction.
         var otherId = exceptContainerId === "nestedGroupByLevels" ? "ngbBreadcrumbLevels" : "nestedGroupByLevels";
-        // The breadcrumb side now submits its value via a hidden <input>
-        // (custom dropdown) rather than a native <select>, so both tag
-        // names need matching here.
+        // Re-enabled next tick: the form is serialized synchronously on click.
         var $other = $("#" + otherId + " [name='nested_fields']");
         $other.prop("disabled", true);
         setTimeout(function () {
             $other.prop("disabled", false);
         }, 0);
     }
-    // This Nav loads once (hx-trigger="load") and is never re-fetched by the
-    // list's own swaps, so #nestedGroupByLevels (the Filter dropdown's copy)
-    // keeps showing whatever grouping was active at THAT load -- while
-    // #ngbBreadcrumbLevels (nested_group_by_table.html, rendered by the list
-    // and re-swapped on every grouping change) is the live source of truth.
-    // Re-synced here on every list swap rather than only when the dropdown
-    // opens, since a hover-based trigger wouldn't fire for keyboard/touch
-    // access and would leave a stale dropdown briefly visible either way.
+    // The nav loads once, so copy the breadcrumb's live grouping into the
+    // Filter dropdown after each list swap.
     function ngbSyncFilterDropdownFromBreadcrumb() {
         var $container = $("#nestedGroupByLevels");
         var $breadcrumbFields = $("#ngbBreadcrumbLevels [name='nested_fields']");
@@ -97,11 +53,6 @@
         $rows.each(function (i) {
             $(this).find("select").val(values[i] || "");
         });
-        // Defined further down, inside the same conditional block that
-        // #nestedGroupByLevels itself is rendered in -- guaranteed to
-        // already exist by the time this callback actually runs, since it
-        // only fires on a later htmx swap, well after this page's initial
-        // script tags (including that block's) have all executed.
         ngbRenumber();
         ngbUpdatePreview();
         ngbUpdateDisabledOptions();
@@ -112,11 +63,8 @@
         }
     });
     $(document).on("click", function (e) {
-        // .ngb-reconfigure-trigger lives outside #filterDropdownWrapper (in
-        // the nested group-by toolbar) but is a legitimate way to OPEN it --
-        // without this check, the click that adds force-open also bubbles
-        // to this same document handler, which immediately strips it back
-        // off again in the very same event.
+        // The reconfigure trigger sits outside the wrapper but opens it, so
+        // its own click must not remove force-open.
         var $target = $(e.target);
         if (
             !$target.closest("#filterDropdownWrapper").length &&
@@ -135,7 +83,7 @@
                 id="filterForm"
                 onsubmit="event.preventDefault()"
                 hx-get="{{search_url}}"
-                hx-trigger="{% if apply_first_filter %}submit{% else %}load, submit{% endif %}"
+                hx-trigger="{% if apply_first_filter %}submit{% else %}load[htmxShouldLoadOnce('{{search_swap_target|default:'#listContainer'|escapejs}}', this)], submit{% endif %}"
                 hx-replace-url="false"
                 hx-target="{{search_swap_target}}"
                 hx-timeout="15000"
@@ -148,11 +96,13 @@
                 <input type="text" name="nav_url" value="{{request.path}}" hidden>
                 <input type="radio" name="filter_applied" checked hidden>
 
+                {% if not hide_search %}
                 <div class="relative">
                     <input
                         type="text"
-                        class="text-color-600 ps-8 p-1.5 pb-2 placeholder:text-xs w-full border border-dark-50 rounded-md focus-visible:outline-0 placeholder:text-dark-100 text-sm [transition:.3s] focus:border-primary-600"
+                        class="text-color-600 ps-8 p-1.5 pb-2 placeholder:text-xs w-full border border-primary-500 rounded-md focus-visible:outline-0 placeholder:text-dark-100 text-sm [transition:.3s] focus:border-primary-600"
                         name="search"
+                        value="{{ form.search.value|default_if_none:'' }}"
                         aria-label="{% trans 'Search Input' %}"
                         placeholder="{% trans 'Search' %}"
                         autocomplete="false"
@@ -162,23 +112,28 @@
                     <i
                         class="fas fa-search absolute left-3 top-[1px] bottom-0 m-auto flex items-center opacity-50 text-xs"
                     ></i>
-                    {% comment %} {% if search_in %}
+                    {% if search_in %}
                     <input type="text" hidden name="search_field">
-                    <div class="custom-dropdown" id="dropdown" style="z-index: 1000 !important;">
-                        <ul class="search_content">
+                    <div
+                        class="search-field-dropdown absolute z-30 bg-white rounded-lg [box-shadow:0px_0px_20px_0px_rgb(0_0_0_/_8%)] min-w-[220px] py-1 left-0 mt-1 hidden"
+                    >
+                        <ul>
                             {% for option in search_in %}
                             <li>
                                 <a href="#"
-                                    onclick="$('[name=search_field]').val('{{option.0}}'); $(this).closest('form').find('#applyFilter').click()">
+                                    class="search-field-option block px-3 py-2 text-xs text-color-600 hover:bg-gray-50"
+                                    onmousedown="event.preventDefault(); $('[name=search_field]').val('{{option.0}}'); $(this).closest('.search-field-dropdown').addClass('hidden'); $(this).closest('form')[0].requestSubmit();"
+                                >
                                     {% trans "Search" %} <b>{{option.1}}</b> {% trans "for:" %}
-                                    <b class="search_text"></b>
+                                    <b class="search-field-text"></b>
                                 </a>
                             </li>
                             {% endfor %}
                         </ul>
                     </div>
-                    {% endif %} {% endcomment %}
+                    {% endif %}
                 </div>
+                {% endif %}
                 <div class="flex gap-1 text-[#000]">
                     {% if view_types %}
                         {% for type in view_types %}
@@ -195,8 +150,13 @@
                                 <a {{type.attrs|safe}}> <ion-icon name="{{type.icon}}"></ion-icon></a>
                                 {% if active_view.type == type.type %}
                                     <script>
-                                        $(".navFilterForm").attr('hx-get', '{{type.url}}');
-                                        $(".nav-view-btn[data-type={{type.type}}]").addClass("oh-view-btn--active")
+                                        // Scoped to this script's own form: a page can hold several
+                                        // .navFilterForm (page-level Nav + one per tab).
+                                        (function () {
+                                            var $form = $(document.currentScript).closest("form");
+                                            $form.attr('hx-get', '{{type.url|escapejs}}');
+                                            $form.find(".nav-view-btn[data-type={{type.type}}]").addClass("oh-view-btn--active");
+                                        })();
                                     </script>
                                 {% endif %}
                             </li>
@@ -303,15 +263,6 @@
                                 {% endif %}
 
                                 {% if nested_group_by_fields %}
-                                    {% comment %}
-                                        One unified Group By section, 1+ levels instead of the
-                                        old single-select "classic" Group By plus a separate
-                                        always-≥2-levels "Nested Group By" -- each row is
-                                        numbered (order here is submission order, i.e. the
-                                        actual grouping hierarchy), removable down to a single
-                                        level, and a preview line shows the resulting hierarchy
-                                        before Apply.
-                                    {% endcomment %}
                                     <div class="oh-accordion oh-accordion--top-divider">
                                         <div class="oh-accordion-header"
                                             onclick="event.stopImmediatePropagation();$(this).parent().toggleClass('oh-accordion--show');"
@@ -325,29 +276,15 @@
                                                     <div class="flex items-center gap-1.5 nested-group-by-row">
                                                         <span class="ngb-level-badge shrink-0 inline-flex items-center justify-center w-5 h-5 rounded-md bg-primary-100 text-primary-700 text-[11px] font-semibold"></span>
                                                         {% comment %}
-                                                            Deliberately NOT .oh-select: that class gets
-                                                            auto-select2-ified on document-ready and again on
-                                                            every htmx:afterSettle (see htmxSelect2.js). Adding
-                                                            a level clones this whole row via jQuery .clone(),
-                                                            which duplicates Select2's generated widget/IDs
-                                                            alongside the real <select> -- the clone ends up
-                                                            with a broken, disconnected dropdown. A short,
-                                                            plain-option list doesn't need Select2's search/
-                                                            styling anyway, so it just stays a native <select>.
+                                                            Not .oh-select: rows are cloned, and cloning a
+                                                            Select2-initialised select breaks the copy.
                                                         {% endcomment %}
                                                         <select
                                                             onchange="ngbUpdatePreview(); ngbUpdateDisabledOptions(); ngbDisableOtherGroupBySource('nestedGroupByLevels'); $(this).closest('form').find('#applyFilter').click();"
                                                             class="ngb-field-select oh-input w-100 border border-[#DEDBD4] rounded-md px-2 py-1.5 text-sm"
                                                             name="nested_fields"
                                                             {% comment %}
-                                                                .oh-input carries a global margin-bottom (form-group
-                                                                spacing) -- flexbox includes that margin when
-                                                                centering this row (align-items: center centers the
-                                                                MARGIN box), so the select's own visible border box
-                                                                sat noticeably above its true center relative to the
-                                                                level badge/remove button, which have no such
-                                                                margin. Inline style wins regardless of stylesheet
-                                                                load order.
+                                                                Zero margin so the select centers with the badge.
                                                             {% endcomment %}
                                                             style="margin-bottom: 0;"
                                                         >
@@ -370,7 +307,7 @@
                                                 class="text-xs text-primary-600 hover:underline mt-2"
                                                 onclick="ngbAddLevel(this)"
                                             >+ {% trans "Add level" %}</button>
-                                            <div id="nestedGroupByPreview" class="text-xs text-[#9C9A92] mt-2 pt-2 border-t border-[#EAE8E3]"></div>
+                                            <div id="nestedGroupByPreview" class="text-xs text-gray-600 mt-2 pt-2 border-t border-[#EAE8E3]"></div>
                                         </div>
                                     </div>
                                     <script>
@@ -392,10 +329,7 @@
                                                 $preview.text('');
                                             }
                                         }
-                                        // A field already picked for one level makes no sense to pick
-                                        // again for another -- grey it out (not remove it) in every
-                                        // OTHER row's option list, while leaving it selectable in
-                                        // whichever row currently holds it.
+                                        // Disables a field in other rows once a level has picked it.
                                         function ngbUpdateDisabledOptions() {
                                             var chosen = $('#nestedGroupByLevels select').map(function () {
                                                 return $(this).val();
@@ -495,7 +429,8 @@
                     {% trans "Actions" %}
                 </button>
 
-                <div class="dropdown-content absolute z-30 bg-white rounded-lg [box-shadow:0px_0px_20px_0px_rgb(0_0_0_/_8%)] min-w-[150px] py-2 right-0">
+                {# Height is capped because a closed dropdown still takes layout space. #}
+                <div class="dropdown-content absolute z-30 bg-white rounded-lg [box-shadow:0px_0px_20px_0px_rgb(0_0_0_/_8%)] min-w-[150px] py-2 right-0 max-h-[60vh] overflow-y-auto">
                     <ul class="text-sm">
                         {% for action in actions %}
                             <li>
@@ -516,20 +451,31 @@
                 class="px-4 py-2 bg-brand-600 text-white rounded-md text-xs flex items-center gap-2 hover:bg-brand-800 transition duration-300 cursor-pointer"
                 {{create_attrs|safe}}
             >
-                <img
-                    src="{% static 'horilla_theme/assets/img/icons/more.svg' %}"
-                    alt="{% trans 'Create' %}"
-                    width="13"
-                    class="filter brightness-0 invert"
-                >
-                {% trans "Create" %}
+                {% if create_icon %}
+                    <ion-icon name="{{ create_icon }}"></ion-icon>
+                {% else %}
+                    <img
+                        src="{% static 'horilla_theme/assets/img/icons/more.svg' %}"
+                        alt="{% trans 'Create' %}"
+                        width="13"
+                        class="filter brightness-0 invert"
+                    >
+                {% endif %}
+                {% if create_label %}{{ create_label }}{% else %}{% trans "Create" %}{% endif %}
             </a>
         {% endif %}
     </div>
 </div>
-<div id="filterTagContainerSectionNav" class="oh-titlebar-container__filters mb-2 mt-0 oh-wrapper"></div>
+{% if search_url or filter_body_template %}
+    {# Only rendered when there is something to filter, because filter_tags.html #}
+    {# binds to the first element with this id on the page. #}
+    <div id="filterTagContainerSectionNav" class="oh-titlebar-container__filters mb-2 mt-0 oh-wrapper"></div>
+{% endif %}
 
 <script>
+    // document.currentScript is only valid during top-level execution, so
+    // capture it here for htmxShouldLoadOnce.
+    var ohNavScriptEl = document.currentScript;
     $(document).ready(function () {
         $("#filterForm").on("htmx:configRequest", function (event) {
             if (event.detail.verb == "get" && event.target.tagName == "FORM") {
@@ -539,12 +485,8 @@
                     event.detail.path = hxGet;
                     return;
                 }
-                // Keep query params baked into hx-get (e.g. a view-type
-                // button's own "?view=list") but drop any that are also
-                // named form fields — htmx re-adds the form's current
-                // value for those from its own serialization, so leaving
-                // the stale baked-in copy here would just duplicate/
-                // conflict with it.
+                // Keep hx-get's own query params (e.g. ?view=list) except those
+                // that are form fields, which htmx already serializes.
                 var basePath = hxGet.slice(0, qIndex);
                 var params = new URLSearchParams(hxGet.slice(qIndex + 1));
                 var formFieldNames = {};
@@ -555,19 +497,8 @@
                 });
                 event.detail.path = basePath + (kept.length ? "?" + kept.join("&") : "");
             }
-            // ngbDisableOtherGroupBySource() only runs for the group-by
-            // widgets' own triggers (a level's onchange, add/move/remove
-            // level) -- any OTHER submission through this same form (an
-            // unrelated filter field, plain search, etc.) never calls it,
-            // so both the Filter dropdown's nested_fields inputs AND the
-            // "Grouped by" breadcrumb's copy (nested_group_by_table.html)
-            // stay enabled and both get serialized, doubling every level.
-            // Every value in that combined list is guaranteed genuine or a
-            // duplicate of one -- a level can never legitimately reuse a
-            // field another level already has (see
-            // ngbUpdateDisabledOptions/the breadcrumb's own equivalent) --
-            // so de-duplicating by value here, independent of which
-            // trigger fired, is always correct.
+            // Non group-by submits send both nested_fields copies (dropdown and
+            // breadcrumb), so de-duplicate the levels.
             var nestedFields = event.detail.parameters
                 ? event.detail.parameters["nested_fields"]
                 : null;
@@ -588,12 +519,15 @@
         });
 
         setTimeout(() => {
-            $(".oh-view-btn--active").click();
-            {% if apply_first_filter %}
-            if (!$(".oh-view-btn--active").length) {
-                $("#applyFilter").click()
+            // Skip on htmx history restore, which reinserts an already-loaded list.
+            if (htmxShouldLoadOnce('{{search_swap_target|default:"#listContainer"|escapejs}}', ohNavScriptEl)) {
+                $(".oh-view-btn--active").click();
+                {% if apply_first_filter %}
+                if (!$(".oh-view-btn--active").length) {
+                    $("#applyFilter").click()
+                }
+                {% endif %}
             }
-            {% endif %}
         }, 100);
         $(document).ready(function () {
 
@@ -601,11 +535,35 @@
 
         $('#filterForm input[name="search"]').on('keyup', function () {
             clearTimeout(debounceTimer);
+            const value = this.value;
+
+            {% if search_in %}
+            const dropdown = $(this).closest('.relative').find('.search-field-dropdown');
+            if (value) {
+                dropdown.find('.search-field-text').text(value);
+                dropdown.removeClass('hidden');
+            } else {
+                $('[name=search_field]').val('');
+                dropdown.addClass('hidden');
+            }
+            {% endif %}
 
             debounceTimer = setTimeout(() => {
             this.form.requestSubmit(); // Triggers HTMX handling via form's hx-get, etc.
             }, 500);
         });
+
+        {% if search_in %}
+        $('#filterForm input[name="search"]').on('focus', function () {
+            if (this.value) {
+                $(this).closest('.relative').find('.search-field-dropdown').removeClass('hidden');
+            }
+        });
+        $('#filterForm input[name="search"]').on('blur', function () {
+            const dropdown = $(this).closest('.relative').find('.search-field-dropdown');
+            setTimeout(() => dropdown.addClass('hidden'), 200);
+        });
+        {% endif %}
         });
 
         $(".nav-view-btn").click(function (e) {

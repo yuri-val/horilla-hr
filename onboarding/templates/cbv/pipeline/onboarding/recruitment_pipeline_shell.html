@@ -1,20 +1,50 @@
-{% load i18n %}
-<div class="flex justify-end items-center mb-2">
-  {% if actions %}
-  <div onclick="event.stopPropagation()" class="relative inline-block dropdown-wrapper" role="button" title="{% trans 'Actions' %}">
-    <button class="cursor-pointer dropdown-toggle w-[20px]" onclick="event.stopPropagation(); var m = $(this).next('.dropdown-menu'); $('.dropdown-menu').not(m).addClass('hidden'); m.toggleClass('hidden');">
-      <i class="fa-solid fa-ellipsis-vertical text-black"></i>
-    </button>
-    <div class="dropdown-menu absolute right-0 min-w-[100px] bg-white rounded-lg shadow-card py-2 hidden z-50 transition-all duration-200" style="min-width:120px !important;">
-      <ul class="text-xs text-dark-600">
-        {% for action in actions %}
-        <li>
-          <a {{ action.attrs|safe }} class="block w-full text-left px-3 py-1 text-dark-600 hover:text-primary-600 transition duration-300 cursor-pointer">{{ action.action }}</a>
-        </li>
-        {% endfor %}
-      </ul>
-    </div>
-  </div>
-  {% endif %}
+{% load i18n static %}
+<div id="pipelineNav{{ rec_id }}" hx-get="{{ nav_url }}" hx-trigger="load"></div>
+<div
+    class="oh-checkpoint-badge mb-2"
+    id="selectedInstances"
+    data-ids="[]"
+    data-clicked=""
+    style="display: none"
+>
 </div>
-<div hx-get="{{ content_url }}" hx-trigger="load"></div>
+<div
+    class="oh-wrapper"
+    id="pipelineTabContent{{ rec_id }}"
+    hx-get="{{ content_url }}"
+    hx-trigger="ohPipelineNavReady"
+>
+    <div class="animated-background"></div>
+</div>
+
+<script>
+    (function () {
+        var navEl = document.getElementById("pipelineNav{{ rec_id }}");
+        var contentEl = document.getElementById("pipelineTabContent{{ rec_id }}");
+        if (!navEl || !contentEl) return;
+        var fired = false;
+        function go() {
+            if (fired) return;
+            fired = true;
+            htmx.trigger(contentEl, "ohPipelineNavReady");
+        }
+        navEl.addEventListener("htmx:afterSettle", go);
+        navEl.addEventListener("htmx:responseError", go);
+        setTimeout(go, 8000);
+    })();
+</script>
+
+<script>
+    (function () {
+        var myContent = document.currentScript.closest(".oh-tabs__content");
+        var contents = myContent && myContent.closest(".oh-tabs__contents");
+        if (!contents) return;
+        var tabsRoot = contents.closest("#pipelineContainer") || contents.parentElement;
+        contents.querySelectorAll(".oh-tabs__content").forEach(function (el) {
+            if (el === myContent || !el.innerHTML.trim()) return;
+            el.innerHTML = "";
+            var btn = tabsRoot && tabsRoot.querySelector('[data-target="#' + el.id + '"]');
+            if (btn) btn.removeAttribute("data-loaded");
+        });
+    })();
+</script>
