@@ -2,9 +2,10 @@
 
 from django.urls import path
 
-from scg_overrides import onboarding_blocks
+from scg_overrides import bot_sync, onboarding_blocks
 
 urlpatterns = [
+    path("bot-sync/", bot_sync.bot_sync, name="scg-bot-sync"),
     path(
         "onboarding-task-blocks/",
         onboarding_blocks.task_blocks_view,
