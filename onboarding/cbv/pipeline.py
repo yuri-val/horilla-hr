@@ -230,9 +230,12 @@ class RecruitmentTabView(HorillaTabView):
         # scg_overrides.onboarding_blocks), and both only crowd the tab strip
         # next to the vacancies actually being worked. show_blocks=1 brings them
         # back, which is how the libraries get edited.
+        # exclude(closed=True, onboarding_stage__candidate__isnull=True) would
+        # drop a closed recruitment as soon as any one of its stages is empty,
+        # so the direct-hire onboarding (SCG) vanished with its newcomers in it.
         if self.request.GET.get("show_blocks") != "1":
-            recruitments = recruitments.exclude(
-                closed=True, onboarding_stage__candidate__isnull=True
+            recruitments = recruitments.filter(
+                Q(closed=False) | Q(onboarding_stage__candidate__isnull=False)
             ).distinct()
         view_type = onboarding_view_type(self.request)
         self.tabs = []

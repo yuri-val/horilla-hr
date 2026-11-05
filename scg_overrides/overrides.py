@@ -157,9 +157,25 @@ def install_onboarding_task_blocks():
     install_nav_action()
 
 
+def install_direct_onboarding():
+    """SCG addition: "Start Onboarding" on the employee profile (SOF-2176).
+
+    The feature lives in scg_overrides.direct_onboarding; this only adds the
+    profile action.
+    """
+    from scg_overrides.direct_onboarding import install_profile_action
+
+    install_profile_action()
+
+
 def apply():
     """Run every override, letting none of them break startup."""
-    for step in (configure_submenus, alias_model_methods, install_onboarding_task_blocks):
+    for step in (
+        configure_submenus,
+        alias_model_methods,
+        install_onboarding_task_blocks,
+        install_direct_onboarding,
+    ):
         try:
             step()
         except Exception:

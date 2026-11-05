@@ -118,3 +118,155 @@ class BotSyncTest(TestCase):
 
         again = self.put({"balances": [{"email": "olha@test.horilla", "available": 12.5, "carryforward": 3}]}).json()
         self.assertEqual(again["balances"][0]["result"], "unchanged")
+
+
+class StartOnboardingTest(TestCase):
+    """SOF-2176: an employee hired without recruitment gets onboarding from the profile."""
+
+    @classmethod
+    def setUpTestData(cls):
+        from employee.models import EmployeeWorkInformation
+        from horilla.testkit import make_user
+        from horilla.testkit.factories import make_job_position
+        from onboarding.models import OnboardingStage, OnboardingTask
+        from scg_overrides.direct_onboarding import standing_recruitment
+
+        cls.company = make_company("Onboarding Co")
+        cls.hr_user = make_user("onb_hr", is_superuser=True)
+        cls.hr = make_employee(company=cls.company, email="hr@test.horilla", user=cls.hr_user)
+        cls.newcomer = make_employee(company=cls.company, email="new@test.horilla", first_name="Olha")
+        cls.position = make_job_position(title="Crewing Manager")
+        EmployeeWorkInformation.objects.filter(employee_id=cls.newcomer).update(job_position_id=cls.position)
+
+        cls.recruitment = standing_recruitment(cls.company)
+        stage = OnboardingStage.objects.create(stage_title="IT", recruitment_id=cls.recruitment, sequence=1)
+        cls.tasks = []
+        for title in ("Почта", "Бот"):
+            task = OnboardingTask.objects.create(task_title=title, stage_id=stage)
+            task.employee_id.set([cls.hr])
+            cls.tasks.append(task)
+
+    def setUp(self):
+        from scg_overrides import direct_onboarding
+
+        self.real_mail = direct_onboarding.mail_newcomer
+        self.client.force_login(self.hr_user)
+        patcher = mock.patch("scg_overrides.direct_onboarding.mail_newcomer", return_value=True)
+        self.mail = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def start(self, employee=None):
+        return self.client.post(f"/scg/start-onboarding/{(employee or self.newcomer).pk}/")
+
+    def candidate(self):
+        from recruitment.models import Candidate
+
+        return Candidate.objects.get(converted_employee_id=self.newcomer)
+
+    def test_links_the_employee_and_gives_every_task(self):
+        from onboarding.models import CandidateStage, CandidateTask
+
+        self.start()
+        candidate = self.candidate()
+        self.assertEqual(candidate.recruitment_id, self.recruitment)
+        self.assertEqual(candidate.job_position_id, self.position)
+        self.assertFalse(candidate.hired)
+        # Not the automatic empty "Initial" stage: the first one with tasks
+        self.assertEqual(CandidateStage.objects.get(candidate_id=candidate).onboarding_stage_id, self.tasks[0].stage_id)
+        self.assertEqual(
+            set(CandidateTask.objects.filter(candidate_id=candidate).values_list("onboarding_task_id", flat=True)),
+            {t.pk for t in self.tasks},
+        )
+        self.assertIn(candidate, self.tasks[0].candidates.all())
+        self.mail.assert_called_once()
+
+    def test_the_standing_recruitment_stays_out_of_recruitment(self):
+        self.assertTrue(self.recruitment.closed)
+        self.assertFalse(self.recruitment.is_published)
+
+    def test_the_onboarding_pipeline_shows_it_once_someone_is_in_it(self):
+        from onboarding.models import OnboardingStage
+
+        OnboardingStage.objects.create(stage_title="Empty", recruitment_id=self.recruitment, sequence=2)
+        url = "/onboarding/cbv-pipeline-tab/"
+        self.assertNotContains(self.client.get(url, HTTP_HX_REQUEST="true"), "Онбординг без рекрутингу")
+        self.start()
+        # Only the first of its stages holds the newcomer; the others are empty
+        self.assertContains(self.client.get(url, HTTP_HX_REQUEST="true"), "Онбординг без рекрутингу")
+
+    def test_task_blocks_fill_it_but_never_offer_it_as_a_block(self):
+        from scg_overrides.onboarding_blocks import TaskBlockCopyForm
+
+        form = TaskBlockCopyForm()
+        self.assertIn(self.recruitment, form.fields["target"].queryset)
+        self.assertNotIn(self.recruitment, form.fields["sources"].queryset)
+
+    def test_pressing_again_duplicates_nothing(self):
+        from onboarding.models import CandidateTask
+
+        self.start()
+        self.start()
+        self.assertEqual(CandidateTask.objects.filter(candidate_id=self.candidate()).count(), 2)
+        self.mail.assert_called_once()
+
+    def test_a_task_added_later_is_given_on_the_next_press(self):
+        from onboarding.models import CandidateTask, OnboardingTask
+
+        self.start()
+        OnboardingTask.objects.create(task_title="Пропуск", stage_id=self.tasks[0].stage_id)
+        self.start()
+        self.assertEqual(CandidateTask.objects.filter(candidate_id=self.candidate()).count(), 3)
+
+    def test_needs_a_job_position(self):
+        from recruitment.models import Candidate
+
+        other = make_employee(company=self.company, email="nopos@test.horilla")
+        self.start(other)
+        self.assertFalse(Candidate.objects.filter(converted_employee_id=other).exists())
+
+    def test_needs_tasks_in_the_standing_recruitment(self):
+        from onboarding.models import OnboardingTask
+        from recruitment.models import Candidate
+
+        OnboardingTask.objects.filter(stage_id__recruitment_id=self.recruitment).delete()
+        self.start()
+        self.assertFalse(Candidate.objects.filter(converted_employee_id=self.newcomer).exists())
+
+    def test_only_post(self):
+        self.assertEqual(self.client.get(f"/scg/start-onboarding/{self.newcomer.pk}/").status_code, 405)
+
+    def test_needs_the_permission(self):
+        from horilla.testkit import make_user
+        from recruitment.models import Candidate
+
+        plain = make_user("onb_plain")
+        make_employee(company=self.company, email="plain@test.horilla", user=plain)
+        self.client.force_login(plain)
+        self.start()
+        self.assertFalse(Candidate.objects.filter(converted_employee_id=self.newcomer).exists())
+
+    def test_the_profile_offers_the_action(self):
+        # The profile body is an htmx partial; a plain GET is refused with 405
+        response = self.client.get(
+            f"/employee/profile/employee/employee-view/{self.newcomer.pk}/", HTTP_HX_REQUEST="true"
+        )
+        self.assertContains(response, f"/scg/start-onboarding/{self.newcomer.pk}/")
+
+    def test_the_mail_lists_the_tasks_and_the_profile(self):
+        from django.test import RequestFactory
+
+        from scg_overrides import direct_onboarding
+
+        sent = []
+        backend = mock.Mock(configuration=True, dynamic_from_email_with_display_name="SCG HR <hr@test.horilla>")
+        request = RequestFactory().post("/", HTTP_HOST="hrm.test")
+        with mock.patch.object(direct_onboarding, "ConfiguredEmailBackend", return_value=backend), \
+                mock.patch.object(direct_onboarding, "send_employee_invitation", return_value=True) as invite, \
+                mock.patch("django.core.mail.EmailMultiAlternatives.send", lambda msg: sent.append(msg) or 1):
+            self.assertTrue(self.real_mail(request, self.newcomer, self.tasks))
+
+        invite.assert_called_once()  # never signed in
+        self.assertEqual(sent[0].to, ["new@test.horilla"])
+        self.assertIn("Почта", sent[0].body)
+        self.assertIn(f"http://hrm.test/employee/employee-profile/{self.newcomer.pk}/", sent[0].body)
+        self.assertIn("встановити пароль", sent[0].body)

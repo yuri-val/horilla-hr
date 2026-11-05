@@ -17,6 +17,7 @@ when a task is added to a live pipeline.
 
 from django import forms
 from django.contrib import messages
+from django.db.models import Q
 from django.shortcuts import redirect, render
 from django.utils.translation import gettext_lazy as _
 from django.utils.translation import ngettext
@@ -46,14 +47,20 @@ class TaskBlockCopyForm(forms.Form):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        from scg_overrides.direct_onboarding import RECRUITMENT_TITLE
+
+        # The direct-hire onboarding (SOF-2176) is closed like a library, but
+        # it is filled from the blocks rather than being one
+        direct = Q(title=RECRUITMENT_TITLE)
         self.fields["target"].queryset = Recruitment.objects.filter(
-            is_active=True, closed=False
+            Q(closed=False) | direct, is_active=True
         ).order_by("title")
         # Blocks are recruitments that own at least one stage. Closed ones stay
         # eligible on purpose: a closed recruitment is how a block library is
         # kept out of the live vacancy lists.
         self.fields["sources"].queryset = (
             Recruitment.objects.filter(is_active=True, onboarding_stage__isnull=False)
+            .exclude(direct)
             .distinct()
             .order_by("title")
         )
