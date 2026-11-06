@@ -404,3 +404,106 @@ class StartOnboardingTest(TestCase):
         self.assertIn("Почта", sent[0].body)
         self.assertIn(f"http://hrm.test/employee/employee-profile/{self.newcomer.pk}/", sent[0].body)
         self.assertIn("встановити пароль", sent[0].body)
+
+
+class TaskLinkTest(TestCase):
+    """SOF-2140: an onboarding task points to the document it is about."""
+
+    POLICY = "https://docs.google.com/document/d/vacation-policy"
+
+    @classmethod
+    def setUpTestData(cls):
+        from horilla.testkit import make_user
+        from onboarding.models import OnboardingStage, OnboardingTask
+        from recruitment.models import Recruitment
+
+        cls.company = make_company("Task Link Co")
+        cls.hr_user = make_user("link_hr", is_superuser=True)
+        cls.hr = make_employee(company=cls.company, email="hr@link.horilla", user=cls.hr_user)
+        cls.library = Recruitment.objects.create(
+            title="Шаблон: Перші кроки", closed=True, is_published=False, vacancy=0, company_id=cls.company,
+        )
+        cls.stage = OnboardingStage.objects.create(stage_title="Перші кроки", recruitment_id=cls.library, sequence=1)
+        cls.task = OnboardingTask.objects.create(task_title="Політика відпусток", stage_id=cls.stage)
+        cls.task.employee_id.set([cls.hr])
+
+    def setUp(self):
+        self.client.force_login(self.hr_user)
+
+    def update(self, link, title="Політика відпусток"):
+        return self.client.post(
+            f"/onboarding/task-update/{self.task.pk}/",
+            {"task_title": title, "stage_id": self.stage.pk, "employee_id": [self.hr.pk], "scg_link": link},
+            HTTP_HX_REQUEST="true",
+        )
+
+    def test_the_task_form_sets_changes_and_drops_the_link(self):
+        from scg_overrides.task_links import link_of
+
+        self.update(self.POLICY)
+        self.assertEqual(link_of(self.task), self.POLICY)
+
+        form = self.client.get(f"/onboarding/task-update/{self.task.pk}/", HTTP_HX_REQUEST="true")
+        self.assertContains(form, self.POLICY)
+
+        self.update("docs.google.com/document/d/new")
+        self.assertEqual(link_of(self.task), "https://docs.google.com/document/d/new")
+
+        self.update("")
+        self.assertEqual(link_of(self.task), "")
+
+    def test_a_bad_link_is_refused(self):
+        from scg_overrides.task_links import link_of
+
+        self.update("not a link")
+        self.assertEqual(link_of(self.task), "")
+
+    def test_a_new_task_gets_its_link(self):
+        from onboarding.models import OnboardingTask
+        from scg_overrides.task_links import link_of
+
+        self.client.post(
+            f"/onboarding/task-creation/{self.stage.pk}/",
+            {"task_title": "Оргструктура", "stage_id": self.stage.pk, "managers": [self.hr.pk],
+             "scg_link": "https://sites.google.com/view/org"},
+            HTTP_HX_REQUEST="true",
+        )
+        task = OnboardingTask.objects.get(task_title="Оргструктура")
+        self.assertEqual(link_of(task), "https://sites.google.com/view/org")
+
+    def test_a_save_outside_the_form_keeps_the_link(self):
+        from scg_overrides.task_links import link_of, set_link
+
+        set_link(self.task, self.POLICY)
+        self.task.task_title = "Політика відпусток і лікарняних"
+        self.task.save()
+        self.assertEqual(link_of(self.task), self.POLICY)
+
+    def test_task_blocks_copy_the_link(self):
+        from onboarding.models import OnboardingTask
+        from recruitment.models import Recruitment
+        from scg_overrides.onboarding_blocks import _copy_blocks
+        from scg_overrides.task_links import link_of, set_link
+
+        set_link(self.task, self.POLICY)
+        target = Recruitment.objects.create(title="Онбординг", vacancy=0, company_id=self.company)
+        _copy_blocks(target, [self.library])
+        copy = OnboardingTask.objects.get(stage_id__recruitment_id=target, task_title="Політика відпусток")
+        self.assertEqual(link_of(copy), self.POLICY)
+
+    def test_the_onboarding_tab_and_the_mail_open_the_document(self):
+        from onboarding.models import CandidateTask
+        from scg_overrides.task_links import set_link
+
+        set_link(self.task, self.POLICY)
+        candidate_task = CandidateTask(onboarding_task_id=self.task)
+        self.assertIn(f'href="{self.POLICY}"', candidate_task.scg_task_col())
+
+        from django.template.loader import render_to_string
+
+        html = render_to_string("scg_overrides/mail/start_onboarding.html",
+                                {"employee": self.hr, "tasks": [self.task], "profile_url": "x"})
+        text = render_to_string("scg_overrides/mail/start_onboarding.txt",
+                                {"employee": self.hr, "tasks": [self.task], "profile_url": "x"})
+        self.assertIn(f'href="{self.POLICY}"', html)
+        self.assertIn(f"Політика відпусток — {self.POLICY}", text)

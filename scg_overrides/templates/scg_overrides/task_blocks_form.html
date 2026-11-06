@@ -82,7 +82,7 @@
                                         <li class="text-sm d-flex justify-content-between align-items-center py-1"
                                             style="border-bottom:1px solid #f1f1f1">
                                             <span>
-                                                {{ task.title }}
+                                                {% if task.link %}<a href="{{ task.link }}" target="_blank" rel="noopener">{{ task.title }} &#128279;</a>{% else %}{{ task.title }}{% endif %}
                                                 {% if task.required %}
                                                     <span class="oh-badge oh-badge--warning oh-badge--small ms-1">{% trans "required" %}</span>
                                                 {% endif %}

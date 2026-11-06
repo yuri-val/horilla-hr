@@ -168,6 +168,16 @@ def install_direct_onboarding():
     install_profile_action()
 
 
+def install_task_links():
+    """A document link on onboarding tasks (SOF-2140): form field, saving, display.
+
+    See scg_overrides.task_links.
+    """
+    from scg_overrides.task_links import install
+
+    install()
+
+
 def apply():
     """Run every override, letting none of them break startup."""
     for step in (
@@ -175,6 +185,7 @@ def apply():
         alias_model_methods,
         install_onboarding_task_blocks,
         install_direct_onboarding,
+        install_task_links,
     ):
         try:
             step()

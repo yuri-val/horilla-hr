@@ -10,7 +10,8 @@ never shows among live vacancies) and copies them into a real vacancy here.
 
 The copy mirrors what onboarding.views.task_creation does by hand: stages
 keep their order and managers, tasks keep their managers and the is_required
-flag, and candidates already onboarding in the target vacancy are wired to
+flag and the document link (SOF-2140), and candidates already onboarding in
+the target vacancy are wired to
 every copied task through CandidateTask - the same rows the product creates
 when a task is added to a live pipeline.
 """
@@ -25,6 +26,7 @@ from django.utils.translation import ngettext
 from horilla.decorators import login_required, permission_required
 from onboarding.models import CandidateStage, CandidateTask, OnboardingStage, OnboardingTask
 from recruitment.models import Candidate, Recruitment
+from scg_overrides.task_links import link_of, set_link
 
 
 class TaskBlockCopyForm(forms.Form):
@@ -119,6 +121,9 @@ def _copy_blocks(target, sources):
                     is_required=task.is_required,
                 )
                 new_task.employee_id.set(task.employee_id.all())
+                link = link_of(task)
+                if link:
+                    set_link(new_task, link)
                 copied_tasks += 1
                 if onboarding_candidates:
                     new_task.candidates.set(onboarding_candidates)
@@ -156,6 +161,7 @@ def _library_contents(form):
                     "owners": ", ".join(
                         person.get_full_name() for person in task.employee_id.all()
                     ),
+                    "link": link_of(task),
                 }
                 for task in stage.onboarding_task.all().order_by("id")
             ]
