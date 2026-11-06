@@ -198,6 +198,14 @@ class EmployeeSyncTest(TestCase):
         self.assertEqual((employee.email, employee.employee_user_id.email, employee.employee_user_id.username),
                          ("tetiana.p@test.horilla", "tetiana.p@test.horilla", "tetiana.p@test.horilla"))
 
+    def test_a_change_of_letter_case_keeps_the_email_and_the_login(self):
+        employee_id = self.put(self.row())["employees"][0]["id"]
+        result = self.put(self.row(horilla_id=employee_id, email="TETIANA@test.horilla"))["employees"][0]
+        self.assertEqual(result["result"], "unchanged")
+        employee = Employee.objects.entire().get(pk=employee_id)
+        self.assertEqual((employee.email, employee.employee_user_id.username),
+                         ("Tetiana@Test.Horilla", "Tetiana@Test.Horilla"))
+
     def test_keeps_the_org_chart_unless_the_department_changes(self):
         employee_id = self.put(self.row())["employees"][0]["id"]
         moved = self.row(horilla_id=employee_id, department="Headquarter", manager_email="ceo@test.horilla")

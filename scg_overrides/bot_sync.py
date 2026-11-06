@@ -250,8 +250,12 @@ def write_employee(row):
     values = {
         "employee_first_name": row["first_name"],
         "employee_last_name": row.get("last_name") or None,
-        "email": row["email"].strip(),
     }
+    # An e-mail that differs only in letter case is the same address: leave
+    # it, and the login named after it, as they are
+    email = row["email"].strip()
+    if (employee.email or "").lower() != email.lower():
+        values["email"] = email
     if row.get("phone"):
         values["phone"] = row["phone"]
     if row.get("birthday"):
