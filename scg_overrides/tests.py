@@ -7,7 +7,9 @@ from unittest import mock
 
 from django.test import TestCase
 
+from employee.models import Employee
 from horilla.testkit import make_company, make_employee
+from horilla.testkit.factories import make_job_position
 from leave.models import AvailableLeave, LeaveRequest, LeaveType
 
 TOKEN = "test-bot-token"
@@ -119,6 +121,138 @@ class BotSyncTest(TestCase):
         again = self.put({"balances": [{"email": "olha@test.horilla", "available": 12.5, "carryforward": 3}]}).json()
         self.assertEqual(again["balances"][0]["result"], "unchanged")
 
+
+
+@mock.patch.dict(os.environ, {"SCG_BOT_SYNC_TOKEN": TOKEN})
+class EmployeeSyncTest(TestCase):
+    """SOF-2189: the bot creates, links, updates and archives employees."""
+
+    @classmethod
+    def setUpTestData(cls):
+        from base.models import Department, EmployeeShift
+
+        cls.company = make_company("Employee Sync Co")
+        cls.it = Department.objects.create(department="IT Development & Infrastructure")
+        cls.hq = Department.objects.create(department="Headquarter")
+        cls.shift = EmployeeShift.objects.create(employee_shift="Day Shift")
+        cls.head = make_employee(
+            company=cls.company, email="head@test.horilla", first_name="Yuriy",
+            department=cls.it, shift=cls.shift,
+        )
+        cls.ceo = make_employee(company=cls.company, email="ceo@test.horilla", department=cls.hq)
+
+    def put(self, *rows, leaves=()):
+        response = self.client.put(
+            "/scg/bot-sync/", json.dumps({"employees": list(rows), "leaves": list(leaves)}),
+            content_type="application/json", HTTP_X_BOT_TOKEN=TOKEN,
+        )
+        return response.json()
+
+    def row(self, **overrides):
+        row = {
+            "bot_id": 7, "horilla_id": None, "email": "Tetiana@Test.Horilla",
+            "first_name": "Tetiana", "last_name": "Piatkivska", "phone": "+380501112233",
+            "birthday": "1995-03-04", "hire_date": "2026-11-09",
+            "position": "Software Support & QA Specialist",
+            "department": "IT Development & Infrastructure",
+            "manager_email": "head@test.horilla", "active": True, "reassign": False,
+        }
+        row.update(overrides)
+        return row
+
+    def work(self, employee_id):
+        return Employee.objects.entire().get(pk=employee_id).employee_work_info
+
+    def test_creates_the_employee_where_the_bot_put_them(self):
+        result = self.put(self.row())["employees"][0]
+        self.assertEqual(result["result"], "created")
+
+        employee = Employee.objects.entire().get(pk=result["id"])
+        self.assertEqual((employee.get_full_name(), employee.phone, str(employee.dob)),
+                         ("Tetiana Piatkivska", "+380501112233", "1995-03-04"))
+        self.assertIsNotNone(employee.employee_user_id)
+        work = employee.employee_work_info
+        self.assertEqual((work.department_id, work.reporting_manager_id, str(work.date_joining)),
+                         (self.it, self.head, "2026-11-09"))
+        self.assertEqual((work.job_position_id.job_position, work.job_position_id.department_id),
+                         ("Software Support & QA Specialist", self.it))
+        # Shift and company come from the manager's record
+        self.assertEqual((work.shift_id, work.company_id), (self.shift, self.company))
+
+        again = self.put(self.row(horilla_id=result["id"]))["employees"][0]
+        self.assertEqual(again, {"bot_id": 7, "result": "unchanged", "id": result["id"]})
+
+    def test_links_someone_hired_through_recruitment(self):
+        hired = make_employee(company=self.company, email="tetiana@test.horilla", department=self.hq)
+        result = self.put(self.row())["employees"][0]
+        self.assertEqual((result["result"], result["id"]), ("linked", hired.pk))
+        self.assertEqual(Employee.objects.entire().filter(email__iexact="tetiana@test.horilla").count(), 1)
+        # Linking keeps the department HR gave them
+        self.assertEqual(self.work(hired.pk).department_id, self.hq)
+
+    def test_follows_an_email_change_by_the_kept_id(self):
+        employee_id = self.put(self.row())["employees"][0]["id"]
+        result = self.put(self.row(horilla_id=employee_id, email="tetiana.p@test.horilla"))["employees"][0]
+        self.assertEqual(result["result"], "updated")
+        employee = Employee.objects.entire().get(pk=employee_id)
+        self.assertEqual((employee.email, employee.employee_user_id.email, employee.employee_user_id.username),
+                         ("tetiana.p@test.horilla", "tetiana.p@test.horilla", "tetiana.p@test.horilla"))
+
+    def test_keeps_the_org_chart_unless_the_department_changes(self):
+        employee_id = self.put(self.row())["employees"][0]["id"]
+        moved = self.row(horilla_id=employee_id, department="Headquarter", manager_email="ceo@test.horilla")
+
+        self.put(moved)
+        self.assertEqual((self.work(employee_id).department_id, self.work(employee_id).reporting_manager_id),
+                         (self.it, self.head))
+
+        self.put({**moved, "reassign": True})
+        work = self.work(employee_id)
+        self.assertEqual((work.department_id, work.reporting_manager_id), (self.hq, self.ceo))
+        self.assertEqual(work.job_position_id.department_id, self.hq)
+
+    def test_an_empty_value_in_the_bot_erases_nothing(self):
+        employee_id = self.put(self.row())["employees"][0]["id"]
+        self.put(self.row(horilla_id=employee_id, phone=None, birthday=None, hire_date=None, position=None))
+        employee = Employee.objects.entire().get(pk=employee_id)
+        self.assertEqual((employee.phone, str(employee.dob), str(employee.employee_work_info.date_joining)),
+                         ("+380501112233", "1995-03-04", "2026-11-09"))
+        self.assertIsNotNone(employee.employee_work_info.job_position_id)
+
+    def test_reuses_the_department_position_in_any_letter_case(self):
+        from base.models import JobPosition
+
+        existing = make_job_position(title="QA Engineer", department=self.it)
+        employee_id = self.put(self.row(position="qa  engineer"))["employees"][0]["id"]
+        self.assertEqual(self.work(employee_id).job_position_id, existing)
+        self.assertEqual(JobPosition.objects.filter(job_position__iexact="qa engineer").count(), 1)
+
+    def test_a_dismissal_archives_even_a_manager(self):
+        self.put(self.row())  # the head now manages someone, which blocks Horilla's own archive
+        self.assertTrue(Employee.objects.entire().get(pk=self.head.pk).get_archive_condition())
+        result = self.put(self.row(email="head@test.horilla", horilla_id=self.head.pk,
+                                   manager_email="ceo@test.horilla", active=False))["employees"][0]
+        self.assertEqual(result["result"], "updated")
+        head = Employee.objects.entire().get(pk=self.head.pk)
+        self.assertFalse(head.is_active)
+        self.assertFalse(head.employee_user_id.is_active)
+
+        self.put(self.row(email="head@test.horilla", horilla_id=self.head.pk,
+                          manager_email="ceo@test.horilla", active=True))
+        self.assertTrue(Employee.objects.entire().get(pk=self.head.pk).is_active)
+
+    def test_leaves_out_who_horilla_should_not_have(self):
+        dismissed = self.put(self.row(active=False))["employees"][0]
+        outsider = self.put(self.row(bot_id=8, email="admin@outsource.test", department=None))["employees"][0]
+        self.assertEqual((dismissed["result"], outsider["result"]), ("skipped", "skipped"))
+        self.assertFalse(Employee.objects.entire().filter(email__iexact="tetiana@test.horilla").exists())
+
+    def test_a_leave_in_the_same_batch_finds_the_new_employee(self):
+        LeaveType.objects.create(name="Annual Leave", total_days=20, payment="paid", reset=False)
+        leave = {"kind": "vacation", "bot_id": 1, "email": "tetiana@test.horilla", "reason": "planned_vacation",
+                 "start": "2026-12-01", "end": "2026-12-02", "status": "allowed"}
+        result = self.put(self.row(), leaves=[leave])
+        self.assertEqual((result["employees"][0]["result"], result["leaves"][0]["result"]), ("created", "created"))
 
 class StartOnboardingTest(TestCase):
     """SOF-2176: an employee hired without recruitment gets onboarding from the profile."""
