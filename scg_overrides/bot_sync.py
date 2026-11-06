@@ -44,6 +44,10 @@ refuse (a manager of others): the person has left either way.
                     "manager_email": "...", "active": true, "reassign": false}]}
 
 Employees are applied first, so leaves in the same batch already find them.
+
+"task_statuses" carries a status clicked on a task card in Google Chat
+(SOF-2190, scg_overrides.bot_tasks): [{"key": "onboarding:12", "status":
+"done", "by": "<e-mail>"}].
 """
 
 import hmac
@@ -59,6 +63,7 @@ from django.views.decorators.http import require_http_methods
 
 from base.models import Company, Department, JobPosition
 from employee.models import Employee, EmployeeWorkInformation
+from scg_overrides.bot_tasks import apply_task_status
 from leave.models import AvailableLeave, LeaveRequest, LeaveType
 
 # Bot leave reason -> Horilla leave type (the types the seed created)
@@ -85,12 +90,17 @@ def marker(kind, bot_id):
     return f"[bot {kind} #{bot_id}]"
 
 
+def authorized(request):
+    """The request carries the bot's token (SCG_BOT_SYNC_TOKEN)."""
+    token = os.environ.get("SCG_BOT_SYNC_TOKEN", "")
+    given = request.headers.get("X-Bot-Token", "")
+    return bool(token) and hmac.compare_digest(given.encode(), token.encode())
+
+
 @csrf_exempt
 @require_http_methods(["PUT"])
 def bot_sync(request):
-    token = os.environ.get("SCG_BOT_SYNC_TOKEN", "")
-    given = request.headers.get("X-Bot-Token", "")
-    if not token or not hmac.compare_digest(given.encode(), token.encode()):
+    if not authorized(request):
         return JsonResponse({"error": "forbidden"}, status=403)
 
     try:
@@ -110,6 +120,9 @@ def bot_sync(request):
             "leaves": [apply_leave(row, employees) for row in payload.get("leaves", [])],
             "balances": [
                 apply_balance(row, employees) for row in payload.get("balances", [])
+            ],
+            "task_statuses": [
+                apply_task_status(row) for row in payload.get("task_statuses", [])
             ],
         }
     )

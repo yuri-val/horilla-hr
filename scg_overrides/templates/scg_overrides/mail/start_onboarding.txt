@@ -2,7 +2,7 @@
 
 Ваш план онбордингу — що потрібно зробити в перші дні вам і колегам, які вас підключають:
 {% for task in tasks %}
-- {{ task.task_title }}{% if task.scg_link %} — {{ task.scg_link.url }}{% endif %}{% endfor %}
+- {{ task.task_title }}{% if task.scg_details.url %} — {{ task.scg_details.url }}{% endif %}{% endfor %}
 
 Хід плану й відмітки про виконання — у вашому профілі, вкладка «Onboarding»:
 {{ profile_url }}

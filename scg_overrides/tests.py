@@ -446,7 +446,7 @@ class TaskLinkTest(TestCase):
         )
 
     def test_the_task_form_sets_changes_and_drops_the_link(self):
-        from scg_overrides.task_links import link_of
+        from scg_overrides.task_details import link_of
 
         self.update(self.POLICY)
         self.assertEqual(link_of(self.task), self.POLICY)
@@ -461,14 +461,14 @@ class TaskLinkTest(TestCase):
         self.assertEqual(link_of(self.task), "")
 
     def test_a_bad_link_is_refused(self):
-        from scg_overrides.task_links import link_of
+        from scg_overrides.task_details import link_of
 
         self.update("not a link")
         self.assertEqual(link_of(self.task), "")
 
     def test_a_new_task_gets_its_link(self):
         from onboarding.models import OnboardingTask
-        from scg_overrides.task_links import link_of
+        from scg_overrides.task_details import link_of
 
         self.client.post(
             f"/onboarding/task-creation/{self.stage.pk}/",
@@ -480,7 +480,7 @@ class TaskLinkTest(TestCase):
         self.assertEqual(link_of(task), "https://sites.google.com/view/org")
 
     def test_a_save_outside_the_form_keeps_the_link(self):
-        from scg_overrides.task_links import link_of, set_link
+        from scg_overrides.task_details import link_of, set_link
 
         set_link(self.task, self.POLICY)
         self.task.task_title = "Політика відпусток і лікарняних"
@@ -491,7 +491,7 @@ class TaskLinkTest(TestCase):
         from onboarding.models import OnboardingTask
         from recruitment.models import Recruitment
         from scg_overrides.onboarding_blocks import _copy_blocks
-        from scg_overrides.task_links import link_of, set_link
+        from scg_overrides.task_details import link_of, set_link
 
         set_link(self.task, self.POLICY)
         target = Recruitment.objects.create(title="Онбординг", vacancy=0, company_id=self.company)
@@ -501,7 +501,7 @@ class TaskLinkTest(TestCase):
 
     def test_the_onboarding_tab_and_the_mail_open_the_document(self):
         from onboarding.models import CandidateTask
-        from scg_overrides.task_links import set_link
+        from scg_overrides.task_details import set_link
 
         set_link(self.task, self.POLICY)
         candidate_task = CandidateTask(onboarding_task_id=self.task)
@@ -515,3 +515,182 @@ class TaskLinkTest(TestCase):
                                 {"employee": self.hr, "tasks": [self.task], "profile_url": "x"})
         self.assertIn(f'href="{self.POLICY}"', html)
         self.assertIn(f"Політика відпусток — {self.POLICY}", text)
+
+
+class OffboardingTest(TestCase):
+    """SOF-2175: a leaver gets the whole checklist, and the archived stage archives."""
+
+    @classmethod
+    def setUpTestData(cls):
+        from employee.models import EmployeeWorkInformation
+        from horilla.testkit import make_user
+        from offboarding.models import Offboarding, OffboardingStage, OffboardingTask
+
+        cls.company = make_company("Offboarding Co")
+        cls.hr_user = make_user("off_hr", is_superuser=True)
+        cls.hr = make_employee(company=cls.company, email="hr@off.horilla", user=cls.hr_user)
+        cls.it = make_employee(company=cls.company, email="it@off.horilla")
+        cls.leaver = make_employee(company=cls.company, email="leaver@off.horilla", first_name="Olena")
+        cls.report = make_employee(company=cls.company, email="report@off.horilla")
+        # The leaver manages someone: Employee.save() would refuse to archive them
+        EmployeeWorkInformation.objects.filter(employee_id=cls.report).update(reporting_manager_id=cls.leaver)
+
+        cls.process = Offboarding.objects.create(title="Звільнення", description="-", company_id=cls.company)
+        stages = OffboardingStage.objects.filter(offboarding_id=cls.process)
+        cls.notice = stages.get(type="notice_period")
+        cls.handover = stages.get(type="handover")
+        cls.archived = stages.get(type="archived")
+        cls.tasks = []
+        for title, manager in (("Повернути техніку", cls.it), ("Exit-інтерв'ю", cls.hr)):
+            task = OffboardingTask.objects.create(title=title, stage_id=cls.handover)
+            task.managers.set([manager])
+            cls.tasks.append(task)
+
+    def setUp(self):
+        self.client.force_login(self.hr_user)
+
+    def add(self, employee=None, stage=None):
+        from offboarding.models import OffboardingEmployee
+
+        return OffboardingEmployee.objects.create(employee_id=employee or self.leaver, stage_id=stage or self.notice)
+
+    def test_a_leaver_gets_every_task_of_the_process_once(self):
+        from offboarding.models import EmployeeTask
+
+        leaver = self.add()
+        self.assertEqual(set(EmployeeTask.objects.filter(employee_id=leaver).values_list("task_id", flat=True)),
+                         {task.pk for task in self.tasks})
+        leaver.save()
+        self.assertEqual(EmployeeTask.objects.filter(employee_id=leaver).count(), 2)
+
+    def test_a_task_added_later_goes_to_everyone_still_leaving(self):
+        from offboarding.models import EmployeeTask, OffboardingTask
+
+        leaving = self.add()
+        gone = self.add(employee=self.report, stage=self.archived)
+        task = OffboardingTask.objects.create(title="Закрити доступи й пошту", stage_id=self.handover)
+        self.assertTrue(EmployeeTask.objects.filter(employee_id=leaving, task_id=task).exists())
+        self.assertFalse(EmployeeTask.objects.filter(employee_id=gone, task_id=task).exists())
+
+    def test_the_archived_stage_archives_even_a_manager(self):
+        leaver = self.add()
+        response = self.client.get(
+            "/offboarding/offboarding-change-stage/",
+            {"employee_ids": [leaver.pk], "stage_id": self.archived.pk},
+            HTTP_HX_REQUEST="true",
+        )
+        self.assertEqual(response.status_code, 200)
+        employee = Employee.objects.entire().get(pk=self.leaver.pk)
+        self.assertFalse(employee.is_active)
+        self.assertFalse(employee.employee_user_id.is_active)
+
+        self.client.get(
+            "/offboarding/offboarding-change-stage/",
+            {"employee_ids": [leaver.pk], "stage_id": self.handover.pk},
+            HTTP_HX_REQUEST="true",
+        )
+        self.assertTrue(Employee.objects.entire().get(pk=self.leaver.pk).is_active)
+
+    def test_the_task_form_keeps_link_description_and_performer(self):
+        from offboarding.models import OffboardingTask
+        from scg_overrides.task_details import details_of
+
+        self.client.post(
+            f"/offboarding/offboarding-add-task/?stage_id={self.handover.pk}",
+            {"title": "Передати справи", "stage_id": self.handover.pk, "managers": [self.hr.pk],
+             "scg_link": "https://docs.google.com/document/d/handover", "scg_description": "Список проєктів",
+             "scg_for_subject": "on"},
+            HTTP_HX_REQUEST="true",
+        )
+        task = OffboardingTask.objects.get(title="Передати справи")
+        self.assertEqual(details_of(task), {"url": "https://docs.google.com/document/d/handover",
+                                            "description": "Список проєктів", "for_subject": True})
+
+
+@mock.patch.dict(os.environ, {"SCG_BOT_SYNC_TOKEN": TOKEN})
+class BotTasksTest(TestCase):
+    """SOF-2190: the bot pulls onboarding and offboarding tasks and pushes statuses back."""
+
+    @classmethod
+    def setUpTestData(cls):
+        from offboarding.models import Offboarding, OffboardingEmployee, OffboardingStage, OffboardingTask
+        from onboarding.models import CandidateTask, OnboardingStage, OnboardingTask
+        from recruitment.models import Candidate
+        from scg_overrides.direct_onboarding import standing_recruitment
+        from scg_overrides.task_details import set_details
+
+        company = make_company("Bot Tasks Co")
+        cls.it = make_employee(company=company, email="it@tasks.horilla")
+        cls.newcomer = make_employee(company=company, email="new@tasks.horilla", first_name="Tetiana")
+        cls.leaver = make_employee(company=company, email="leaver@tasks.horilla", first_name="Olena")
+
+        recruitment = standing_recruitment(company)
+        stage = OnboardingStage.objects.create(stage_title="IT", recruitment_id=recruitment, sequence=1)
+        laptop = OnboardingTask.objects.create(task_title="Видати ноутбук", stage_id=stage)
+        laptop.employee_id.set([cls.it])
+        bot = OnboardingTask.objects.create(task_title="Підключитися до бота", stage_id=stage)
+        bot.employee_id.set([cls.it])
+        set_details(bot, url="https://drive.google.com/bot-guide", description="Google Chat → /balance", for_subject=True)
+        position = make_job_position(title="QA Specialist")
+        recruitment.open_positions.add(position)
+        candidate = Candidate.objects.create(
+            name="Tetiana", email="new@tasks.horilla", recruitment_id=recruitment, job_position_id=position,
+            converted_employee_id=cls.newcomer, converted=True,
+        )
+        cls.laptop = CandidateTask.objects.create(candidate_id=candidate, onboarding_task_id=laptop, stage_id=stage, status="stuck")
+        cls.bot = CandidateTask.objects.create(candidate_id=candidate, onboarding_task_id=bot, stage_id=stage)
+
+        process = Offboarding.objects.create(title="Звільнення", description="-", company_id=company)
+        archived = OffboardingStage.objects.get(offboarding_id=process, type="archived")
+        handover = OffboardingStage.objects.get(offboarding_id=process, type="handover")
+        access = OffboardingTask.objects.create(title="Закрити доступи", stage_id=handover)
+        access.managers.set([cls.it])
+        cls.offboarding = OffboardingEmployee.objects.create(employee_id=cls.leaver, stage_id=handover)
+        cls.archived = archived
+
+    def get(self, token=TOKEN):
+        return self.client.get("/scg/bot-tasks/", HTTP_X_BOT_TOKEN=token)
+
+    def tasks(self):
+        return {task["key"]: task for task in self.get().json()["tasks"]}
+
+    def test_needs_the_token(self):
+        self.assertEqual(self.get(token="wrong").status_code, 403)
+
+    def test_sends_each_task_with_its_details_and_people(self):
+        tasks = self.tasks()
+        laptop = tasks[f"onboarding:{self.laptop.pk}"]
+        self.assertEqual((laptop["title"], laptop["status"], laptop["stuck"], laptop["assignees"], laptop["subject"]),
+                         ("Видати ноутбук", "in_progress", True, ["it@tasks.horilla"], "Tetiana Employee"))
+        bot = tasks[f"onboarding:{self.bot.pk}"]
+        self.assertEqual((bot["assignees"], bot["url"], bot["description"]),
+                         (["new@tasks.horilla"], "https://drive.google.com/bot-guide", "Google Chat → /balance"))
+
+        offboarding = [t for key, t in tasks.items() if key.startswith("offboarding:")]
+        self.assertEqual([(t["title"], t["assignees"], t["closed"]) for t in offboarding],
+                         [("Закрити доступи", ["it@tasks.horilla"], False)])
+
+    def test_a_finished_offboarding_closes_its_tasks(self):
+        self.offboarding.stage_id = self.archived
+        self.offboarding.save()
+        offboarding = [t for key, t in self.tasks().items() if key.startswith("offboarding:")]
+        self.assertTrue(offboarding[0]["closed"])
+
+    def test_takes_a_status_clicked_in_the_bot(self):
+        from offboarding.models import EmployeeTask
+        from onboarding.models import CandidateTask
+
+        off_task = EmployeeTask.objects.get(employee_id=self.offboarding)
+        rows = [
+            {"key": f"onboarding:{self.laptop.pk}", "status": "done", "by": "it@tasks.horilla"},
+            {"key": f"offboarding:{off_task.pk}", "status": "in_progress", "by": "it@tasks.horilla"},
+            {"key": f"onboarding:{self.bot.pk}", "status": "todo", "by": "new@tasks.horilla"},
+            {"key": "onboarding:0", "status": "done"},
+            {"key": "nonsense", "status": "done"},
+        ]
+        response = self.client.put("/scg/bot-sync/", json.dumps({"task_statuses": rows}),
+                                   content_type="application/json", HTTP_X_BOT_TOKEN=TOKEN)
+        self.assertEqual([r["result"] for r in response.json()["task_statuses"]],
+                         ["updated", "updated", "unchanged", "unknown_task", "error"])
+        self.assertEqual(CandidateTask.objects.get(pk=self.laptop.pk).status, "done")
+        self.assertEqual(EmployeeTask.objects.get(pk=off_task.pk).status, "in_progress")

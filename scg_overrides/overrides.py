@@ -168,12 +168,22 @@ def install_direct_onboarding():
     install_profile_action()
 
 
-def install_task_links():
-    """A document link on onboarding tasks (SOF-2140): form field, saving, display.
+def install_task_details():
+    """Link, description and performer of onboarding and offboarding tasks (SOF-2140, SOF-2190).
 
-    See scg_overrides.task_links.
+    See scg_overrides.task_details.
     """
-    from scg_overrides.task_links import install
+    from scg_overrides.task_details import install
+
+    install()
+
+
+def install_offboarding():
+    """Offboarding tasks given on entry, and an archived stage that archives (SOF-2175).
+
+    See scg_overrides.offboarding.
+    """
+    from scg_overrides.offboarding import install
 
     install()
 
@@ -185,7 +195,8 @@ def apply():
         alias_model_methods,
         install_onboarding_task_blocks,
         install_direct_onboarding,
-        install_task_links,
+        install_task_details,
+        install_offboarding,
     ):
         try:
             step()
