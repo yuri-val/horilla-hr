@@ -706,6 +706,7 @@ class MenuTest(TestCase):
         "Onboarding": {"Dashboard", "Candidates", "Onboarding Tasks"},
         "Offboarding": {"Dashboard", "Exit Process"},
         "Reports": {"Standard Reports", "Explorer"},
+        "Surveys": {"Dashboard", "Surveys"},  # SOF-2178
     }
 
     def test_the_menu_of_a_superuser(self):
