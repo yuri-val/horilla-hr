@@ -35,12 +35,19 @@ from .base import INSTALLED_APPS, SIDEBARS
 
 INSTALLED_APPS += ["scg_overrides"]
 
-# Modules dropped from the sidebar.
+# Modules dropped from the sidebar. Only HR opens Horilla, and HRD asked for a
+# lighter menu (SOF-2177); counts are from prod on 2026-11-07.
 #   helpdesk   - never adopted at SCG.
 #   attendance - check-in/check-out is switched off for the company
 #                (AttendanceGeneralSetting.enable_check_in is False), so every
 #                screen in the module could only ever come up empty.
-for _hidden_module in ("helpdesk", "attendance"):
+#   payroll    - salaries are not run here: 0 payslips. The contracts it keeps
+#                are created with each employee and need no menu.
+#   pms        - performance: no objectives, feedback or meetings, only the
+#                question templates of August. KPIs go through the bot.
+#   project    - empty.
+#   asset      - empty; equipment is tracked by offboarding tasks.
+for _hidden_module in ("helpdesk", "attendance", "payroll", "pms", "project", "asset"):
     if _hidden_module in SIDEBARS:
         SIDEBARS.remove(_hidden_module)
 
@@ -60,9 +67,29 @@ SCG_SUBMENU_OVERRIDES = {
         "Work Schedules": None,
         "Policies & Discipline": {"menu": _("Policies"), "redirect": "view-policies"},
     },
-    # HR does not plan vacation-restriction periods, so the page could only
-    # ever show its empty state.
-    "leave": {"Restricted Leave Periods": None},
+    # Leave is a showcase of the corporate bot (SOF-2138): requests are made
+    # and approved there, so a request or allocation entered here would part
+    # from the bot and its balance. HR does not plan vacation-restriction
+    # periods or weekly offs either.
+    "leave": {
+        "My Leave Requests": None,
+        "Compensatory Leave Requests": None,
+        "Leave Allocation Request": None,
+        "Restricted Leave Periods": None,
+        "Weekly Off Days": None,
+    },
+    # Hiring is agreed "in the chat" (SOF-2176); what is left of recruitment is
+    # the pipeline, the vacancies and their candidates (SOF-2179). Surveys wait
+    # for SOF-2178.
+    "recruitment": {
+        "Interviews": None,
+        "Job Openings": None,
+        "Talent Pool": None,
+        "Recruitment Survey": None,
+    },
+    # Resignations are not taken here (the setting is off, 0 letters); people
+    # leave through the exit process (SOF-2175).
+    "offboarding": {"Resignation Letters": None},
     # Upstream replaced the per-module report submenus with a Standard Reports
     # catalog plus Explorer, so the old "Reports > Attendance" entry no longer
     # exists to hide. Attendance stays out of navigation via SIDEBARS above;

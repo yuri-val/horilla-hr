@@ -694,3 +694,35 @@ class BotTasksTest(TestCase):
                          ["updated", "updated", "unchanged", "unknown_task", "error"])
         self.assertEqual(CandidateTask.objects.get(pk=self.laptop.pk).status, "done")
         self.assertEqual(EmployeeTask.objects.get(pk=off_task.pk).status, "in_progress")
+
+
+class MenuTest(TestCase):
+    """SOF-2177: HR's menu holds only what HR uses - superusers included."""
+
+    KEPT = {
+        "Employee": {"Dashboard", "Employees", "Organization Chart", "Policies", "Configuration"},
+        "Leave": {"Dashboard", "Leave Requests", "Leave Balances", "Public Holidays", "Configuration"},
+        "Recruitment": {"Dashboard", "Recruitment Pipeline", "Open Recruitments", "Candidates", "Configuration"},
+        "Onboarding": {"Dashboard", "Candidates", "Onboarding Tasks"},
+        "Offboarding": {"Dashboard", "Exit Process"},
+        "Reports": {"Standard Reports", "Explorer"},
+    }
+
+    def test_the_menu_of_a_superuser(self):
+        from django.contrib.sessions.backends.db import SessionStore
+        from django.test import RequestFactory
+        from django.utils import translation
+
+        from horilla.config import get_MENUS
+        from horilla.testkit import make_user
+
+        request = RequestFactory().get("/")
+        request.user = make_user("menu_hr", is_superuser=True)
+        request.session = SessionStore()
+        request.session.create()
+        with translation.override(None):
+            menus = {
+                str(menu["menu"]): {str(item["menu"]) for item in menu["submenu"]}
+                for menu in get_MENUS(request)["sidebar"]
+            }
+        self.assertEqual(menus, self.KEPT)
