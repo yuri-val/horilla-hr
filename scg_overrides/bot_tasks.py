@@ -27,8 +27,19 @@ from django.views.decorators.http import require_GET
 
 from scg_overrides.task_details import details_of
 
-ONBOARDING = {"todo": "todo", "scheduled": "todo", "ongoing": "in_progress", "stuck": "in_progress", "done": "done"}
-OFFBOARDING = {"todo": "todo", "in_progress": "in_progress", "stuck": "in_progress", "completed": "done"}
+ONBOARDING = {
+    "todo": "todo",
+    "scheduled": "todo",
+    "ongoing": "in_progress",
+    "stuck": "in_progress",
+    "done": "done",
+}
+OFFBOARDING = {
+    "todo": "todo",
+    "in_progress": "in_progress",
+    "stuck": "in_progress",
+    "completed": "done",
+}
 # The bot's status -> Horilla's, per kind
 BACK = {
     "onboarding": {"todo": "todo", "in_progress": "ongoing", "done": "done"},
@@ -50,9 +61,23 @@ def name_of(user):
     return employee.get_full_name() if employee else ""
 
 
-def row(key, kind, title, details, status, statuses, subject, process, created_by, created_at, managers, closed):
+def row(
+    key,
+    kind,
+    title,
+    details,
+    status,
+    statuses,
+    subject,
+    process,
+    created_by,
+    created_at,
+    managers,
+    closed,
+):
     assignees = (
-        [subject.email] if details["for_subject"] and subject and subject.email
+        [subject.email]
+        if details["for_subject"] and subject and subject.email
         else [m.email for m in managers if m.email]
     )
     return {
@@ -75,37 +100,70 @@ def row(key, kind, title, details, status, statuses, subject, process, created_b
 def onboarding_tasks():
     from onboarding.models import CandidateTask
 
-    rows = CandidateTask._base_manager.filter(is_active=True).select_related(
-        "candidate_id__recruitment_id", "candidate_id__converted_employee_id",
-        "onboarding_task_id", "created_by",
-    ).prefetch_related("onboarding_task_id__employee_id")
+    rows = (
+        CandidateTask._base_manager.filter(is_active=True)
+        .select_related(
+            "candidate_id__recruitment_id",
+            "candidate_id__converted_employee_id",
+            "onboarding_task_id",
+            "created_by",
+        )
+        .prefetch_related("onboarding_task_id__employee_id")
+    )
     for task in rows:
         candidate = task.candidate_id
         stage = getattr(candidate, "onboarding_stage", None)
-        closed = bool(stage and stage.onboarding_stage_id and stage.onboarding_stage_id.is_final_stage)
+        closed = bool(
+            stage
+            and stage.onboarding_stage_id
+            and stage.onboarding_stage_id.is_final_stage
+        )
         subject = candidate.converted_employee_id
         yield row(
-            f"onboarding:{task.pk}", "onboarding", task.onboarding_task_id.task_title,
-            details_of(task.onboarding_task_id), task.status, ONBOARDING,
-            subject, candidate.recruitment_id.title, task.created_by, task.created_at,
-            task.onboarding_task_id.employee_id.all(), closed,
+            f"onboarding:{task.pk}",
+            "onboarding",
+            task.onboarding_task_id.task_title,
+            details_of(task.onboarding_task_id),
+            task.status,
+            ONBOARDING,
+            subject,
+            candidate.recruitment_id.title,
+            task.created_by,
+            task.created_at,
+            task.onboarding_task_id.employee_id.all(),
+            closed,
         )
 
 
 def offboarding_tasks():
     from offboarding.models import EmployeeTask
 
-    rows = EmployeeTask._base_manager.filter(is_active=True, employee_id__isnull=False).select_related(
-        "employee_id__employee_id", "employee_id__stage_id__offboarding_id", "task_id", "created_by",
-    ).prefetch_related("task_id__managers")
+    rows = (
+        EmployeeTask._base_manager.filter(is_active=True, employee_id__isnull=False)
+        .select_related(
+            "employee_id__employee_id",
+            "employee_id__stage_id__offboarding_id",
+            "task_id",
+            "created_by",
+        )
+        .prefetch_related("task_id__managers")
+    )
     for task in rows:
         leaver = task.employee_id
         stage = leaver.stage_id
         yield row(
-            f"offboarding:{task.pk}", "offboarding", task.task_id.title,
-            details_of(task.task_id), task.status, OFFBOARDING,
-            leaver.employee_id, stage.offboarding_id.title if stage else "", task.created_by,
-            task.created_at, task.task_id.managers.all(), bool(stage and stage.type == "archived"),
+            f"offboarding:{task.pk}",
+            "offboarding",
+            task.task_id.title,
+            details_of(task.task_id),
+            task.status,
+            OFFBOARDING,
+            leaver.employee_id,
+            stage.offboarding_id.title if stage else "",
+            task.created_by,
+            task.created_at,
+            task.task_id.managers.all(),
+            bool(stage and stage.type == "archived"),
         )
 
 
@@ -129,7 +187,9 @@ def apply_task_status(item):
         return {**result, "result": "unknown_task"}
     if task.status == status:
         return {**result, "result": "unchanged"}
-    by = Employee._base_manager.filter(email__iexact=(item.get("by") or "").strip()).first()
+    by = Employee._base_manager.filter(
+        email__iexact=(item.get("by") or "").strip()
+    ).first()
     user = by.employee_user_id if by else None
     # Past save(): EmployeeTask.save() tells the leaver "task assigned" on every
     # write, and both need a logged-in request user the bot does not have

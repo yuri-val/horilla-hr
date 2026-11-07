@@ -80,14 +80,18 @@ def _msgid(label):
 
 def configure_submenus():
     """Hide (spec is ``None``) or re-point the configured submenus."""
-    for app_label, specs in (getattr(settings, "SCG_SUBMENU_OVERRIDES", None) or {}).items():
+    for app_label, specs in (
+        getattr(settings, "SCG_SUBMENU_OVERRIDES", None) or {}
+    ).items():
         if not apps.is_installed(app_label):
             logger.warning("SCG_SUBMENU_OVERRIDES: app %r is not installed", app_label)
             continue
         try:
             sidebar = importlib.import_module(f"{app_label}.sidebar")
         except Exception:
-            logger.exception("SCG_SUBMENU_OVERRIDES: cannot import %s.sidebar", app_label)
+            logger.exception(
+                "SCG_SUBMENU_OVERRIDES: cannot import %s.sidebar", app_label
+            )
             continue
 
         matched = set()
@@ -116,11 +120,15 @@ def configure_submenus():
 
 def alias_model_methods():
     """Re-point model methods at another method of the same model."""
-    for model_path, aliases in (getattr(settings, "SCG_MODEL_METHOD_ALIASES", None) or {}).items():
+    for model_path, aliases in (
+        getattr(settings, "SCG_MODEL_METHOD_ALIASES", None) or {}
+    ).items():
         try:
             model = apps.get_model(model_path)
         except Exception:
-            logger.exception("SCG_MODEL_METHOD_ALIASES: cannot resolve model %s", model_path)
+            logger.exception(
+                "SCG_MODEL_METHOD_ALIASES: cannot resolve model %s", model_path
+            )
             continue
 
         for name, target_name in aliases.items():

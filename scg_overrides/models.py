@@ -31,11 +31,15 @@ class TaskDetails(models.Model):
 
 class OnboardingTaskDetails(TaskDetails):
     task = models.OneToOneField(
-        "onboarding.OnboardingTask", on_delete=models.CASCADE, related_name="scg_details"
+        "onboarding.OnboardingTask",
+        on_delete=models.CASCADE,
+        related_name="scg_details",
     )
 
 
 class OffboardingTaskDetails(TaskDetails):
     task = models.OneToOneField(
-        "offboarding.OffboardingTask", on_delete=models.CASCADE, related_name="scg_details"
+        "offboarding.OffboardingTask",
+        on_delete=models.CASCADE,
+        related_name="scg_details",
     )

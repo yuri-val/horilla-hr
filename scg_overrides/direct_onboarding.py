@@ -87,7 +87,9 @@ def start_onboarding(request, emp_id):
     if not tasks:
         messages.error(
             request,
-            _("%(recruitment)s has no onboarding tasks yet - add them with Add Task Blocks.")
+            _(
+                "%(recruitment)s has no onboarding tasks yet - add them with Add Task Blocks."
+            )
             % {"recruitment": RECRUITMENT_TITLE},
         )
         return HorillaRedirect(request)
@@ -97,7 +99,10 @@ def start_onboarding(request, emp_id):
         messages.info(
             request,
             _("%(employee)s is already onboarding in %(recruitment)s.")
-            % {"employee": employee.get_full_name(), "recruitment": linked.recruitment_id},
+            % {
+                "employee": employee.get_full_name(),
+                "recruitment": linked.recruitment_id,
+            },
         )
         return HorillaRedirect(request)
 
@@ -122,7 +127,11 @@ def start_onboarding(request, emp_id):
                 added.append(task)
 
     if not added:
-        messages.info(request, _("%(employee)s already has every onboarding task.") % {"employee": employee.get_full_name()})
+        messages.info(
+            request,
+            _("%(employee)s already has every onboarding task.")
+            % {"employee": employee.get_full_name()},
+        )
         return HorillaRedirect(request)
 
     notify_managers(request, added)
@@ -133,7 +142,10 @@ def start_onboarding(request, emp_id):
         % {"employee": employee.get_full_name(), "count": len(added)},
     )
     if not mailed:
-        messages.warning(request, _("The e-mail to the employee was not sent - check the mail server."))
+        messages.warning(
+            request,
+            _("The e-mail to the employee was not sent - check the mail server."),
+        )
     return HorillaRedirect(request)
 
 
@@ -180,7 +192,9 @@ def mail_newcomer(request, employee, tasks):
     user = employee.employee_user_id
     invited = bool(user and user.last_login is None)
     if invited:
-        invited = send_employee_invitation(employee, request.get_host(), request.is_secure())
+        invited = send_employee_invitation(
+            employee, request.get_host(), request.is_secure()
+        )
 
     scheme = "https" if request.is_secure() else "http"
     context = {
@@ -190,14 +204,17 @@ def mail_newcomer(request, employee, tasks):
         "invited": invited,
     }
     message = EmailMultiAlternatives(
-        subject=render_to_string("scg_overrides/mail/start_onboarding_subject.txt", context).strip(),
+        subject=render_to_string(
+            "scg_overrides/mail/start_onboarding_subject.txt", context
+        ).strip(),
         body=render_to_string("scg_overrides/mail/start_onboarding.txt", context),
         from_email=backend.dynamic_from_email_with_display_name,
         to=[employee.get_mail()],
         connection=backend,
     )
     message.attach_alternative(
-        render_to_string("scg_overrides/mail/start_onboarding.html", context), "text/html"
+        render_to_string("scg_overrides/mail/start_onboarding.html", context),
+        "text/html",
     )
     try:
         message.send()
@@ -231,19 +248,22 @@ def install_profile_action():
         pk = self.kwargs.get("pk")
         if isinstance(actions, list) and pk:
             url = reverse("scg-start-onboarding", args=[pk])
-            context["actions"] = [
-                {
-                    "title": _("Start Onboarding"),
-                    "src": f"/{settings.STATIC_URL}images/ui/invite-user.svg",
-                    "accessibility": "scg_overrides.direct_onboarding.accessibility",
-                    "attrs": f'''
+            context["actions"] = (
+                [
+                    {
+                        "title": _("Start Onboarding"),
+                        "src": f"/{settings.STATIC_URL}images/ui/invite-user.svg",
+                        "accessibility": "scg_overrides.direct_onboarding.accessibility",
+                        "attrs": f"""
                         href="#"
                         hx-post="{url}"
                         hx-target="#relatedModel"
                         hx-confirm="{_('Start onboarding and send the employee their tasks?')}"
-                    ''',
-                }
-            ] + actions
+                    """,
+                    }
+                ]
+                + actions
+            )
         return context
 
     EmployeeProfileView.get_context_data = get_context_data_with_onboarding

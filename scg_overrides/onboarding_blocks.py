@@ -24,7 +24,12 @@ from django.utils.translation import gettext_lazy as _
 from django.utils.translation import ngettext
 
 from horilla.decorators import login_required, permission_required
-from onboarding.models import CandidateStage, CandidateTask, OnboardingStage, OnboardingTask
+from onboarding.models import (
+    CandidateStage,
+    CandidateTask,
+    OnboardingStage,
+    OnboardingTask,
+)
 from recruitment.models import Candidate, Recruitment
 from scg_overrides.task_details import EMPTY, details_of, link_of, set_details
 
@@ -72,7 +77,9 @@ class TaskBlockCopyForm(forms.Form):
         target, sources = cleaned.get("target"), cleaned.get("sources")
         if target and sources and target in list(sources):
             raise forms.ValidationError(
-                _("A vacancy cannot receive its own stages - unselect it in the blocks.")
+                _(
+                    "A vacancy cannot receive its own stages - unselect it in the blocks."
+                )
             )
         return cleaned
 
@@ -150,9 +157,9 @@ def _library_contents(form):
     libraries = []
     for recruitment in form.fields["sources"].queryset:
         stages = []
-        for stage in OnboardingStage.objects.filter(recruitment_id=recruitment).order_by(
-            "sequence", "id"
-        ):
+        for stage in OnboardingStage.objects.filter(
+            recruitment_id=recruitment
+        ).order_by("sequence", "id"):
             tasks = [
                 {
                     "id": task.pk,

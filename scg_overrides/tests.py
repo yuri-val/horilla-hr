@@ -22,20 +22,30 @@ class BotSyncTest(TestCase):
         company = make_company("Bot Sync Co")
         cls.employee = make_employee(company=company, email="Olha@Test.Horilla")
         for name in ("Annual Leave", "Day Off", "Personal Leave", "Sick Leave"):
-            LeaveType.objects.create(name=name, total_days=20, payment="paid", reset=False)
+            LeaveType.objects.create(
+                name=name, total_days=20, payment="paid", reset=False
+            )
 
     def put(self, payload, token=TOKEN):
         response = self.client.put(
-            "/scg/bot-sync/", json.dumps(payload), content_type="application/json",
+            "/scg/bot-sync/",
+            json.dumps(payload),
+            content_type="application/json",
             HTTP_X_BOT_TOKEN=token,
         )
         return response
 
     def leave(self, **overrides):
         row = {
-            "kind": "vacation", "bot_id": 2300, "email": "olha@test.horilla",
-            "reason": "planned_vacation", "start": "2026-11-10", "end": "2026-11-12",
-            "day_part": "full_day", "status": "allowed", "note": "море",
+            "kind": "vacation",
+            "bot_id": 2300,
+            "email": "olha@test.horilla",
+            "reason": "planned_vacation",
+            "start": "2026-11-10",
+            "end": "2026-11-12",
+            "day_part": "full_day",
+            "status": "allowed",
+            "note": "море",
         }
         row.update(overrides)
         return self.put({"leaves": [row]}).json()["leaves"][0]
@@ -58,7 +68,9 @@ class BotSyncTest(TestCase):
         self.assertEqual(leave.status, "approved")
         self.assertEqual(leave.employee_id, self.employee)
         self.assertEqual(leave.leave_type_id.name, "Annual Leave")
-        self.assertEqual((leave.start_date, leave.end_date), (date(2026, 11, 10), date(2026, 11, 12)))
+        self.assertEqual(
+            (leave.start_date, leave.end_date), (date(2026, 11, 10), date(2026, 11, 12))
+        )
         self.assertEqual(leave.description, "[bot vacation #2300] | море")
 
     def test_updates_dates_and_cancels(self):
@@ -66,12 +78,16 @@ class BotSyncTest(TestCase):
         self.assertEqual(self.leave(end="2026-11-13")["result"], "updated")
         self.assertEqual(self.stored().end_date, date(2026, 11, 13))
 
-        self.assertEqual(self.leave(end="2026-11-13", status="cancelled")["result"], "updated")
+        self.assertEqual(
+            self.leave(end="2026-11-13", status="cancelled")["result"], "updated"
+        )
         self.assertEqual(self.stored().status, "cancelled")
 
     def test_cancels_a_record_deleted_in_the_bot(self):
         self.leave()
-        result = self.put({"leaves": [{"kind": "vacation", "bot_id": 2300, "status": "cancelled"}]}).json()
+        result = self.put(
+            {"leaves": [{"kind": "vacation", "bot_id": 2300, "status": "cancelled"}]}
+        ).json()
         self.assertEqual(result["leaves"][0]["result"], "updated")
         self.assertEqual(self.stored().status, "cancelled")
         self.assertEqual(self.stored().end_date, date(2026, 11, 12))
@@ -79,48 +95,99 @@ class BotSyncTest(TestCase):
     def test_never_creates_what_the_bot_has_not_approved(self):
         self.assertEqual(self.leave(status="denied")["result"], "skipped")
         self.assertEqual(self.leave(status="pending")["result"], "skipped")
-        self.assertFalse(LeaveRequest.objects.filter(description__startswith="[bot vacation #2300]").exists())
+        self.assertFalse(
+            LeaveRequest.objects.filter(
+                description__startswith="[bot vacation #2300]"
+            ).exists()
+        )
 
     def test_half_day_only_on_a_single_day(self):
         self.leave(bot_id=1, start="2026-11-10", end="2026-11-10", day_part="pm")
-        self.assertEqual(self.stored("[bot vacation #1]").start_date_breakdown, "second_half")
+        self.assertEqual(
+            self.stored("[bot vacation #1]").start_date_breakdown, "second_half"
+        )
         self.leave(bot_id=2, day_part="am")
-        self.assertEqual(self.stored("[bot vacation #2]").start_date_breakdown, "full_day")
+        self.assertEqual(
+            self.stored("[bot vacation #2]").start_date_breakdown, "full_day"
+        )
 
     def test_maps_reasons_and_sick_leaves(self):
         self.leave(bot_id=3, reason="personal")
         self.assertEqual(self.stored("[bot vacation #3]").leave_type_id.name, "Day Off")
         self.leave(kind="sick_leave", bot_id=4, reason="sick_leave")
-        self.assertEqual(self.stored("[bot sick_leave #4]").leave_type_id.name, "Sick Leave")
+        self.assertEqual(
+            self.stored("[bot sick_leave #4]").leave_type_id.name, "Sick Leave"
+        )
 
     def test_creates_the_birthday_type_on_first_use(self):
-        self.assertEqual(self.leave(bot_id=5, reason="birthday", start="2026-11-10", end="2026-11-10")["result"], "created")
+        self.assertEqual(
+            self.leave(
+                bot_id=5, reason="birthday", start="2026-11-10", end="2026-11-10"
+            )["result"],
+            "created",
+        )
         birthday = LeaveType.objects.get(name="Birthday Day Off")
         self.assertFalse(birthday.reset)
         self.assertEqual(birthday.total_days, 1)
 
     def test_reports_an_unknown_employee(self):
-        self.assertEqual(self.leave(email="ghost@test.horilla")["result"], "unknown_employee")
+        self.assertEqual(
+            self.leave(email="ghost@test.horilla")["result"], "unknown_employee"
+        )
 
     def test_one_bad_row_does_not_stop_the_batch(self):
         rows = [
-            {"kind": "vacation", "bot_id": 6, "email": "olha@test.horilla", "reason": "nonsense",
-             "start": "2026-11-10", "end": "2026-11-10", "status": "allowed"},
-            {"kind": "vacation", "bot_id": 7, "email": "olha@test.horilla", "reason": "personal",
-             "start": "2026-11-11", "end": "2026-11-11", "status": "allowed"},
+            {
+                "kind": "vacation",
+                "bot_id": 6,
+                "email": "olha@test.horilla",
+                "reason": "nonsense",
+                "start": "2026-11-10",
+                "end": "2026-11-10",
+                "status": "allowed",
+            },
+            {
+                "kind": "vacation",
+                "bot_id": 7,
+                "email": "olha@test.horilla",
+                "reason": "personal",
+                "start": "2026-11-11",
+                "end": "2026-11-11",
+                "status": "allowed",
+            },
         ]
         results = self.put({"leaves": rows}).json()["leaves"]
         self.assertEqual([r["result"] for r in results], ["error", "created"])
 
     def test_sets_the_annual_balance(self):
-        result = self.put({"balances": [{"email": "olha@test.horilla", "available": 12.5, "carryforward": 3}]}).json()
+        result = self.put(
+            {
+                "balances": [
+                    {"email": "olha@test.horilla", "available": 12.5, "carryforward": 3}
+                ]
+            }
+        ).json()
         self.assertEqual(result["balances"][0]["result"], "updated")
-        balance = AvailableLeave.objects.get(employee_id=self.employee, leave_type_id__name="Annual Leave")
-        self.assertEqual((balance.available_days, balance.carryforward_days, balance.total_leave_days), (12.5, 3, 15.5))
+        balance = AvailableLeave.objects.get(
+            employee_id=self.employee, leave_type_id__name="Annual Leave"
+        )
+        self.assertEqual(
+            (
+                balance.available_days,
+                balance.carryforward_days,
+                balance.total_leave_days,
+            ),
+            (12.5, 3, 15.5),
+        )
 
-        again = self.put({"balances": [{"email": "olha@test.horilla", "available": 12.5, "carryforward": 3}]}).json()
+        again = self.put(
+            {
+                "balances": [
+                    {"email": "olha@test.horilla", "available": 12.5, "carryforward": 3}
+                ]
+            }
+        ).json()
         self.assertEqual(again["balances"][0]["result"], "unchanged")
-
 
 
 @mock.patch.dict(os.environ, {"SCG_BOT_SYNC_TOKEN": TOKEN})
@@ -136,26 +203,40 @@ class EmployeeSyncTest(TestCase):
         cls.hq = Department.objects.create(department="Headquarter")
         cls.shift = EmployeeShift.objects.create(employee_shift="Day Shift")
         cls.head = make_employee(
-            company=cls.company, email="head@test.horilla", first_name="Yuriy",
-            department=cls.it, shift=cls.shift,
+            company=cls.company,
+            email="head@test.horilla",
+            first_name="Yuriy",
+            department=cls.it,
+            shift=cls.shift,
         )
-        cls.ceo = make_employee(company=cls.company, email="ceo@test.horilla", department=cls.hq)
+        cls.ceo = make_employee(
+            company=cls.company, email="ceo@test.horilla", department=cls.hq
+        )
 
     def put(self, *rows, leaves=()):
         response = self.client.put(
-            "/scg/bot-sync/", json.dumps({"employees": list(rows), "leaves": list(leaves)}),
-            content_type="application/json", HTTP_X_BOT_TOKEN=TOKEN,
+            "/scg/bot-sync/",
+            json.dumps({"employees": list(rows), "leaves": list(leaves)}),
+            content_type="application/json",
+            HTTP_X_BOT_TOKEN=TOKEN,
         )
         return response.json()
 
     def row(self, **overrides):
         row = {
-            "bot_id": 7, "horilla_id": None, "email": "Tetiana@Test.Horilla",
-            "first_name": "Tetiana", "last_name": "Piatkivska", "phone": "+380501112233",
-            "birthday": "1995-03-04", "hire_date": "2026-11-09",
+            "bot_id": 7,
+            "horilla_id": None,
+            "email": "Tetiana@Test.Horilla",
+            "first_name": "Tetiana",
+            "last_name": "Piatkivska",
+            "phone": "+380501112233",
+            "birthday": "1995-03-04",
+            "hire_date": "2026-11-09",
             "position": "Software Support & QA Specialist",
             "department": "IT Development & Infrastructure",
-            "manager_email": "head@test.horilla", "active": True, "reassign": False,
+            "manager_email": "head@test.horilla",
+            "active": True,
+            "reassign": False,
         }
         row.update(overrides)
         return row
@@ -168,63 +249,154 @@ class EmployeeSyncTest(TestCase):
         self.assertEqual(result["result"], "created")
 
         employee = Employee.objects.entire().get(pk=result["id"])
-        self.assertEqual((employee.get_full_name(), employee.phone, str(employee.dob)),
-                         ("Tetiana Piatkivska", "+380501112233", "1995-03-04"))
+        self.assertEqual(
+            (employee.get_full_name(), employee.phone, str(employee.dob)),
+            ("Tetiana Piatkivska", "+380501112233", "1995-03-04"),
+        )
         self.assertIsNotNone(employee.employee_user_id)
         work = employee.employee_work_info
-        self.assertEqual((work.department_id, work.reporting_manager_id, str(work.date_joining)),
-                         (self.it, self.head, "2026-11-09"))
-        self.assertEqual((work.job_position_id.job_position, work.job_position_id.department_id),
-                         ("Software Support & QA Specialist", self.it))
+        self.assertEqual(
+            (work.department_id, work.reporting_manager_id, str(work.date_joining)),
+            (self.it, self.head, "2026-11-09"),
+        )
+        self.assertEqual(
+            (work.job_position_id.job_position, work.job_position_id.department_id),
+            ("Software Support & QA Specialist", self.it),
+        )
         # Shift and company come from the manager's record
         self.assertEqual((work.shift_id, work.company_id), (self.shift, self.company))
 
         again = self.put(self.row(horilla_id=result["id"]))["employees"][0]
-        self.assertEqual(again, {"bot_id": 7, "result": "unchanged", "id": result["id"]})
+        self.assertEqual(
+            again, {"bot_id": 7, "result": "unchanged", "id": result["id"]}
+        )
+
+    def test_moves_the_employee_under_a_new_manager_at_any_time(self):
+        """SOF-2120: the bot owns the reporting line, not only on creation."""
+        employee_id = self.put(self.row())["employees"][0]["id"]
+        result = self.put(
+            self.row(horilla_id=employee_id, manager_email="ceo@test.horilla")
+        )["employees"][0]
+        self.assertEqual(result["result"], "updated")
+        self.assertEqual(self.work(employee_id).reporting_manager_id, self.ceo)
+        # The department stays where HR keeps it unless the bot reassigns
+        self.assertEqual(self.work(employee_id).department_id, self.it)
+
+        again = self.put(
+            self.row(horilla_id=employee_id, manager_email="nobody@test.horilla")
+        )["employees"][0]
+        self.assertEqual(again["result"], "unchanged")
+        self.assertEqual(self.work(employee_id).reporting_manager_id, self.ceo)
+
+    def test_lists_the_org_chart_for_the_bot(self):
+        employee_id = self.put(self.row())["employees"][0]["id"]
+        self.assertEqual(self.client.get("/scg/bot-employees/").status_code, 403)
+        response = self.client.get("/scg/bot-employees/", HTTP_X_BOT_TOKEN=TOKEN)
+        rows = {r["id"]: r for r in response.json()["employees"]}
+        self.assertEqual(rows[employee_id]["manager_id"], self.head.pk)
+        self.assertEqual(rows[employee_id]["manager_email"], "head@test.horilla")
+        self.assertEqual(
+            rows[employee_id]["department"], "IT Development & Infrastructure"
+        )
+        self.assertEqual(
+            rows[employee_id]["position"], "Software Support & QA Specialist"
+        )
+        self.assertTrue(rows[employee_id]["active"])
+        self.assertIsNone(rows[self.ceo.pk]["manager_id"])
 
     def test_links_someone_hired_through_recruitment(self):
-        hired = make_employee(company=self.company, email="tetiana@test.horilla", department=self.hq)
+        hired = make_employee(
+            company=self.company, email="tetiana@test.horilla", department=self.hq
+        )
         result = self.put(self.row())["employees"][0]
         self.assertEqual((result["result"], result["id"]), ("linked", hired.pk))
-        self.assertEqual(Employee.objects.entire().filter(email__iexact="tetiana@test.horilla").count(), 1)
+        self.assertEqual(
+            Employee.objects.entire()
+            .filter(email__iexact="tetiana@test.horilla")
+            .count(),
+            1,
+        )
         # Linking keeps the department HR gave them
         self.assertEqual(self.work(hired.pk).department_id, self.hq)
 
     def test_follows_an_email_change_by_the_kept_id(self):
         employee_id = self.put(self.row())["employees"][0]["id"]
-        result = self.put(self.row(horilla_id=employee_id, email="tetiana.p@test.horilla"))["employees"][0]
+        result = self.put(
+            self.row(horilla_id=employee_id, email="tetiana.p@test.horilla")
+        )["employees"][0]
         self.assertEqual(result["result"], "updated")
         employee = Employee.objects.entire().get(pk=employee_id)
-        self.assertEqual((employee.email, employee.employee_user_id.email, employee.employee_user_id.username),
-                         ("tetiana.p@test.horilla", "tetiana.p@test.horilla", "tetiana.p@test.horilla"))
+        self.assertEqual(
+            (
+                employee.email,
+                employee.employee_user_id.email,
+                employee.employee_user_id.username,
+            ),
+            (
+                "tetiana.p@test.horilla",
+                "tetiana.p@test.horilla",
+                "tetiana.p@test.horilla",
+            ),
+        )
 
     def test_a_change_of_letter_case_keeps_the_email_and_the_login(self):
         employee_id = self.put(self.row())["employees"][0]["id"]
-        result = self.put(self.row(horilla_id=employee_id, email="TETIANA@test.horilla"))["employees"][0]
+        result = self.put(
+            self.row(horilla_id=employee_id, email="TETIANA@test.horilla")
+        )["employees"][0]
         self.assertEqual(result["result"], "unchanged")
         employee = Employee.objects.entire().get(pk=employee_id)
-        self.assertEqual((employee.email, employee.employee_user_id.username),
-                         ("Tetiana@Test.Horilla", "Tetiana@Test.Horilla"))
+        self.assertEqual(
+            (employee.email, employee.employee_user_id.username),
+            ("Tetiana@Test.Horilla", "Tetiana@Test.Horilla"),
+        )
 
-    def test_keeps_the_org_chart_unless_the_department_changes(self):
+    def test_keeps_the_department_unless_the_bot_reassigns(self):
+        """The manager follows the bot at once (SOF-2120); the department
+        only with `reassign` (SOF-2189)."""
         employee_id = self.put(self.row())["employees"][0]["id"]
-        moved = self.row(horilla_id=employee_id, department="Headquarter", manager_email="ceo@test.horilla")
+        moved = self.row(
+            horilla_id=employee_id,
+            department="Headquarter",
+            manager_email="ceo@test.horilla",
+        )
 
         self.put(moved)
-        self.assertEqual((self.work(employee_id).department_id, self.work(employee_id).reporting_manager_id),
-                         (self.it, self.head))
+        self.assertEqual(
+            (
+                self.work(employee_id).department_id,
+                self.work(employee_id).reporting_manager_id,
+            ),
+            (self.it, self.ceo),
+        )
 
         self.put({**moved, "reassign": True})
         work = self.work(employee_id)
-        self.assertEqual((work.department_id, work.reporting_manager_id), (self.hq, self.ceo))
+        self.assertEqual(
+            (work.department_id, work.reporting_manager_id), (self.hq, self.ceo)
+        )
         self.assertEqual(work.job_position_id.department_id, self.hq)
 
     def test_an_empty_value_in_the_bot_erases_nothing(self):
         employee_id = self.put(self.row())["employees"][0]["id"]
-        self.put(self.row(horilla_id=employee_id, phone=None, birthday=None, hire_date=None, position=None))
+        self.put(
+            self.row(
+                horilla_id=employee_id,
+                phone=None,
+                birthday=None,
+                hire_date=None,
+                position=None,
+            )
+        )
         employee = Employee.objects.entire().get(pk=employee_id)
-        self.assertEqual((employee.phone, str(employee.dob), str(employee.employee_work_info.date_joining)),
-                         ("+380501112233", "1995-03-04", "2026-11-09"))
+        self.assertEqual(
+            (
+                employee.phone,
+                str(employee.dob),
+                str(employee.employee_work_info.date_joining),
+            ),
+            ("+380501112233", "1995-03-04", "2026-11-09"),
+        )
         self.assertIsNotNone(employee.employee_work_info.job_position_id)
 
     def test_reuses_the_department_position_in_any_letter_case(self):
@@ -233,34 +405,73 @@ class EmployeeSyncTest(TestCase):
         existing = make_job_position(title="QA Engineer", department=self.it)
         employee_id = self.put(self.row(position="qa  engineer"))["employees"][0]["id"]
         self.assertEqual(self.work(employee_id).job_position_id, existing)
-        self.assertEqual(JobPosition.objects.filter(job_position__iexact="qa engineer").count(), 1)
+        self.assertEqual(
+            JobPosition.objects.filter(job_position__iexact="qa engineer").count(), 1
+        )
 
     def test_a_dismissal_archives_even_a_manager(self):
-        self.put(self.row())  # the head now manages someone, which blocks Horilla's own archive
-        self.assertTrue(Employee.objects.entire().get(pk=self.head.pk).get_archive_condition())
-        result = self.put(self.row(email="head@test.horilla", horilla_id=self.head.pk,
-                                   manager_email="ceo@test.horilla", active=False))["employees"][0]
+        self.put(
+            self.row()
+        )  # the head now manages someone, which blocks Horilla's own archive
+        self.assertTrue(
+            Employee.objects.entire().get(pk=self.head.pk).get_archive_condition()
+        )
+        result = self.put(
+            self.row(
+                email="head@test.horilla",
+                horilla_id=self.head.pk,
+                manager_email="ceo@test.horilla",
+                active=False,
+            )
+        )["employees"][0]
         self.assertEqual(result["result"], "updated")
         head = Employee.objects.entire().get(pk=self.head.pk)
         self.assertFalse(head.is_active)
         self.assertFalse(head.employee_user_id.is_active)
 
-        self.put(self.row(email="head@test.horilla", horilla_id=self.head.pk,
-                          manager_email="ceo@test.horilla", active=True))
+        self.put(
+            self.row(
+                email="head@test.horilla",
+                horilla_id=self.head.pk,
+                manager_email="ceo@test.horilla",
+                active=True,
+            )
+        )
         self.assertTrue(Employee.objects.entire().get(pk=self.head.pk).is_active)
 
     def test_leaves_out_who_horilla_should_not_have(self):
         dismissed = self.put(self.row(active=False))["employees"][0]
-        outsider = self.put(self.row(bot_id=8, email="admin@outsource.test", department=None))["employees"][0]
-        self.assertEqual((dismissed["result"], outsider["result"]), ("skipped", "skipped"))
-        self.assertFalse(Employee.objects.entire().filter(email__iexact="tetiana@test.horilla").exists())
+        outsider = self.put(
+            self.row(bot_id=8, email="admin@outsource.test", department=None)
+        )["employees"][0]
+        self.assertEqual(
+            (dismissed["result"], outsider["result"]), ("skipped", "skipped")
+        )
+        self.assertFalse(
+            Employee.objects.entire()
+            .filter(email__iexact="tetiana@test.horilla")
+            .exists()
+        )
 
     def test_a_leave_in_the_same_batch_finds_the_new_employee(self):
-        LeaveType.objects.create(name="Annual Leave", total_days=20, payment="paid", reset=False)
-        leave = {"kind": "vacation", "bot_id": 1, "email": "tetiana@test.horilla", "reason": "planned_vacation",
-                 "start": "2026-12-01", "end": "2026-12-02", "status": "allowed"}
+        LeaveType.objects.create(
+            name="Annual Leave", total_days=20, payment="paid", reset=False
+        )
+        leave = {
+            "kind": "vacation",
+            "bot_id": 1,
+            "email": "tetiana@test.horilla",
+            "reason": "planned_vacation",
+            "start": "2026-12-01",
+            "end": "2026-12-02",
+            "status": "allowed",
+        }
         result = self.put(self.row(), leaves=[leave])
-        self.assertEqual((result["employees"][0]["result"], result["leaves"][0]["result"]), ("created", "created"))
+        self.assertEqual(
+            (result["employees"][0]["result"], result["leaves"][0]["result"]),
+            ("created", "created"),
+        )
+
 
 class StartOnboardingTest(TestCase):
     """SOF-2176: an employee hired without recruitment gets onboarding from the profile."""
@@ -275,13 +486,21 @@ class StartOnboardingTest(TestCase):
 
         cls.company = make_company("Onboarding Co")
         cls.hr_user = make_user("onb_hr", is_superuser=True)
-        cls.hr = make_employee(company=cls.company, email="hr@test.horilla", user=cls.hr_user)
-        cls.newcomer = make_employee(company=cls.company, email="new@test.horilla", first_name="Olha")
+        cls.hr = make_employee(
+            company=cls.company, email="hr@test.horilla", user=cls.hr_user
+        )
+        cls.newcomer = make_employee(
+            company=cls.company, email="new@test.horilla", first_name="Olha"
+        )
         cls.position = make_job_position(title="Crewing Manager")
-        EmployeeWorkInformation.objects.filter(employee_id=cls.newcomer).update(job_position_id=cls.position)
+        EmployeeWorkInformation.objects.filter(employee_id=cls.newcomer).update(
+            job_position_id=cls.position
+        )
 
         cls.recruitment = standing_recruitment(cls.company)
-        stage = OnboardingStage.objects.create(stage_title="IT", recruitment_id=cls.recruitment, sequence=1)
+        stage = OnboardingStage.objects.create(
+            stage_title="IT", recruitment_id=cls.recruitment, sequence=1
+        )
         cls.tasks = []
         for title in ("Почта", "Бот"):
             task = OnboardingTask.objects.create(task_title=title, stage_id=stage)
@@ -293,12 +512,16 @@ class StartOnboardingTest(TestCase):
 
         self.real_mail = direct_onboarding.mail_newcomer
         self.client.force_login(self.hr_user)
-        patcher = mock.patch("scg_overrides.direct_onboarding.mail_newcomer", return_value=True)
+        patcher = mock.patch(
+            "scg_overrides.direct_onboarding.mail_newcomer", return_value=True
+        )
         self.mail = patcher.start()
         self.addCleanup(patcher.stop)
 
     def start(self, employee=None):
-        return self.client.post(f"/scg/start-onboarding/{(employee or self.newcomer).pk}/")
+        return self.client.post(
+            f"/scg/start-onboarding/{(employee or self.newcomer).pk}/"
+        )
 
     def candidate(self):
         from recruitment.models import Candidate
@@ -314,9 +537,16 @@ class StartOnboardingTest(TestCase):
         self.assertEqual(candidate.job_position_id, self.position)
         self.assertFalse(candidate.hired)
         # Not the automatic empty "Initial" stage: the first one with tasks
-        self.assertEqual(CandidateStage.objects.get(candidate_id=candidate).onboarding_stage_id, self.tasks[0].stage_id)
         self.assertEqual(
-            set(CandidateTask.objects.filter(candidate_id=candidate).values_list("onboarding_task_id", flat=True)),
+            CandidateStage.objects.get(candidate_id=candidate).onboarding_stage_id,
+            self.tasks[0].stage_id,
+        )
+        self.assertEqual(
+            set(
+                CandidateTask.objects.filter(candidate_id=candidate).values_list(
+                    "onboarding_task_id", flat=True
+                )
+            ),
             {t.pk for t in self.tasks},
         )
         self.assertIn(candidate, self.tasks[0].candidates.all())
@@ -329,12 +559,18 @@ class StartOnboardingTest(TestCase):
     def test_the_onboarding_pipeline_shows_it_once_someone_is_in_it(self):
         from onboarding.models import OnboardingStage
 
-        OnboardingStage.objects.create(stage_title="Empty", recruitment_id=self.recruitment, sequence=2)
+        OnboardingStage.objects.create(
+            stage_title="Empty", recruitment_id=self.recruitment, sequence=2
+        )
         url = "/onboarding/cbv-pipeline-tab/"
-        self.assertNotContains(self.client.get(url, HTTP_HX_REQUEST="true"), "Онбординг без рекрутингу")
+        self.assertNotContains(
+            self.client.get(url, HTTP_HX_REQUEST="true"), "Онбординг без рекрутингу"
+        )
         self.start()
         # Only the first of its stages holds the newcomer; the others are empty
-        self.assertContains(self.client.get(url, HTTP_HX_REQUEST="true"), "Онбординг без рекрутингу")
+        self.assertContains(
+            self.client.get(url, HTTP_HX_REQUEST="true"), "Онбординг без рекрутингу"
+        )
 
     def test_task_blocks_fill_it_but_never_offer_it_as_a_block(self):
         from scg_overrides.onboarding_blocks import TaskBlockCopyForm
@@ -348,16 +584,22 @@ class StartOnboardingTest(TestCase):
 
         self.start()
         self.start()
-        self.assertEqual(CandidateTask.objects.filter(candidate_id=self.candidate()).count(), 2)
+        self.assertEqual(
+            CandidateTask.objects.filter(candidate_id=self.candidate()).count(), 2
+        )
         self.mail.assert_called_once()
 
     def test_a_task_added_later_is_given_on_the_next_press(self):
         from onboarding.models import CandidateTask, OnboardingTask
 
         self.start()
-        OnboardingTask.objects.create(task_title="Пропуск", stage_id=self.tasks[0].stage_id)
+        OnboardingTask.objects.create(
+            task_title="Пропуск", stage_id=self.tasks[0].stage_id
+        )
         self.start()
-        self.assertEqual(CandidateTask.objects.filter(candidate_id=self.candidate()).count(), 3)
+        self.assertEqual(
+            CandidateTask.objects.filter(candidate_id=self.candidate()).count(), 3
+        )
 
     def test_needs_a_job_position(self):
         from recruitment.models import Candidate
@@ -370,12 +612,19 @@ class StartOnboardingTest(TestCase):
         from onboarding.models import OnboardingTask
         from recruitment.models import Candidate
 
-        OnboardingTask.objects.filter(stage_id__recruitment_id=self.recruitment).delete()
+        OnboardingTask.objects.filter(
+            stage_id__recruitment_id=self.recruitment
+        ).delete()
         self.start()
-        self.assertFalse(Candidate.objects.filter(converted_employee_id=self.newcomer).exists())
+        self.assertFalse(
+            Candidate.objects.filter(converted_employee_id=self.newcomer).exists()
+        )
 
     def test_only_post(self):
-        self.assertEqual(self.client.get(f"/scg/start-onboarding/{self.newcomer.pk}/").status_code, 405)
+        self.assertEqual(
+            self.client.get(f"/scg/start-onboarding/{self.newcomer.pk}/").status_code,
+            405,
+        )
 
     def test_needs_the_permission(self):
         from horilla.testkit import make_user
@@ -385,12 +634,15 @@ class StartOnboardingTest(TestCase):
         make_employee(company=self.company, email="plain@test.horilla", user=plain)
         self.client.force_login(plain)
         self.start()
-        self.assertFalse(Candidate.objects.filter(converted_employee_id=self.newcomer).exists())
+        self.assertFalse(
+            Candidate.objects.filter(converted_employee_id=self.newcomer).exists()
+        )
 
     def test_the_profile_offers_the_action(self):
         # The profile body is an htmx partial; a plain GET is refused with 405
         response = self.client.get(
-            f"/employee/profile/employee/employee-view/{self.newcomer.pk}/", HTTP_HX_REQUEST="true"
+            f"/employee/profile/employee/employee-view/{self.newcomer.pk}/",
+            HTTP_HX_REQUEST="true",
         )
         self.assertContains(response, f"/scg/start-onboarding/{self.newcomer.pk}/")
 
@@ -400,17 +652,28 @@ class StartOnboardingTest(TestCase):
         from scg_overrides import direct_onboarding
 
         sent = []
-        backend = mock.Mock(configuration=True, dynamic_from_email_with_display_name="SCG HR <hr@test.horilla>")
+        backend = mock.Mock(
+            configuration=True,
+            dynamic_from_email_with_display_name="SCG HR <hr@test.horilla>",
+        )
         request = RequestFactory().post("/", HTTP_HOST="hrm.test")
-        with mock.patch.object(direct_onboarding, "ConfiguredEmailBackend", return_value=backend), \
-                mock.patch.object(direct_onboarding, "send_employee_invitation", return_value=True) as invite, \
-                mock.patch("django.core.mail.EmailMultiAlternatives.send", lambda msg: sent.append(msg) or 1):
+        with mock.patch.object(
+            direct_onboarding, "ConfiguredEmailBackend", return_value=backend
+        ), mock.patch.object(
+            direct_onboarding, "send_employee_invitation", return_value=True
+        ) as invite, mock.patch(
+            "django.core.mail.EmailMultiAlternatives.send",
+            lambda msg: sent.append(msg) or 1,
+        ):
             self.assertTrue(self.real_mail(request, self.newcomer, self.tasks))
 
         invite.assert_called_once()  # never signed in
         self.assertEqual(sent[0].to, ["new@test.horilla"])
         self.assertIn("Почта", sent[0].body)
-        self.assertIn(f"http://hrm.test/employee/employee-profile/{self.newcomer.pk}/", sent[0].body)
+        self.assertIn(
+            f"http://hrm.test/employee/employee-profile/{self.newcomer.pk}/",
+            sent[0].body,
+        )
         self.assertIn("встановити пароль", sent[0].body)
 
 
@@ -427,12 +690,22 @@ class TaskLinkTest(TestCase):
 
         cls.company = make_company("Task Link Co")
         cls.hr_user = make_user("link_hr", is_superuser=True)
-        cls.hr = make_employee(company=cls.company, email="hr@link.horilla", user=cls.hr_user)
-        cls.library = Recruitment.objects.create(
-            title="Шаблон: Перші кроки", closed=True, is_published=False, vacancy=0, company_id=cls.company,
+        cls.hr = make_employee(
+            company=cls.company, email="hr@link.horilla", user=cls.hr_user
         )
-        cls.stage = OnboardingStage.objects.create(stage_title="Перші кроки", recruitment_id=cls.library, sequence=1)
-        cls.task = OnboardingTask.objects.create(task_title="Політика відпусток", stage_id=cls.stage)
+        cls.library = Recruitment.objects.create(
+            title="Шаблон: Перші кроки",
+            closed=True,
+            is_published=False,
+            vacancy=0,
+            company_id=cls.company,
+        )
+        cls.stage = OnboardingStage.objects.create(
+            stage_title="Перші кроки", recruitment_id=cls.library, sequence=1
+        )
+        cls.task = OnboardingTask.objects.create(
+            task_title="Політика відпусток", stage_id=cls.stage
+        )
         cls.task.employee_id.set([cls.hr])
 
     def setUp(self):
@@ -441,7 +714,12 @@ class TaskLinkTest(TestCase):
     def update(self, link, title="Політика відпусток"):
         return self.client.post(
             f"/onboarding/task-update/{self.task.pk}/",
-            {"task_title": title, "stage_id": self.stage.pk, "employee_id": [self.hr.pk], "scg_link": link},
+            {
+                "task_title": title,
+                "stage_id": self.stage.pk,
+                "employee_id": [self.hr.pk],
+                "scg_link": link,
+            },
             HTTP_HX_REQUEST="true",
         )
 
@@ -451,7 +729,9 @@ class TaskLinkTest(TestCase):
         self.update(self.POLICY)
         self.assertEqual(link_of(self.task), self.POLICY)
 
-        form = self.client.get(f"/onboarding/task-update/{self.task.pk}/", HTTP_HX_REQUEST="true")
+        form = self.client.get(
+            f"/onboarding/task-update/{self.task.pk}/", HTTP_HX_REQUEST="true"
+        )
         self.assertContains(form, self.POLICY)
 
         self.update("docs.google.com/document/d/new")
@@ -472,8 +752,12 @@ class TaskLinkTest(TestCase):
 
         self.client.post(
             f"/onboarding/task-creation/{self.stage.pk}/",
-            {"task_title": "Оргструктура", "stage_id": self.stage.pk, "managers": [self.hr.pk],
-             "scg_link": "https://sites.google.com/view/org"},
+            {
+                "task_title": "Оргструктура",
+                "stage_id": self.stage.pk,
+                "managers": [self.hr.pk],
+                "scg_link": "https://sites.google.com/view/org",
+            },
             HTTP_HX_REQUEST="true",
         )
         task = OnboardingTask.objects.get(task_title="Оргструктура")
@@ -494,9 +778,13 @@ class TaskLinkTest(TestCase):
         from scg_overrides.task_details import link_of, set_link
 
         set_link(self.task, self.POLICY)
-        target = Recruitment.objects.create(title="Онбординг", vacancy=0, company_id=self.company)
+        target = Recruitment.objects.create(
+            title="Онбординг", vacancy=0, company_id=self.company
+        )
         _copy_blocks(target, [self.library])
-        copy = OnboardingTask.objects.get(stage_id__recruitment_id=target, task_title="Політика відпусток")
+        copy = OnboardingTask.objects.get(
+            stage_id__recruitment_id=target, task_title="Політика відпусток"
+        )
         self.assertEqual(link_of(copy), self.POLICY)
 
     def test_the_onboarding_tab_and_the_mail_open_the_document(self):
@@ -509,10 +797,14 @@ class TaskLinkTest(TestCase):
 
         from django.template.loader import render_to_string
 
-        html = render_to_string("scg_overrides/mail/start_onboarding.html",
-                                {"employee": self.hr, "tasks": [self.task], "profile_url": "x"})
-        text = render_to_string("scg_overrides/mail/start_onboarding.txt",
-                                {"employee": self.hr, "tasks": [self.task], "profile_url": "x"})
+        html = render_to_string(
+            "scg_overrides/mail/start_onboarding.html",
+            {"employee": self.hr, "tasks": [self.task], "profile_url": "x"},
+        )
+        text = render_to_string(
+            "scg_overrides/mail/start_onboarding.txt",
+            {"employee": self.hr, "tasks": [self.task], "profile_url": "x"},
+        )
         self.assertIn(f'href="{self.POLICY}"', html)
         self.assertIn(f"Політика відпусток — {self.POLICY}", text)
 
@@ -528,20 +820,31 @@ class OffboardingTest(TestCase):
 
         cls.company = make_company("Offboarding Co")
         cls.hr_user = make_user("off_hr", is_superuser=True)
-        cls.hr = make_employee(company=cls.company, email="hr@off.horilla", user=cls.hr_user)
+        cls.hr = make_employee(
+            company=cls.company, email="hr@off.horilla", user=cls.hr_user
+        )
         cls.it = make_employee(company=cls.company, email="it@off.horilla")
-        cls.leaver = make_employee(company=cls.company, email="leaver@off.horilla", first_name="Olena")
+        cls.leaver = make_employee(
+            company=cls.company, email="leaver@off.horilla", first_name="Olena"
+        )
         cls.report = make_employee(company=cls.company, email="report@off.horilla")
         # The leaver manages someone: Employee.save() would refuse to archive them
-        EmployeeWorkInformation.objects.filter(employee_id=cls.report).update(reporting_manager_id=cls.leaver)
+        EmployeeWorkInformation.objects.filter(employee_id=cls.report).update(
+            reporting_manager_id=cls.leaver
+        )
 
-        cls.process = Offboarding.objects.create(title="Звільнення", description="-", company_id=cls.company)
+        cls.process = Offboarding.objects.create(
+            title="Звільнення", description="-", company_id=cls.company
+        )
         stages = OffboardingStage.objects.filter(offboarding_id=cls.process)
         cls.notice = stages.get(type="notice_period")
         cls.handover = stages.get(type="handover")
         cls.archived = stages.get(type="archived")
         cls.tasks = []
-        for title, manager in (("Повернути техніку", cls.it), ("Exit-інтерв'ю", cls.hr)):
+        for title, manager in (
+            ("Повернути техніку", cls.it),
+            ("Exit-інтерв'ю", cls.hr),
+        ):
             task = OffboardingTask.objects.create(title=title, stage_id=cls.handover)
             task.managers.set([manager])
             cls.tasks.append(task)
@@ -552,14 +855,22 @@ class OffboardingTest(TestCase):
     def add(self, employee=None, stage=None):
         from offboarding.models import OffboardingEmployee
 
-        return OffboardingEmployee.objects.create(employee_id=employee or self.leaver, stage_id=stage or self.notice)
+        return OffboardingEmployee.objects.create(
+            employee_id=employee or self.leaver, stage_id=stage or self.notice
+        )
 
     def test_a_leaver_gets_every_task_of_the_process_once(self):
         from offboarding.models import EmployeeTask
 
         leaver = self.add()
-        self.assertEqual(set(EmployeeTask.objects.filter(employee_id=leaver).values_list("task_id", flat=True)),
-                         {task.pk for task in self.tasks})
+        self.assertEqual(
+            set(
+                EmployeeTask.objects.filter(employee_id=leaver).values_list(
+                    "task_id", flat=True
+                )
+            ),
+            {task.pk for task in self.tasks},
+        )
         leaver.save()
         self.assertEqual(EmployeeTask.objects.filter(employee_id=leaver).count(), 2)
 
@@ -568,9 +879,15 @@ class OffboardingTest(TestCase):
 
         leaving = self.add()
         gone = self.add(employee=self.report, stage=self.archived)
-        task = OffboardingTask.objects.create(title="Закрити доступи й пошту", stage_id=self.handover)
-        self.assertTrue(EmployeeTask.objects.filter(employee_id=leaving, task_id=task).exists())
-        self.assertFalse(EmployeeTask.objects.filter(employee_id=gone, task_id=task).exists())
+        task = OffboardingTask.objects.create(
+            title="Закрити доступи й пошту", stage_id=self.handover
+        )
+        self.assertTrue(
+            EmployeeTask.objects.filter(employee_id=leaving, task_id=task).exists()
+        )
+        self.assertFalse(
+            EmployeeTask.objects.filter(employee_id=gone, task_id=task).exists()
+        )
 
     def test_the_archived_stage_archives_even_a_manager(self):
         leaver = self.add()
@@ -597,14 +914,25 @@ class OffboardingTest(TestCase):
 
         self.client.post(
             f"/offboarding/offboarding-add-task/?stage_id={self.handover.pk}",
-            {"title": "Передати справи", "stage_id": self.handover.pk, "managers": [self.hr.pk],
-             "scg_link": "https://docs.google.com/document/d/handover", "scg_description": "Список проєктів",
-             "scg_for_subject": "on"},
+            {
+                "title": "Передати справи",
+                "stage_id": self.handover.pk,
+                "managers": [self.hr.pk],
+                "scg_link": "https://docs.google.com/document/d/handover",
+                "scg_description": "Список проєктів",
+                "scg_for_subject": "on",
+            },
             HTTP_HX_REQUEST="true",
         )
         task = OffboardingTask.objects.get(title="Передати справи")
-        self.assertEqual(details_of(task), {"url": "https://docs.google.com/document/d/handover",
-                                            "description": "Список проєктів", "for_subject": True})
+        self.assertEqual(
+            details_of(task),
+            {
+                "url": "https://docs.google.com/document/d/handover",
+                "description": "Список проєктів",
+                "for_subject": True,
+            },
+        )
 
 
 @mock.patch.dict(os.environ, {"SCG_BOT_SYNC_TOKEN": TOKEN})
@@ -613,7 +941,12 @@ class BotTasksTest(TestCase):
 
     @classmethod
     def setUpTestData(cls):
-        from offboarding.models import Offboarding, OffboardingEmployee, OffboardingStage, OffboardingTask
+        from offboarding.models import (
+            Offboarding,
+            OffboardingEmployee,
+            OffboardingStage,
+            OffboardingTask,
+        )
         from onboarding.models import CandidateTask, OnboardingStage, OnboardingTask
         from recruitment.models import Candidate
         from scg_overrides.direct_onboarding import standing_recruitment
@@ -621,31 +954,63 @@ class BotTasksTest(TestCase):
 
         company = make_company("Bot Tasks Co")
         cls.it = make_employee(company=company, email="it@tasks.horilla")
-        cls.newcomer = make_employee(company=company, email="new@tasks.horilla", first_name="Tetiana")
-        cls.leaver = make_employee(company=company, email="leaver@tasks.horilla", first_name="Olena")
+        cls.newcomer = make_employee(
+            company=company, email="new@tasks.horilla", first_name="Tetiana"
+        )
+        cls.leaver = make_employee(
+            company=company, email="leaver@tasks.horilla", first_name="Olena"
+        )
 
         recruitment = standing_recruitment(company)
-        stage = OnboardingStage.objects.create(stage_title="IT", recruitment_id=recruitment, sequence=1)
-        laptop = OnboardingTask.objects.create(task_title="Видати ноутбук", stage_id=stage)
+        stage = OnboardingStage.objects.create(
+            stage_title="IT", recruitment_id=recruitment, sequence=1
+        )
+        laptop = OnboardingTask.objects.create(
+            task_title="Видати ноутбук", stage_id=stage
+        )
         laptop.employee_id.set([cls.it])
-        bot = OnboardingTask.objects.create(task_title="Підключитися до бота", stage_id=stage)
+        bot = OnboardingTask.objects.create(
+            task_title="Підключитися до бота", stage_id=stage
+        )
         bot.employee_id.set([cls.it])
-        set_details(bot, url="https://drive.google.com/bot-guide", description="Google Chat → /balance", for_subject=True)
+        set_details(
+            bot,
+            url="https://drive.google.com/bot-guide",
+            description="Google Chat → /balance",
+            for_subject=True,
+        )
         position = make_job_position(title="QA Specialist")
         recruitment.open_positions.add(position)
         candidate = Candidate.objects.create(
-            name="Tetiana", email="new@tasks.horilla", recruitment_id=recruitment, job_position_id=position,
-            converted_employee_id=cls.newcomer, converted=True,
+            name="Tetiana",
+            email="new@tasks.horilla",
+            recruitment_id=recruitment,
+            job_position_id=position,
+            converted_employee_id=cls.newcomer,
+            converted=True,
         )
-        cls.laptop = CandidateTask.objects.create(candidate_id=candidate, onboarding_task_id=laptop, stage_id=stage, status="stuck")
-        cls.bot = CandidateTask.objects.create(candidate_id=candidate, onboarding_task_id=bot, stage_id=stage)
+        cls.laptop = CandidateTask.objects.create(
+            candidate_id=candidate,
+            onboarding_task_id=laptop,
+            stage_id=stage,
+            status="stuck",
+        )
+        cls.bot = CandidateTask.objects.create(
+            candidate_id=candidate, onboarding_task_id=bot, stage_id=stage
+        )
 
-        process = Offboarding.objects.create(title="Звільнення", description="-", company_id=company)
+        process = Offboarding.objects.create(
+            title="Звільнення", description="-", company_id=company
+        )
         archived = OffboardingStage.objects.get(offboarding_id=process, type="archived")
         handover = OffboardingStage.objects.get(offboarding_id=process, type="handover")
-        access = OffboardingTask.objects.create(title="Закрити доступи", stage_id=handover)
+        access = OffboardingTask.objects.create(
+            title="Закрити доступи", stage_id=handover
+        )
         access.managers.set([cls.it])
-        cls.offboarding = OffboardingEmployee.objects.create(employee_id=cls.leaver, stage_id=handover)
+        cls.offboarding = OffboardingEmployee.objects.create(
+            employee_id=cls.leaver, stage_id=handover
+        )
         cls.archived = archived
 
     def get(self, token=TOKEN):
@@ -660,20 +1025,44 @@ class BotTasksTest(TestCase):
     def test_sends_each_task_with_its_details_and_people(self):
         tasks = self.tasks()
         laptop = tasks[f"onboarding:{self.laptop.pk}"]
-        self.assertEqual((laptop["title"], laptop["status"], laptop["stuck"], laptop["assignees"], laptop["subject"]),
-                         ("Видати ноутбук", "in_progress", True, ["it@tasks.horilla"], "Tetiana Employee"))
+        self.assertEqual(
+            (
+                laptop["title"],
+                laptop["status"],
+                laptop["stuck"],
+                laptop["assignees"],
+                laptop["subject"],
+            ),
+            (
+                "Видати ноутбук",
+                "in_progress",
+                True,
+                ["it@tasks.horilla"],
+                "Tetiana Employee",
+            ),
+        )
         bot = tasks[f"onboarding:{self.bot.pk}"]
-        self.assertEqual((bot["assignees"], bot["url"], bot["description"]),
-                         (["new@tasks.horilla"], "https://drive.google.com/bot-guide", "Google Chat → /balance"))
+        self.assertEqual(
+            (bot["assignees"], bot["url"], bot["description"]),
+            (
+                ["new@tasks.horilla"],
+                "https://drive.google.com/bot-guide",
+                "Google Chat → /balance",
+            ),
+        )
 
         offboarding = [t for key, t in tasks.items() if key.startswith("offboarding:")]
-        self.assertEqual([(t["title"], t["assignees"], t["closed"]) for t in offboarding],
-                         [("Закрити доступи", ["it@tasks.horilla"], False)])
+        self.assertEqual(
+            [(t["title"], t["assignees"], t["closed"]) for t in offboarding],
+            [("Закрити доступи", ["it@tasks.horilla"], False)],
+        )
 
     def test_a_finished_offboarding_closes_its_tasks(self):
         self.offboarding.stage_id = self.archived
         self.offboarding.save()
-        offboarding = [t for key, t in self.tasks().items() if key.startswith("offboarding:")]
+        offboarding = [
+            t for key, t in self.tasks().items() if key.startswith("offboarding:")
+        ]
         self.assertTrue(offboarding[0]["closed"])
 
     def test_takes_a_status_clicked_in_the_bot(self):
@@ -682,16 +1071,34 @@ class BotTasksTest(TestCase):
 
         off_task = EmployeeTask.objects.get(employee_id=self.offboarding)
         rows = [
-            {"key": f"onboarding:{self.laptop.pk}", "status": "done", "by": "it@tasks.horilla"},
-            {"key": f"offboarding:{off_task.pk}", "status": "in_progress", "by": "it@tasks.horilla"},
-            {"key": f"onboarding:{self.bot.pk}", "status": "todo", "by": "new@tasks.horilla"},
+            {
+                "key": f"onboarding:{self.laptop.pk}",
+                "status": "done",
+                "by": "it@tasks.horilla",
+            },
+            {
+                "key": f"offboarding:{off_task.pk}",
+                "status": "in_progress",
+                "by": "it@tasks.horilla",
+            },
+            {
+                "key": f"onboarding:{self.bot.pk}",
+                "status": "todo",
+                "by": "new@tasks.horilla",
+            },
             {"key": "onboarding:0", "status": "done"},
             {"key": "nonsense", "status": "done"},
         ]
-        response = self.client.put("/scg/bot-sync/", json.dumps({"task_statuses": rows}),
-                                   content_type="application/json", HTTP_X_BOT_TOKEN=TOKEN)
-        self.assertEqual([r["result"] for r in response.json()["task_statuses"]],
-                         ["updated", "updated", "unchanged", "unknown_task", "error"])
+        response = self.client.put(
+            "/scg/bot-sync/",
+            json.dumps({"task_statuses": rows}),
+            content_type="application/json",
+            HTTP_X_BOT_TOKEN=TOKEN,
+        )
+        self.assertEqual(
+            [r["result"] for r in response.json()["task_statuses"]],
+            ["updated", "updated", "unchanged", "unknown_task", "error"],
+        )
         self.assertEqual(CandidateTask.objects.get(pk=self.laptop.pk).status, "done")
         self.assertEqual(EmployeeTask.objects.get(pk=off_task.pk).status, "in_progress")
 
@@ -700,9 +1107,27 @@ class MenuTest(TestCase):
     """SOF-2177: HR's menu holds only what HR uses - superusers included."""
 
     KEPT = {
-        "Employee": {"Dashboard", "Employees", "Organization Chart", "Policies", "Configuration"},
-        "Leave": {"Dashboard", "Leave Requests", "Leave Balances", "Public Holidays", "Configuration"},
-        "Recruitment": {"Dashboard", "Recruitment Pipeline", "Open Recruitments", "Candidates", "Configuration"},
+        "Employee": {
+            "Dashboard",
+            "Employees",
+            "Organization Chart",
+            "Policies",
+            "Configuration",
+        },
+        "Leave": {
+            "Dashboard",
+            "Leave Requests",
+            "Leave Balances",
+            "Public Holidays",
+            "Configuration",
+        },
+        "Recruitment": {
+            "Dashboard",
+            "Recruitment Pipeline",
+            "Open Recruitments",
+            "Candidates",
+            "Configuration",
+        },
         "Onboarding": {"Dashboard", "Candidates", "Onboarding Tasks"},
         "Offboarding": {"Dashboard", "Exit Process"},
         "Reports": {"Standard Reports", "Explorer"},

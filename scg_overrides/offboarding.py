@@ -42,7 +42,9 @@ def assign(leavers, tasks):
 
     _request, user = current_user()
     rows = [
-        EmployeeTask(employee_id=leaver, task_id=task, created_by=user, modified_by=user)
+        EmployeeTask(
+            employee_id=leaver, task_id=task, created_by=user, modified_by=user
+        )
         for leaver in leavers
         for task in tasks
     ]
@@ -64,10 +66,14 @@ def archive(employee):
     if request is not None and condition:
         messages.warning(
             request,
-            _("%(employee)s is archived but still listed as: %(roles)s. Hand these over.")
+            _(
+                "%(employee)s is archived but still listed as: %(roles)s. Hand these over."
+            )
             % {
                 "employee": employee.get_full_name(),
-                "roles": ", ".join(str(item["verbose_name"]) for item in condition["related_models"]),
+                "roles": ", ".join(
+                    str(item["verbose_name"]) for item in condition["related_models"]
+                ),
             },
         )
 
@@ -80,7 +86,9 @@ def on_leaver_saved(sender, instance, created, **kwargs):
     if created:
         assign(
             [instance],
-            OffboardingTask.objects.filter(stage_id__offboarding_id=instance.stage_id.offboarding_id),
+            OffboardingTask.objects.filter(
+                stage_id__offboarding_id=instance.stage_id.offboarding_id
+            ),
         )
     if instance.stage_id.type == "archived":
         archive(instance.employee_id)
@@ -102,5 +110,11 @@ def on_task_saved(sender, instance, created, **kwargs):
 def install():
     from offboarding.models import OffboardingEmployee, OffboardingTask
 
-    post_save.connect(on_leaver_saved, sender=OffboardingEmployee, dispatch_uid="scg-offboarding-leaver")
-    post_save.connect(on_task_saved, sender=OffboardingTask, dispatch_uid="scg-offboarding-task")
+    post_save.connect(
+        on_leaver_saved,
+        sender=OffboardingEmployee,
+        dispatch_uid="scg-offboarding-leaver",
+    )
+    post_save.connect(
+        on_task_saved, sender=OffboardingTask, dispatch_uid="scg-offboarding-task"
+    )

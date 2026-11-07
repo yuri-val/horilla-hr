@@ -5,20 +5,34 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     initial = True
 
     dependencies = [
-        ('onboarding', '0003_alter_candidatestage_is_active_and_more'),
+        ("onboarding", "0003_alter_candidatestage_is_active_and_more"),
     ]
 
     operations = [
         migrations.CreateModel(
-            name='OnboardingTaskLink',
+            name="OnboardingTaskLink",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('url', models.URLField(max_length=500, verbose_name='Document link')),
-                ('task', models.OneToOneField(on_delete=django.db.models.deletion.CASCADE, related_name='scg_link', to='onboarding.onboardingtask')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("url", models.URLField(max_length=500, verbose_name="Document link")),
+                (
+                    "task",
+                    models.OneToOneField(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="scg_link",
+                        to="onboarding.onboardingtask",
+                    ),
+                ),
             ],
         ),
     ]

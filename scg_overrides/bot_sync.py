@@ -63,8 +63,8 @@ from django.views.decorators.http import require_http_methods
 
 from base.models import Company, Department, JobPosition
 from employee.models import Employee, EmployeeWorkInformation
-from scg_overrides.bot_tasks import apply_task_status
 from leave.models import AvailableLeave, LeaveRequest, LeaveType
+from scg_overrides.bot_tasks import apply_task_status
 
 # Bot leave reason -> Horilla leave type (the types the seed created)
 LEAVE_TYPES = {
@@ -117,7 +117,9 @@ def bot_sync(request):
     return JsonResponse(
         {
             "employees": synced,
-            "leaves": [apply_leave(row, employees) for row in payload.get("leaves", [])],
+            "leaves": [
+                apply_leave(row, employees) for row in payload.get("leaves", [])
+            ],
             "balances": [
                 apply_balance(row, employees) for row in payload.get("balances", [])
             ],
@@ -157,7 +159,9 @@ def write_leave(row, employees):
         start = date.fromisoformat(row["start"])
         end = date.fromisoformat(row["end"])
         breakdown = (
-            HALF_DAYS.get(row.get("day_part"), "full_day") if start == end else "full_day"
+            HALF_DAYS.get(row.get("day_part"), "full_day")
+            if start == end
+            else "full_day"
         )
         note = (row.get("note") or "").strip()
         values = {
@@ -223,8 +227,11 @@ def apply_balance(row, employees):
             )
             available = round(float(row["available"]), 2)
             carryforward = round(max(float(row["carryforward"]), 0), 2)
-            if (balance.pk and balance.available_days == available
-                    and balance.carryforward_days == carryforward):
+            if (
+                balance.pk
+                and balance.available_days == available
+                and balance.carryforward_days == carryforward
+            ):
                 return {**result, "result": "unchanged"}
             balance.available_days = available
             balance.carryforward_days = carryforward
@@ -235,7 +242,13 @@ def apply_balance(row, employees):
 
 
 # Copied from the manager's (or a colleague's) work record to a new employee
-WORK_DEFAULTS = ("company_id", "shift_id", "work_type_id", "employee_type_id", "location")
+WORK_DEFAULTS = (
+    "company_id",
+    "shift_id",
+    "work_type_id",
+    "employee_type_id",
+    "location",
+)
 
 
 def apply_employee(row):
@@ -251,7 +264,9 @@ def apply_employee(row):
 def write_employee(row):
     employee = find_employee(row)
     active = bool(row.get("active", True))
-    department = Department._base_manager.filter(department=row.get("department")).first()
+    department = Department._base_manager.filter(
+        department=row.get("department")
+    ).first()
     created = employee is None
     if created:
         # Nobody to link to: a dismissed or out-of-scope employee stays out
@@ -284,24 +299,34 @@ def write_employee(row):
     work_values = {}
     if row.get("hire_date"):
         work_values["date_joining"] = date.fromisoformat(row["hire_date"])
+    # The direct manager is the bot's to set at any time (SOF-2120); the
+    # department only when the employee is created or moved there
+    manager = (
+        Employee._base_manager.filter(
+            email__iexact=(row.get("manager_email") or "").strip()
+        )
+        .exclude(pk=employee.pk)
+        .first()
+        if row.get("manager_email")
+        else None
+    )
+    if manager or (created and department):
+        work_values["reporting_manager_id"] = manager
     if department and (created or row.get("reassign")):
         work_values["department_id"] = department
-        manager = Employee._base_manager.filter(
-            email__iexact=(row.get("manager_email") or "").strip()
-        ).exclude(pk=employee.pk).first() if row.get("manager_email") else None
-        if manager or created:
-            work_values["reporting_manager_id"] = manager
         if created:
             template = work_template(department, manager)
             for field in WORK_DEFAULTS:
                 work_values[field] = getattr(template, field) if template else None
             work_values["company_id"] = (
-                work_values["company_id"] or Company._base_manager.order_by("id").first()
+                work_values["company_id"]
+                or Company._base_manager.order_by("id").first()
             )
     position_department = work_values.get("department_id", work.department_id)
     if row.get("position") and position_department:
         work_values["job_position_id"] = job_position(
-            row["position"], position_department,
+            row["position"],
+            position_department,
             work_values.get("company_id", work.company_id),
         )
     work_changed = assign(work, work_values)
@@ -311,7 +336,9 @@ def write_employee(row):
     # Employee.save() inside a request re-activates an archived employee who
     # still manages something, so the status is written past it
     status_changed = (
-        Employee._base_manager.filter(pk=employee.pk).values_list("is_active", flat=True).get()
+        Employee._base_manager.filter(pk=employee.pk)
+        .values_list("is_active", flat=True)
+        .get()
         != active
     )
     if status_changed:
@@ -324,7 +351,9 @@ def write_employee(row):
     elif linked:
         outcome = "linked"
     else:
-        outcome = "updated" if changed or work_changed or status_changed else "unchanged"
+        outcome = (
+            "updated" if changed or work_changed or status_changed else "unchanged"
+        )
     return {"result": outcome, "id": employee.pk}
 
 
@@ -339,7 +368,9 @@ def find_employee(row):
 
 def assign(instance, values):
     """Set what differs; the names of the fields that changed."""
-    changed = [field for field, value in values.items() if getattr(instance, field) != value]
+    changed = [
+        field for field, value in values.items() if getattr(instance, field) != value
+    ]
     for field in changed:
         setattr(instance, field, values[field])
     return changed
@@ -350,8 +381,10 @@ def rename_login(user, old_email, new_email):
     if user is None:
         return
     user.email = new_email
-    if (user.username == old_email
-            and not get_user_model().objects.filter(username=new_email).exists()):
+    if (
+        user.username == old_email
+        and not get_user_model().objects.filter(username=new_email).exists()
+    ):
         user.username = new_email
     user.save()
 

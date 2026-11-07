@@ -32,7 +32,11 @@ def details_model(task):
     from offboarding.models import OffboardingTask
     from scg_overrides.models import OffboardingTaskDetails, OnboardingTaskDetails
 
-    return OffboardingTaskDetails if isinstance(task, OffboardingTask) else OnboardingTaskDetails
+    return (
+        OffboardingTaskDetails
+        if isinstance(task, OffboardingTask)
+        else OnboardingTaskDetails
+    )
 
 
 def details_of(task):
@@ -40,8 +44,10 @@ def details_of(task):
     if task is None or not task.pk:
         return dict(EMPTY)
     found = (
-        details_model(task).objects.filter(task=task)
-        .values("url", "description", "for_subject").first()
+        details_model(task)
+        .objects.filter(task=task)
+        .values("url", "description", "for_subject")
+        .first()
     )
     return found or dict(EMPTY)
 
@@ -77,8 +83,12 @@ def link_field(initial=""):
         assume_scheme="https",
         initial=initial,
         label=_("Document link"),
-        help_text=_("The policy or guide this task is about, e.g. a page of the company portal."),
-        widget=forms.URLInput(attrs={"class": "oh-input w-100", "placeholder": "https://"}),
+        help_text=_(
+            "The policy or guide this task is about, e.g. a page of the company portal."
+        ),
+        widget=forms.URLInput(
+            attrs={"class": "oh-input w-100", "placeholder": "https://"}
+        ),
     )
 
 
@@ -91,7 +101,9 @@ def add_detail_fields(form, task_model):
         required=False,
         initial=details["description"],
         label=_("Description"),
-        help_text=_("What to do and how - the people doing the task get it in Google Chat."),
+        help_text=_(
+            "What to do and how - the people doing the task get it in Google Chat."
+        ),
         widget=forms.Textarea(attrs={"class": "oh-input w-100", "rows": 3}),
     )
     form.fields[FOR_SUBJECT] = forms.BooleanField(
@@ -151,18 +163,27 @@ def install():
 
         form_class.__init__ = __init__
         form_class.cols = {
-            **getattr(form_class, "cols", {}), LINK: 12, DESCRIPTION: 12, FOR_SUBJECT: 12,
+            **getattr(form_class, "cols", {}),
+            LINK: 12,
+            DESCRIPTION: 12,
+            FOR_SUBJECT: 12,
         }
 
     for task_model in (OnboardingTask, OffboardingTask):
         post_save.connect(
-            save_posted_details, sender=task_model,
+            save_posted_details,
+            sender=task_model,
             dispatch_uid=f"scg-task-details-{task_model.__name__}",
         )
 
     # The employee profile's Onboarding tab inherits these columns
     CandidateTask.scg_task_col = task_col
     CandidateProfileTasks.columns = [
-        (label, "scg_task_col" if accessor == "onboarding_task_id__task_title" else accessor)
+        (
+            label,
+            "scg_task_col"
+            if accessor == "onboarding_task_id__task_title"
+            else accessor,
+        )
         for label, accessor, *rest in CandidateProfileTasks.columns
     ]

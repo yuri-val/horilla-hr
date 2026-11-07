@@ -24,7 +24,9 @@ class Migration(migrations.Migration):
         migrations.AlterField(
             model_name="onboardingtaskdetails",
             name="url",
-            field=models.URLField(blank=True, max_length=500, verbose_name="Document link"),
+            field=models.URLField(
+                blank=True, max_length=500, verbose_name="Document link"
+            ),
         ),
         migrations.AddField(
             model_name="onboardingtaskdetails",
@@ -43,9 +45,25 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="OffboardingTaskDetails",
             fields=[
-                ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
-                ("url", models.URLField(blank=True, max_length=500, verbose_name="Document link")),
-                ("description", models.TextField(blank=True, verbose_name="Description")),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "url",
+                    models.URLField(
+                        blank=True, max_length=500, verbose_name="Document link"
+                    ),
+                ),
+                (
+                    "description",
+                    models.TextField(blank=True, verbose_name="Description"),
+                ),
                 (
                     "for_subject",
                     models.BooleanField(
