@@ -82,8 +82,10 @@ def absolute(redirect, request=None):
 
 @receiver(notify, dispatch_uid="scg_overrides.bot_notify")
 def queue_for_bot(sender, recipient, verb, redirect=None, icon=None, **kwargs):
-    """One outbox row per recipient; the actor is never notified about their own action."""
+    """One outbox row per recipient; the actor is never notified about their own action
+    (unless ``include_actor=True`` - the settings page's test notification)."""
     try:
+        include_actor = bool(kwargs.pop("include_actor", False))
         if not enabled():
             return
         transport = BotTransport.current()
@@ -111,7 +113,8 @@ def queue_for_bot(sender, recipient, verb, redirect=None, icon=None, **kwargs):
         for user in recipients:
             email = (getattr(user, "email", "") or "").strip()
             if not email or (
-                actor_user is not None
+                not include_actor
+                and actor_user is not None
                 and getattr(user, "pk", None) == getattr(actor_user, "pk", None)
             ):
                 continue

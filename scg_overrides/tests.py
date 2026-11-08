@@ -1224,6 +1224,15 @@ class BotNotifyTest(TestCase):
         self.send(verb="Shift request approved")
         self.send(verb="Your attendance was validated")
         self.assertEqual(self.outbox(), [])
+        # the settings page's test notification goes to the actor on purpose
+        from scg_overrides.models import BotNotification
+
+        self.send(recipient=self.actor.employee_user_id, include_actor=True)
+        self.assertEqual(
+            [r.recipient_email for r in self.outbox()],
+            [self.actor.employee_user_id.email],
+        )
+        BotNotification.objects.all().delete()
         from base.models import IntegrationApps
 
         IntegrationApps.objects.filter(app_label="corporate_bot").update(

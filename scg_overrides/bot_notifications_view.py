@@ -59,6 +59,7 @@ def bot_notifications_view(request):
             verb="Test notification from Horilla: the corporate bot transport works.",
             redirect="/scg/bot-notifications/",
             icon="chatbubble-outline",
+            include_actor=True,
         )
         messages.info(request, _("Test notification queued - check your Google Chat."))
         return redirect("scg-bot-notifications")
