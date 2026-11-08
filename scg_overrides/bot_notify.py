@@ -16,9 +16,11 @@ editable at ``/scg/bot-notifications/``.
 import logging
 import re
 import threading
+from datetime import timedelta
 
 import requests
 from django.db import transaction
+from django.db.models import Q
 from django.dispatch import receiver
 from django.utils import timezone
 
@@ -32,6 +34,9 @@ APP_LABEL = "corporate_bot"
 MAX_ATTEMPTS = 10
 BATCH = 50
 TIMEOUT = 15
+# A row being sent is claimed for this long: the immediate push and the
+# scheduled retry (or two pushes from one request) never send it twice.
+CLAIM = timedelta(seconds=TIMEOUT * 4)
 
 
 def enabled():
@@ -143,15 +148,18 @@ def deliver_pending(limit=BATCH):
     transport = BotTransport.current()
     if not transport.configured():
         return 0
+    now = timezone.now()
     with transaction.atomic():
         rows = list(
             BotNotification.objects.select_for_update(skip_locked=True)
             .filter(sent_at__isnull=True, attempts__lt=MAX_ATTEMPTS)
+            .filter(
+                Q(last_attempt_at__isnull=True) | Q(last_attempt_at__lt=now - CLAIM)
+            )
             .order_by("id")[:limit]
         )
         if not rows:
             return 0
-        now = timezone.now()
         for row in rows:
             row.attempts += 1
             row.last_attempt_at = now

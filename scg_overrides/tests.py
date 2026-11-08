@@ -1279,20 +1279,53 @@ class BotNotifyTest(TestCase):
             post.assert_not_called()
 
     def test_a_failed_push_is_retried_until_the_limit(self):
+        from django.utils import timezone
+
         from scg_overrides import bot_notify
+        from scg_overrides.models import BotNotification
 
         self.send()
         with mock.patch(
             "scg_overrides.bot_notify.requests.post",
             side_effect=ConnectionError("down"),
         ):
-            for _ in range(bot_notify.MAX_ATTEMPTS + 2):
+            bot_notify.deliver_pending()
+            # within the claim of the failed push nothing is retried
+            self.assertEqual(bot_notify.deliver_pending(), 0)
+            for _ in range(bot_notify.MAX_ATTEMPTS + 1):
+                BotNotification.objects.update(
+                    last_attempt_at=timezone.now() - bot_notify.CLAIM
+                )
                 bot_notify.deliver_pending()
         row = self.outbox()[0]
         self.assertEqual(
             (row.attempts, row.sent_at, row.last_error),
             (bot_notify.MAX_ATTEMPTS, None, "down"),
         )
+
+    def test_a_row_being_sent_is_not_sent_again_by_a_parallel_push(self):
+        from scg_overrides import bot_notify
+
+        self.send()
+        row = self.outbox()[0]
+        answer = mock.Mock(status_code=200)
+        answer.json.return_value = {
+            "notifications": [{"id": row.pk, "result": "delivered"}]
+        }
+        parallel = []
+
+        def post(*args, **kwargs):
+            # the scheduled retry fires while the immediate push waits for the bot
+            parallel.append(bot_notify.deliver_pending())
+            return answer
+
+        with mock.patch(
+            "scg_overrides.bot_notify.requests.post", side_effect=post
+        ) as p:
+            self.assertEqual(bot_notify.deliver_pending(), 1)
+        self.assertEqual((p.call_count, parallel), (1, [0]))
+        row.refresh_from_db()
+        self.assertEqual((row.result, row.attempts), ("delivered", 1))
 
     def test_settings_page_saves_and_toggles_the_integration(self):
         from base.models import IntegrationApps
