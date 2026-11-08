@@ -12,6 +12,12 @@ class ScgOverridesConfig(AppConfig):
     verbose_name = "SCG Overrides"
 
     def ready(self):
-        from . import overrides
+        from . import (  # noqa: F401 - the receiver registers on import
+            bot_notify,
+            overrides,
+        )
 
         overrides.apply()
+        from horilla.scheduling import register_job
+
+        register_job(bot_notify.retry_pending, "interval", minutes=5)

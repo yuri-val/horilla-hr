@@ -1152,3 +1152,167 @@ class MenuTest(TestCase):
                 for menu in get_MENUS(request)["sidebar"]
             }
         self.assertEqual(menus, self.KEPT)
+
+
+@mock.patch.dict(os.environ, {"SCG_BOT_SYNC_TOKEN": TOKEN})
+class BotNotifyTest(TestCase):
+    """SOF-2127: notify.send → outbox → the bot's endpoint, with a filter and retries."""
+
+    @classmethod
+    def setUpTestData(cls):
+        from base.models import Department, IntegrationApps
+        from scg_overrides.models import BotTransport
+
+        cls.company = make_company("Notify Co")
+        cls.it = Department.objects.create(department="IT")
+        cls.actor = make_employee(
+            company=cls.company, email="actor@test.horilla", department=cls.it
+        )
+        cls.target = make_employee(
+            company=cls.company, email="target@test.horilla", department=cls.it
+        )
+        IntegrationApps.objects.create(app_label="corporate_bot", is_enabled=True)
+        transport = BotTransport.current()
+        transport.bot_url = "https://bot.test"
+        transport.token = "shared"
+        transport.site_url = "https://hrm.test"
+        transport.exclude_patterns = "attendance\n^Shift"
+        transport.save()
+
+    def send(
+        self,
+        verb="Leave request updated for %(employee)s.",
+        recipient=None,
+        redirect="/leave/request-view?id=1",
+        **kwargs,
+    ):
+        from notifications.signals import notify
+
+        with mock.patch("threading.Thread") as thread:
+            notify.send(
+                self.actor,
+                recipient=recipient or self.target.employee_user_id,
+                verb=verb,
+                redirect=redirect,
+                icon="people-circle",
+                **kwargs,
+            )
+        return thread
+
+    def outbox(self):
+        from scg_overrides.models import BotNotification
+
+        return list(BotNotification.objects.order_by("id"))
+
+    def test_queues_one_row_per_recipient_with_the_rendered_text_and_an_absolute_link(
+        self,
+    ):
+        self.send(employee="Target Employee")
+        rows = self.outbox()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(
+            (rows[0].recipient_email, rows[0].text, rows[0].url),
+            (
+                "target@test.horilla",
+                "Leave request updated for Target Employee.",
+                "https://hrm.test/leave/request-view?id=1",
+            ),
+        )
+
+    def test_skips_the_actor_excluded_patterns_and_a_disabled_transport(self):
+        self.send(recipient=self.actor.employee_user_id)
+        self.send(verb="Shift request approved")
+        self.send(verb="Your attendance was validated")
+        self.assertEqual(self.outbox(), [])
+        from base.models import IntegrationApps
+
+        IntegrationApps.objects.filter(app_label="corporate_bot").update(
+            is_enabled=False
+        )
+        self.send()
+        self.assertEqual(self.outbox(), [])
+
+    def test_delivers_the_batch_to_the_bot_and_keeps_its_answers(self):
+        from scg_overrides import bot_notify
+
+        self.send()
+        self.send(
+            recipient=[self.actor.employee_user_id, self.target.employee_user_id],
+            verb="Announcement",
+        )
+        rows = self.outbox()
+        answer = mock.Mock(status_code=200)
+        answer.json.return_value = {
+            "notifications": [
+                {"id": rows[0].pk, "result": "delivered"},
+                {"id": rows[1].pk, "result": "no_dm"},
+            ]
+        }
+        with mock.patch(
+            "scg_overrides.bot_notify.requests.post", return_value=answer
+        ) as post:
+            self.assertEqual(bot_notify.deliver_pending(), 2)
+        self.assertEqual(
+            post.call_args.args[0], "https://bot.test/horilla/notifications"
+        )
+        self.assertEqual(post.call_args.kwargs["headers"], {"X-Bot-Token": "shared"})
+        self.assertEqual(
+            [n["email"] for n in post.call_args.kwargs["json"]["notifications"]],
+            ["target@test.horilla", "target@test.horilla"],
+        )
+        rows = self.outbox()
+        self.assertEqual(
+            [(r.result, r.sent_at is not None, r.attempts) for r in rows],
+            [("delivered", True, 1), ("no_dm", True, 1)],
+        )
+        with mock.patch("scg_overrides.bot_notify.requests.post") as post:
+            self.assertEqual(bot_notify.deliver_pending(), 0)
+            post.assert_not_called()
+
+    def test_a_failed_push_is_retried_until_the_limit(self):
+        from scg_overrides import bot_notify
+
+        self.send()
+        with mock.patch(
+            "scg_overrides.bot_notify.requests.post",
+            side_effect=ConnectionError("down"),
+        ):
+            for _ in range(bot_notify.MAX_ATTEMPTS + 2):
+                bot_notify.deliver_pending()
+        row = self.outbox()[0]
+        self.assertEqual(
+            (row.attempts, row.sent_at, row.last_error),
+            (bot_notify.MAX_ATTEMPTS, None, "down"),
+        )
+
+    def test_settings_page_saves_and_toggles_the_integration(self):
+        from base.models import IntegrationApps
+        from horilla.testkit import make_user
+        from scg_overrides.models import BotTransport
+
+        admin = make_user("notify_admin", is_superuser=True)
+        make_employee(
+            company=self.company,
+            email="notify_admin@test.horilla",
+            user=admin,
+            department=self.it,
+        )
+        self.client.force_login(admin)
+        response = self.client.get("/scg/bot-notifications/")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "https://bot.test")
+        response = self.client.post(
+            "/scg/bot-notifications/",
+            {
+                "bot_url": "https://bot2.test",
+                "token": "t2",
+                "site_url": "https://hrm.test",
+                "exclude_patterns": "",
+                "enabled": "",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(BotTransport.current().bot_url, "https://bot2.test")
+        self.assertFalse(
+            IntegrationApps.objects.get(app_label="corporate_bot").is_enabled
+        )

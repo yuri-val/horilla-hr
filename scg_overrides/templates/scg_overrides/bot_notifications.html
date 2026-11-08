@@ -1,0 +1,61 @@
+{% extends "index.html" %}
+{% load i18n %}
+{% block content %}
+    <div class="oh-wrapper">
+        <div class="oh-profile-section mt-4" style="max-width:760px">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h2 class="oh-profile-section__title">{% trans "Notifications in Google Chat" %}</h2>
+                <span class="oh-badge" style="display:inline-block;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:600;{% if enabled %}background:#dcfce7;color:#15803d{% else %}background:#fee2e2;color:#b91c1c{% endif %}">
+                    {% if enabled %}{% trans "on" %}{% else %}{% trans "off" %}{% endif %}
+                </span>
+            </div>
+            <p class="mb-3" style="color:#565E6C">
+                {% trans "Every notification Horilla shows under the bell is also handed to the corporate bot, which writes it to the employee in Google Chat. The employee is found by e-mail; someone who never wrote to the bot cannot be reached and keeps the in-app notification only." %}
+            </p>
+            <form method="post" class="bg-white p-4 rounded-md shadow-card">
+                {% csrf_token %}
+                {% for field in form %}
+                    <div class="mb-3">
+                        {% if field.name == "enabled" %}
+                            <label class="oh-label d-flex align-items-center gap-2">{{ field }} {{ field.label }}</label>
+                        {% else %}
+                            <label class="oh-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                            {{ field }}
+                            {% if field.help_text %}<small style="color:#565E6C">{{ field.help_text }}</small>{% endif %}
+                        {% endif %}
+                        {% for error in field.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+                    </div>
+                {% endfor %}
+                <div class="d-flex gap-2">
+                    <button type="submit" class="oh-btn oh-btn--secondary">{% trans "Save" %}</button>
+                    <button type="submit" name="action" value="test" class="oh-btn oh-btn--light-bkg" {% if not enabled %}disabled{% endif %}>{% trans "Send me a test" %}</button>
+                </div>
+            </form>
+
+            <h3 class="mt-4 mb-2" style="font-size:16px">{% trans "Last notifications" %}
+                {% if pending %}<span style="color:#b45309;font-size:13px">· {% blocktrans %}{{ pending }} waiting to be sent{% endblocktrans %}</span>{% endif %}</h3>
+            <div class="oh-sticky-table">
+                <div class="oh-sticky-table__table">
+                    <div class="oh-sticky-table__thead"><div class="oh-sticky-table__tr">
+                        <div class="oh-sticky-table__th">{% trans "When" %}</div>
+                        <div class="oh-sticky-table__th">{% trans "To" %}</div>
+                        <div class="oh-sticky-table__th">{% trans "Text" %}</div>
+                        <div class="oh-sticky-table__th">{% trans "Result" %}</div>
+                    </div></div>
+                    <div class="oh-sticky-table__tbody">
+                        {% for n in recent %}
+                            <div class="oh-sticky-table__tr">
+                                <div class="oh-sticky-table__td">{{ n.created_at|date:"d.m.Y H:i" }}</div>
+                                <div class="oh-sticky-table__td">{{ n.recipient_email }}</div>
+                                <div class="oh-sticky-table__td">{{ n.text|truncatechars:80 }}</div>
+                                <div class="oh-sticky-table__td">{% if n.result %}{{ n.result }}{% elif n.attempts %}{% trans "retrying" %} ({{ n.attempts }}){% else %}{% trans "queued" %}{% endif %}{% if n.last_error %} · {{ n.last_error|truncatechars:60 }}{% endif %}</div>
+                            </div>
+                        {% empty %}
+                            <div class="oh-sticky-table__tr"><div class="oh-sticky-table__td" style="color:#565E6C">{% trans "Nothing sent yet." %}</div></div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}

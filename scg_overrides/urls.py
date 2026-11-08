@@ -4,6 +4,7 @@ from django.urls import path
 
 from scg_overrides import (
     bot_employees,
+    bot_notifications_view,
     bot_sync,
     bot_tasks,
     direct_onboarding,
@@ -14,6 +15,11 @@ urlpatterns = [
     path("bot-sync/", bot_sync.bot_sync, name="scg-bot-sync"),
     path("bot-tasks/", bot_tasks.bot_tasks, name="scg-bot-tasks"),
     path("bot-employees/", bot_employees.bot_employees, name="scg-bot-employees"),
+    path(
+        "bot-notifications/",
+        bot_notifications_view.bot_notifications_view,
+        name="scg-bot-notifications",
+    ),
     path(
         "start-onboarding/<int:emp_id>/",
         direct_onboarding.start_onboarding,
