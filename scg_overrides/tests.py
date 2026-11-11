@@ -1153,7 +1153,7 @@ class MenuTest(TestCase):
         "Onboarding": {"Dashboard", "Candidates", "Onboarding Tasks"},
         "Offboarding": {"Dashboard", "Exit Process"},
         "Reports": {"Standard Reports", "Explorer"},
-        "Surveys": {"Dashboard", "Surveys"},  # SOF-2178
+        "Surveys": {"Dashboard", "Surveys", "Library"},  # SOF-2178, SOF-2197
     }
 
     def test_the_menu_of_a_superuser(self):
@@ -1458,3 +1458,34 @@ class GenderTest(TestCase):
         response = self.client.get("/employee/dashboard-employee-gender/").json()
         self.assertEqual(response["labels"], ["Male", "Female", "Other"])
         self.assertEqual(response["dataSet"][0]["data"], [2, 2, 0])
+
+
+class RussianSurveyLibraryTest(TestCase):
+    """SOF-2197: the migration puts three usable Russian questionnaires in the library."""
+
+    def test_the_three_questionnaires_build_and_avoid_translated_scales(self):
+        from surveys.models import Questionnaire, SurveyQuestion
+
+        library = Questionnaire.objects.filter(code__startswith="scg-ru-")
+        self.assertEqual(
+            sorted(library.values_list("code", flat=True)),
+            ["scg-ru-engagement", "scg-ru-enps", "scg-ru-new-hire-30"],
+        )
+        for questionnaire in library:
+            questions = questionnaire.build_questions()  # raises on a broken one
+            self.assertEqual(len(questions), questionnaire.question_count())
+            # Their labels follow the browser's language, not the questionnaire's
+            self.assertFalse(
+                {q.type for q in questions}
+                & {SurveyQuestion.TYPE_LIKERT, SurveyQuestion.TYPE_YES_NO},
+                questionnaire.code,
+            )
+        enps = library.get(code="scg-ru-enps")
+        self.assertEqual(enps.questions[0]["type"], SurveyQuestion.TYPE_NPS)
+        self.assertEqual(
+            [
+                library.get(code=c).question_count()
+                for c in sorted(library.values_list("code", flat=True))
+            ],
+            [11, 3, 10],
+        )
