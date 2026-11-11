@@ -196,6 +196,16 @@ def install_offboarding():
     install()
 
 
+def install_gender():
+    """"Not specified" in the Gender filter and the dashboard chart (SOF-2196).
+
+    See scg_overrides.gender.
+    """
+    from scg_overrides.gender import install
+
+    install()
+
+
 def apply():
     """Run every override, letting none of them break startup."""
     for step in (
@@ -205,6 +215,7 @@ def apply():
         install_direct_onboarding,
         install_task_details,
         install_offboarding,
+        install_gender,
     ):
         try:
             step()

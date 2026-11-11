@@ -28,7 +28,9 @@ reporting manager are Horilla's org chart, which HR refines (team leads, a
 department head kept under Headquarter): the bot sets them only on creation and
 when the employee moves to another department in the bot ("reassign"). A
 dismissal archives the employee even where Horilla's own archive action would
-refuse (a manager of others): the person has left either way.
+refuse (a manager of others): the person has left either way. Gender is
+entered in the bot only for a new employee: it fills an empty one and never
+replaces what HR set in Horilla (SOF-2196).
 
     PUT /scg/bot-sync/   X-Bot-Token: <SCG_BOT_SYNC_TOKEN>
     {"leaves": [{"kind": "vacation", "bot_id": 1, "email": "...",
@@ -39,6 +41,7 @@ refuse (a manager of others): the person has left either way.
      "employees": [{"bot_id": 7, "horilla_id": 64, "email": "...",
                     "first_name": "...", "last_name": "...", "phone": "+380...",
                     "birthday": "1990-05-10", "hire_date": "2026-11-09",
+                    "gender": "female",
                     "position": "QA Engineer",
                     "department": "IT Development & Infrastructure",
                     "manager_email": "...", "active": true, "reassign": false}]}
@@ -288,6 +291,9 @@ def write_employee(row):
         values["phone"] = row["phone"]
     if row.get("birthday"):
         values["dob"] = date.fromisoformat(row["birthday"])
+    # Gender is Horilla's once set there: the bot only fills an empty one (SOF-2196)
+    if row.get("gender") in ("male", "female") and not employee.gender:
+        values["gender"] = row["gender"]
     old_email = employee.email
     changed = assign(employee, values)
     if created or changed:

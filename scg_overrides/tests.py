@@ -399,6 +399,28 @@ class EmployeeSyncTest(TestCase):
         )
         self.assertIsNotNone(employee.employee_work_info.job_position_id)
 
+    def test_gender_fills_an_empty_one_and_never_replaces_horillas(self):
+        """SOF-2196: the bot's gender is for a new employee only."""
+        employee_id = self.put(self.row(gender="female"))["employees"][0]["id"]
+        employee = Employee.objects.entire().get(pk=employee_id)
+        self.assertEqual(employee.gender, "female")
+
+        # HR corrects it in Horilla: the bot's value does not come back
+        Employee.objects.entire().filter(pk=employee_id).update(gender="other")
+        self.put(self.row(horilla_id=employee_id, gender="female"))
+        self.assertEqual(Employee.objects.entire().get(pk=employee_id).gender, "other")
+
+        # No gender from the bot erases nothing; an empty one in Horilla is filled
+        self.put(self.row(horilla_id=employee_id, gender=None))
+        self.assertEqual(Employee.objects.entire().get(pk=employee_id).gender, "other")
+        Employee.objects.entire().filter(pk=employee_id).update(gender=None)
+        self.put(self.row(horilla_id=employee_id, gender="female"))
+        self.assertEqual(Employee.objects.entire().get(pk=employee_id).gender, "female")
+
+    def test_a_new_employee_without_gender_stays_without(self):
+        employee_id = self.put(self.row())["employees"][0]["id"]
+        self.assertIsNone(Employee.objects.entire().get(pk=employee_id).gender)
+
     def test_reuses_the_department_position_in_any_letter_case(self):
         from base.models import JobPosition
 
@@ -1376,3 +1398,63 @@ class BotNotifyTest(TestCase):
         self.assertFalse(
             IntegrationApps.objects.get(app_label="corporate_bot").is_enabled
         )
+
+
+class GenderTest(TestCase):
+    """SOF-2196: employees without a gender can be found and are counted."""
+
+    @classmethod
+    def setUpTestData(cls):
+        from horilla.testkit import make_user
+
+        cls.company = make_company("Gender Co")
+        cls.admin = make_user("gender_admin", is_superuser=True)
+        cls.male = make_employee(
+            company=cls.company, email="gender_admin@test.horilla", user=cls.admin
+        )
+        cls.female = make_employee(company=cls.company, email="f@test.horilla")
+        cls.unset = make_employee(company=cls.company, email="n@test.horilla")
+        cls.blank = make_employee(company=cls.company, email="b@test.horilla")
+        Employee.objects.entire().filter(pk=cls.female.pk).update(gender="female")
+        Employee.objects.entire().filter(pk=cls.unset.pk).update(gender=None)
+        Employee.objects.entire().filter(pk=cls.blank.pk).update(gender="")
+
+    def filtered(self, value):
+        from django.http import QueryDict
+
+        from employee.filters import EmployeeFilter
+
+        data = QueryDict(mutable=True)
+        data.update(
+            {"custom_field": "gender", "custom_lookup": "exact", "custom_value": value}
+        )
+        found = EmployeeFilter(data, queryset=Employee.objects.entire()).qs
+        return set(found.values_list("pk", flat=True))
+
+    def test_the_gender_filter_offers_and_finds_not_specified(self):
+        from employee.filters import EmployeeFilter
+
+        gender = next(
+            f for f in EmployeeFilter().custom_filter_fields if f["key"] == "gender"
+        )
+        self.assertEqual(
+            [value for value, _label in gender["choices"]],
+            ["male", "female", "other", "not_set"],
+        )
+        self.assertEqual(self.filtered("not_set"), {self.unset.pk, self.blank.pk})
+        self.assertEqual(self.filtered("female"), {self.female.pk})
+        self.assertEqual(self.filtered("male"), {self.male.pk})
+
+    def test_the_dashboard_counts_who_has_no_gender(self):
+        self.client.force_login(self.admin)
+        response = self.client.get("/employee/dashboard-employee-gender/").json()
+        self.assertEqual(
+            response["labels"], ["Male", "Female", "Other", "Not specified"]
+        )
+        self.assertEqual(response["dataSet"][0]["data"], [1, 1, 0, 2])
+
+        Employee.objects.entire().filter(gender__isnull=True).update(gender="male")
+        Employee.objects.entire().filter(gender="").update(gender="female")
+        response = self.client.get("/employee/dashboard-employee-gender/").json()
+        self.assertEqual(response["labels"], ["Male", "Female", "Other"])
+        self.assertEqual(response["dataSet"][0]["data"], [2, 2, 0])
