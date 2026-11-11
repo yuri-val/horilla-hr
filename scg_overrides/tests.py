@@ -1207,7 +1207,7 @@ class BotNotifyTest(TestCase):
     def test_queues_one_row_per_recipient_with_the_rendered_text_and_an_absolute_link(
         self,
     ):
-        self.send(employee="Target Employee")
+        self.send(verb_params={"employee": "Target Employee"})
         rows = self.outbox()
         self.assertEqual(len(rows), 1)
         self.assertEqual(
@@ -1217,6 +1217,24 @@ class BotNotifyTest(TestCase):
                 "Leave request updated for Target Employee.",
                 "https://hrm.test/leave/request-view?id=1",
             ),
+        )
+
+    def test_fills_the_text_from_verb_params_like_horilla_does(self):
+        # SOF-2191: 116 of 240 notify.send calls pass their values this way
+        self.send(
+            verb="You are invited to the survey '%(title)s'",
+            verb_params={"title": "Gallup Q12"},
+            employee="ignored: Horilla uses only verb_params",
+        )
+        self.send(verb="Leave request updated for %(employee)s.", verb_params={})
+        self.send(verb="Plain text, no values", verb_params={"title": "unused"})
+        self.assertEqual(
+            [r.text for r in self.outbox()],
+            [
+                "You are invited to the survey 'Gallup Q12'",
+                "Leave request updated for %(employee)s.",
+                "Plain text, no values",
+            ],
         )
 
     def test_skips_the_actor_excluded_patterns_and_a_disabled_transport(self):

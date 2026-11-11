@@ -46,11 +46,12 @@ def enabled():
     )
 
 
-def render_verb(verb, data):
-    """``"Leave request updated for %(employee)s."`` with its kwargs, when they fit."""
+def render_verb(verb, params):
+    """The text as Horilla shows it (``Notification.get_translated_verb``, without
+    the translation): ``verb % verb_params`` when there are params, else as is."""
     text = str(verb)
     try:
-        return text % data if "%(" in text and data else text
+        return text % params if params and isinstance(params, dict) else text
     except (KeyError, TypeError, ValueError):
         return text
 
@@ -97,12 +98,7 @@ def queue_for_bot(sender, recipient, verb, redirect=None, icon=None, **kwargs):
         from horilla.horilla_middlewares import _thread_locals
 
         request = getattr(_thread_locals, "request", None)
-        data = {
-            k: v
-            for k, v in kwargs.items()
-            if not k.startswith("verb_") and k != "signal"
-        }
-        text = render_verb(verb, data)
+        text = render_verb(verb, kwargs.get("verb_params"))
         url = absolute(redirect, request)
         if excluded(transport, text, url):
             return
