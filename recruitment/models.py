@@ -273,6 +273,138 @@ class Recruitment(HorillaModel):
         """
         return self.candidate.filter(hired=True).count()
 
+    def unfilled_for(self, position):
+        """
+        Places this recruitment still has to fill in ``position``: that position's vacancy less the people already
+        hired into it. A recruitment without per-position lines counts its whole vacancy for each position.
+        """
+        line = self.vacancy_lines.filter(job_position_id=position).first()
+        if line is None:
+            if self.vacancy_lines.exists():
+                return 0  # lines exist and this position is not among them
+            return max((self.vacancy or 0) - self.total_hires(), 0)
+        if line.vacancy is None:
+            return 0  # no number of places was specified for this position
+        hired = self.candidate.filter(hired=True, job_position_id=position).count()
+        return max(line.vacancy - hired, 0)
+
+    def vacancy_progress(self):
+        """
+        How the vacancies stand, for the pipeline: per job position how many places there are, how many people
+        applied, how many were selected (hired) and how many places are left, with the totals.
+
+        A recruitment with one job position counts every candidate against it (older candidates carry no position
+        of their own); with several, each candidate counts for the position they applied for. ``over`` is how many
+        were selected beyond the places there are (per position, and in all).
+        """
+        from base.models import JobPosition
+
+        rows = self.vacancy_rows()
+        positions = {
+            position.pk: position
+            for position in JobPosition.objects.entire()
+            .filter(pk__in=[row["position"] for row in rows])
+            .select_related("department_id")
+        }
+        candidates = self.candidate.filter(is_active=True)
+        single = len(rows) == 1
+        detail = []
+        for row in rows:
+            position = positions.get(row["position"])
+            if position is None:
+                continue
+            scope = (
+                candidates if single else candidates.filter(job_position_id=position)
+            )
+            applied = scope.count()
+            selected = scope.filter(hired=True).count()
+            vacancy = row["vacancy"]
+            detail.append(
+                {
+                    "position": position.job_position,
+                    "department": position.department_id.department,
+                    "vacancy": vacancy,
+                    "applied": applied,
+                    "selected": selected,
+                    "remaining": (
+                        None if vacancy is None else max(vacancy - selected, 0)
+                    ),
+                    "is_filled": bool(vacancy) and selected >= vacancy,
+                    "over": max(selected - vacancy, 0) if vacancy is not None else 0,
+                }
+            )
+        total = sum(item["vacancy"] or 0 for item in detail)
+        selected = sum(item["selected"] for item in detail)
+        over = sum(item["over"] for item in detail)
+        return {
+            "rec_id": self.pk,
+            "rows": detail,
+            "over": over,
+            "positions_over": sum(1 for item in detail if item["over"]),
+            "total": total,
+            "selected": selected,
+            "remaining": max(total - selected, 0),
+            "applied": sum(item["applied"] for item in detail),
+            "positions": len(detail),
+            "positions_filled": sum(1 for item in detail if item["is_filled"]),
+            "percent": min(100, round(selected / total * 100)) if total else 0,
+            "state": (
+                "over"
+                if over
+                else (
+                    "none"
+                    if not total
+                    else (
+                        "full"
+                        if selected >= total
+                        else "partial" if selected else "empty"
+                    )
+                )
+            ),
+        }
+
+    def vacancy_rows(self):
+        """
+        The vacancy per job position as ``[{"position": pk, "vacancy": n or None}]``, for the vacancy step.
+
+        A recruitment saved before the lines existed has none: its one vacancy goes to its first position and
+        the rest are not specified.
+        """
+        rows = [
+            {"position": line["job_position_id"], "vacancy": line["vacancy"]}
+            for line in self.vacancy_lines.order_by("pk").values(
+                "job_position_id", "vacancy"
+            )
+        ]
+        if rows:
+            return rows
+        positions = list(
+            self.open_positions.order_by("pk").values_list("pk", flat=True)
+        )
+        return [
+            {"position": pk, "vacancy": (self.vacancy or 0) if index == 0 else None}
+            for index, pk in enumerate(positions)
+        ]
+
+    def set_vacancy_lines(self, lines):
+        """
+        Replace the per-position vacancies with ``{job position: vacancy}`` and keep ``vacancy`` as their total.
+        A position whose vacancy is ``None`` is not specified: it has a line but adds nothing to the total.
+        """
+        keep = []
+        for position, number in lines.items():
+            RecruitmentVacancy.objects.update_or_create(
+                recruitment_id=self,
+                job_position_id=position,
+                defaults={"vacancy": number},
+            )
+            keep.append(position.pk)
+        self.vacancy_lines.exclude(job_position_id__in=keep).delete()
+        total = sum(number or 0 for number in lines.values())
+        if self.vacancy != total:
+            type(self).default.filter(pk=self.pk).update(vacancy=total)
+            self.vacancy = total
+
     def __str__(self):
         title = (
             f"{self.job_position_id.job_position} {self.start_date}"
@@ -476,6 +608,45 @@ class Recruitment(HorillaModel):
                     )
             except IntegrityError:
                 return stages.get(stage_type="applied")
+
+
+class RecruitmentVacancy(models.Model):
+    """
+    The vacancies a recruitment opens for one of its job positions.
+
+    A recruitment can be open for several positions, each with its own number of places; the recruitment's own
+    ``vacancy`` is their total. A recruitment saved before this existed has no lines, and its single ``vacancy``
+    stands for every position it is open for.
+    """
+
+    recruitment_id = models.ForeignKey(
+        Recruitment,
+        on_delete=models.CASCADE,
+        related_name="vacancy_lines",
+        verbose_name=_("Recruitment"),
+    )
+    job_position_id = models.ForeignKey(
+        JobPosition,
+        on_delete=models.CASCADE,
+        related_name="recruitment_vacancy_lines",
+        verbose_name=_("Job Position"),
+    )
+    vacancy = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        verbose_name=_("Vacancy"),
+        help_text=_(
+            "Empty Means Not Specified: No Number Of Places Was Set For This Position."
+        ),
+    )
+
+    class Meta:
+        unique_together = [("recruitment_id", "job_position_id")]
+        verbose_name = _("Recruitment Vacancy")
+        verbose_name_plural = _("Recruitment Vacancies")
+
+    def __str__(self):
+        return f"{self.job_position_id} ({self.vacancy if self.vacancy is not None else _('Not Specified')})"
 
 
 class Stage(HorillaModel):
@@ -915,6 +1086,23 @@ class Candidate(HorillaModel):
             raw_password, self.portal_password
         )
 
+    @property
+    def has_portal_access(self):
+        """
+        Whether the candidate may use the application tracking page right now.
+        Access is suspended - not removed; the password is kept - while the
+        candidate is archived or its recruitment is archived or closed, and
+        returns on its own once they are unarchived / reopened.
+        """
+        if not self.is_active:
+            return False
+        recruitment = self.recruitment_id
+        if recruitment is not None and (
+            recruitment.closed or not recruitment.is_active
+        ):
+            return False
+        return True
+
     def stage_drop_down(self):
         """
         Stage drop down
@@ -1077,42 +1265,10 @@ class Candidate(HorillaModel):
 
     def self_tracking_enabled(self):
         """
-        Whether this candidate's own company has application tracking enabled.
-
-        The company switcher ("All Company" or a single company) must not change
-        which row actions a candidate shows, so the setting is resolved from the
-        candidate's company rather than from the selected one. Falls back to
-        the setting for the selected company when the candidate has no company.
-        Lookups are cached per request, one per distinct company.
+        Application tracking actions (view tracking, send invitation) are
+        offered for every candidate, whatever the company's setting says.
         """
-        request = getattr(_thread_locals, "request", None)
-        cache = None
-        if request is not None:
-            cache = request.__dict__.setdefault("_self_tracking_by_company", {})
-        company_id = (
-            Recruitment.objects.filter(pk=self.recruitment_id_id)
-            .values_list("company_id_id", flat=True)
-            .first()
-            if self.recruitment_id_id
-            else None
-        )
-        if cache is not None and company_id in cache:
-            return cache[company_id]
-        enabled = None
-        if company_id:
-            setting = RecruitmentGeneralSetting.objects.filter(
-                company_id_id=company_id
-            ).first()
-            if setting:
-                enabled = bool(setting.candidate_self_tracking)
-        if enabled is None:
-            from base.context_processors import check_candidate_recruitment_setting
-
-            setting = check_candidate_recruitment_setting(request) if request else None
-            enabled = bool(setting and setting.candidate_self_tracking)
-        if cache is not None:
-            cache[company_id] = enabled
-        return enabled
+        return True
 
     def resume_pdf(self):
         """

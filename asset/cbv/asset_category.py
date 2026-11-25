@@ -6,6 +6,8 @@ from typing import Any
 
 from django import forms
 from django.contrib import messages
+from django.db.models import Count, IntegerField, OuterRef, Subquery, Value
+from django.db.models.functions import Coalesce
 from django.http import HttpResponse
 from django.urls import reverse
 from django.utils.decorators import method_decorator
@@ -14,7 +16,7 @@ from django.utils.translation import gettext_lazy as _
 from asset.cbv.asset_batch_no import DynamicCreateBatchNo
 from asset.filters import AssetFilter
 from asset.forms import AssetCategoryForm, AssetForm, AssetReportForm
-from asset.models import Asset, AssetCategory, AssetDocuments, AssetReport
+from asset.models import Asset, AssetCategory, AssetDocuments, AssetItem, AssetReport
 from base.methods import has_export_access
 from horilla_views.cbv_methods import (
     hx_request_required,
@@ -277,6 +279,16 @@ class AssetCategoryListView(HorillaListView):
         ("asset_status", _("Status")),
         ("asset_lot_number_id", _("Batch Number")),
     ]
+    # No UI control on this page ever sets a plain "field=" param (only
+    # the nested "Grouped by" breadcrumb, which uses "nested_fields="), but
+    # a stray/cached "field=" value (an old bookmark, a stale saved filter)
+    # would otherwise fall back to group_by_table.html's per-group
+    # accordions -- each with its own short, independently-scrolling
+    # header -- instead of nested_group_by_table.html's one shared sticky
+    # header spanning every group, same as every other list in the app
+    # (e.g. Employee's). Pinning this explicitly guarantees that behavior
+    # regardless of what's in the request.
+    group_by_template_name = "generic/nested_group_by_table.html"
     header_attrs = {
         "asset_name": "style='width:200px !important;'",
         "action": "style='width:130px !important;'",
@@ -337,6 +349,37 @@ class AssetCategoryListView(HorillaListView):
         data-toggle="oh-modal-toggle"
     """
 
+    def get_queryset(self, queryset=None, filtered=False, *args, **kwargs):
+        """
+        Return the filtered asset queryset with its category and batch number
+        loaded in the same query.
+
+        Parameters:
+            queryset (QuerySet, optional): Base queryset to filter.
+            filtered (bool): Whether the queryset is already filtered.
+
+        Returns:
+            QuerySet: Assets with related rows joined and the count annotated.
+        """
+        available_items = (
+            AssetItem.objects.filter(asset_id=OuterRef("pk"), status="Available")
+            .order_by()
+            .values("asset_id")
+            .annotate(total=Count("pk"))
+            .values("total")
+        )
+        return (
+            super()
+            .get_queryset(queryset, filtered, *args, **kwargs)
+            .select_related("asset_category_id", "asset_lot_number_id")
+            .annotate(
+                annotated_available_count=Coalesce(
+                    Subquery(available_items, output_field=IntegerField()),
+                    Value(0),
+                )
+            )
+        )
+
 
 @method_decorator(login_required, name="dispatch")
 @method_decorator(permission_required("asset.view_asset"), name="dispatch")
@@ -378,6 +421,10 @@ class AssetCategoryNav(HorillaNavView):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.search_url = reverse("asset-category-list")
+        self.search_in = [
+            ("asset_name", _("Name")),
+            ("asset_category_id", _("Category")),
+        ]
         # Opened with a filter already in the address (the dashboard's KPI cards and charts
         # link here that way): show just the filtered assets. The default grouping is for
         # opening the page on its own.

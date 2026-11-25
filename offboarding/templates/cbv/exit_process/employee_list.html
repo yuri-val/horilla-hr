@@ -86,7 +86,7 @@
                                             {{cell_attr|safe}}
                                             {% if cell.2 and not cell_attr %}style="min-width:180px;"{% endif %}
                                         >
-                                            <div class="flex gap-1.5 items-center">
+                                            <div class="flex gap-1.5 items-center flex-1 min-w-0">
                                                 {% for sort_map in sortby_mapping %}
                                                     {% if sort_map.0 == cell.0 %}
                                                         <span
@@ -103,7 +103,7 @@
                                                         </span>
                                                     {% endif %}
                                                 {% endfor %}
-                                                <span class="flex w-max"> {{cell.0|safe}} </span>
+                                                <span class="flex flex-1" style="min-width:max-content;"> {{cell.0|safe}} </span>
                                             </div>
                                             {% if forloop.last and show_toggle_form and not options and not option_method and not actions and not action_method %}
                                                 <button

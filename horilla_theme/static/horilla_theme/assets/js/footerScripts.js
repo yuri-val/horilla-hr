@@ -12,8 +12,48 @@ $(function () {
             my: "right top+8",
             at: "right bottom",
             collision: "flipfit"
+        },
+        // jQuery UI also opens a tooltip on focusin, and that one only closes on
+        // focusout. When a dialog (SweetAlert, modal) closes it hands focus back
+        // to the button that opened it, so the tooltip popped up with the mouse
+        // long gone and then stayed - piling up as other buttons were hovered.
+        // Keep focus tooltips for real keyboard focus (:focus-visible) only.
+        open: function (event) {
+            var original = event && event.originalEvent;
+            // event.target is the document here; the focused element is the native event's target.
+            var el = original && original.target;
+            if (
+                original &&
+                original.type === "focusin" &&
+                el &&
+                typeof el.matches === "function" &&
+                !el.matches(":focus-visible")
+            ) {
+                setTimeout(function () {
+                    $(el).trigger("focusout");
+                }, 0);
+            }
         }
     });
+    // A tooltip closes on mouseleave, and an element that is replaced under the cursor (a list redrawn, a row
+    // re-rendered, a modal swapped) never gets one: its tooltip stays on the page for good ("Drag to reorder" left
+    // hanging over the pipeline stages). After the DOM changes, drop every tooltip whose element is gone.
+    var orphanTimer = null;
+    function sweepOrphanTooltips() {
+        orphanTimer = null;
+        document.querySelectorAll(".ui-tooltip").forEach(function (tip) {
+            var owner = tip.id ? document.querySelector('[aria-describedby~="' + tip.id + '"]') : null;
+            if (!owner) tip.remove();
+        });
+    }
+    new MutationObserver(function (mutations) {
+        for (var i = 0; i < mutations.length; i++) {
+            if (mutations[i].removedNodes.length) {
+                if (orphanTimer === null) orphanTimer = setTimeout(sweepOrphanTooltips, 60);
+                return;
+            }
+        }
+    }).observe(document.body, { childList: true, subtree: true });
     var scrollSettleTimer = null;
 
     document.addEventListener(

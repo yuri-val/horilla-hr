@@ -79,6 +79,10 @@ class AssetForm(ModelForm):
             "asset_lot_number_id": _("Batch Number"),
         }
 
+    cols = {
+        "asset_description": 12,
+    }
+
     def __init__(self, *args, **kwargs):
         request = getattr(_thread_locals, "request", None)
         instance = kwargs.get("instance")
@@ -110,6 +114,7 @@ class AssetForm(ModelForm):
                 batch_no_choices.append(("create", _("Create new batch number")))
 
             self.fields["asset_lot_number_id"].choices = batch_no_choices
+        self.fields["asset_description"] = self.fields.pop("asset_description")
 
     def clean(self):
         instance = self.instance
@@ -377,7 +382,6 @@ class AssetAllocationForm(ModelForm):
         self.fields["assign_images"] = MultipleFileField(
             label=_("Assign Condition Images")
         )
-        self.fields["assign_images"].required = True
 
         asset = None
         submitted_asset_id = self.data.get("asset_id") if self.data else None
@@ -401,11 +405,25 @@ class AssetAllocationForm(ModelForm):
             }
         )
 
+        if self.instance.pk:
+            self.fields["asset_id"].queryset = Asset.objects.filter(
+                pk=self.instance.asset_id_id
+            )
+            self.fields["asset_item_id"].queryset = AssetItem.objects.filter(
+                pk=self.instance.asset_item_id_id
+            )
+            for field_name in ("asset_id", "asset_item_id"):
+                self.fields[field_name].disabled = True
+            if not self.instance.asset_item_id_id:
+                self.fields["asset_item_id"].widget = forms.HiddenInput()
+            for attr in ("hx-target", "hx-include", "hx-trigger", "hx-swap", "hx-get"):
+                self.fields["asset_id"].widget.attrs.pop(attr, None)
+
     def clean(self):
         cleaned_data = super().clean()
         asset = cleaned_data.get("asset_id")
         asset_item = cleaned_data.get("asset_item_id")
-        if asset:
+        if asset and not self.instance.pk:
             if not asset_item:
                 available_items = asset.asset_items.filter(status="Available")
                 if available_items.count() == 1:
@@ -441,6 +459,8 @@ class AssetAllocationForm(ModelForm):
         exclude = [
             "return_date",
             "return_condition",
+            "return_status",
+            "return_request",
             "assigned_date",
             "return_images",
             "assign_images",
@@ -544,11 +564,12 @@ class AssetReturnForm(ModelForm):
 
 class AssetServiceRequestForm(ModelForm):
     """
-    A Django ModelForm for employees to raise a service request against
-    one of their own active asset allocations.
+    A Django ModelForm to raise a service request against an active asset
+    allocation: an employee's own allocations, or any allocation for users
+    with asset.change_assetassignment.
     """
 
-    cols = {"issue_description": 12}
+    cols = {"issue_description": 12, "assignment_id": 12}
 
     class Meta:
         model = AssetServiceRequest
@@ -571,9 +592,22 @@ class AssetServiceRequestForm(ModelForm):
         request = getattr(_thread_locals, "request", None)
         employee = request.user.employee_get
         super().__init__(*args, **kwargs)
-        self.fields["assignment_id"].queryset = AssetAssignment.objects.filter(
-            assigned_to_employee_id=employee, return_date__isnull=True
-        )
+        if request.user.has_perm("asset.change_assetassignment"):
+            if not request.GET.get("assignment_id"):
+                self.fields["assignment_id"].widget = forms.Select(
+                    attrs={"class": "oh-select oh-select-2 w-100"}
+                )
+                self.fields["assignment_id"].label = _("Asset")
+                self.fields["assignment_id"].label_from_instance = (
+                    lambda obj: f"{obj.asset_id} - {obj.assigned_to_employee_id}"
+                )
+            self.fields["assignment_id"].queryset = AssetAssignment.objects.filter(
+                return_date__isnull=True
+            ).select_related("asset_id", "assigned_to_employee_id")
+        else:
+            self.fields["assignment_id"].queryset = AssetAssignment.objects.filter(
+                assigned_to_employee_id=employee, return_date__isnull=True
+            )
 
         assignment_id = None
         if self.data:
@@ -598,8 +632,7 @@ class AssetServiceRequestForm(ModelForm):
 
     def save(self, commit=True):
         instance = super().save(commit=False)
-        request = getattr(_thread_locals, "request", None)
-        instance.requested_employee_id = request.user.employee_get
+        instance.requested_employee_id = instance.assignment_id.assigned_to_employee_id
         if commit:
             instance.save()
         return instance

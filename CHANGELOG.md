@@ -32,6 +32,226 @@ date and open a fresh Unreleased above it.
 ### Security      — vulnerabilities fixed; link the advisory and credit the reporter
 -->
 
+## [2.4.0] — 2026-11-10
+
+Payroll and recruitment release. It adds Arrears & Recovery entries, a much faster payslip
+run, a reworked payroll batch page and a Vacancy step in the recruitment wizard, and it
+fixes four vulnerabilities reported privately by people outside the team. It also carries the recruitment, offboarding, asset and
+interface work merged since 2.3.1.
+
+**Upgrading from 2.3.1:** run `python manage.py migrate` (new migrations in `base`,
+`payroll` and `recruitment`), then read *Upgrading* below.
+
+### Added
+
+- Payroll: **Arrears & Recovery** entries. An entry belongs to an employee, has a pay
+  date and a taxable setting, and turns into a pay line on that month's payslip once it
+  is confirmed. The list has an advanced filter builder and Taxable / Pre-Tax and
+  Confirmed By filters.
+- Payroll: an Excel import for Arrears & Recovery. The file is previewed and checked
+  before any entry is saved, and every imported entry starts as a draft.
+- Payroll: a Badge ID column on the payslip review list.
+- Offboarding: task management components for assigning tasks and updating their status.
+- Recruitment: a Vacancy step in the pipeline wizard with one line per job position, a
+  headcount on each job position that limits its vacancies, and a count of filled places
+  beside the pipeline title with a popover of figures per job position. Positions that
+  are over-selected are flagged on the pipeline.
+- Asset: an available count on asset categories, and a Service Request tab that regular
+  users can see. Admins change a request's status from a dropdown.
+- Asset: multi-level grouping on the asset history.
+
+### Changed
+
+- Payroll: payslip generation is faster. It uses per-employee caches, matches salary
+  components from a per-slice catalog and runs the work in parallel slices, with a
+  progress dialog.
+- Payroll: the batch page refreshes in place when a payslip is deleted or a status
+  changes. Cancelled runs can be reopened, payments can be undone, and a batch can be
+  marked paid from any open status.
+- Payroll: review problems show as an alert icon with a popover, the rows are tighter and
+  the button labels use Title Case. The payslip page fills the width with the CTC
+  breakdown and the tax working, and keeps taxable gross open on CTC payslips.
+- Recruitment: the pipeline wizard has new steps and validation.
+- Offboarding: when a resignation is cancelled after approval, the employee is removed
+  from the offboarding pipeline.
+- Leave: the leave type card in My Leave Requests is restyled.
+- Asset: disabled approve, reject and delete buttons are no longer shown.
+- Asset: deleting an asset gives a clearer response, and the Actions column and detail
+  actions were reworked.
+- Offboarding: the resignation list filters were fixed, and the reject dialog and the
+  actions follow the request status.
+- Base: group-by views, the master import section, the export dialog and the pagination
+  of grouped lists were polished, and report templates share their script libraries.
+- Onboarding: the task assignment button is restyled.
+- Notifications: translations were updated.
+- Docker: in production the web container's port 8000 is published on `127.0.0.1` only,
+  so the only way in from another machine is through nginx and its login rate limit and
+  security headers
+  ([#1354](https://github.com/horilla/horilla-hr/pull/1354), by **@adamsthws**).
+  Anything that scraped or monitored port 8000 from another machine should go through
+  nginx, or publish the port again in a compose override file.
+
+### Fixed
+
+- Payroll: when deleting a payslip removes its batch, the page goes to the batch list
+  instead of showing an error.
+- Interface: the export dialog stays in step with the selected fields and cannot be
+  submitted with none selected, and the tick and back buttons in group-by views work.
+- Sign-in: a failed sign-in keeps the username and shows the error on the field it
+  belongs to.
+- Interface: form error messages clear when the field is changed, the page title shows
+  00:00:00 instead of NaN:NaN:NaN when there is no worked time, and the delete
+  confirmation dialog in the core templates gets the same fix and faster load as in the
+  theme.
+- Onboarding: the Bulk Mail form on a stage pre-fills the selected candidates.
+- Dark mode: the Monthly Attendance Summary calendar modal and its panels, the dashboard
+  and the attendance, payroll, performance and theme pages that still showed light
+  backgrounds, borders or text now follow the theme
+  ([#1368](https://github.com/horilla/horilla-hr/issues/1368), reported by **@ft-mammoo**,
+  who also sent [#1370](https://github.com/horilla/horilla-hr/pull/1370)).
+- Base: an invalid time format is rejected when saving the time format setting.
+- Dashboards: the first day of the week setting (`HORILLA_FIRST_DAY_OF_WEEK`) is now used
+  by the dashboards, reports, filters and the roster
+  ([#1362](https://github.com/horilla/horilla-hr/issues/1362), reported by **@egwan**).
+- Attendance: the department rows on the attendance dashboard link to the right
+  department, and a bulk delete, the allowed IP edit and similar requests with a missing
+  or invalid id report the problem instead of failing with a server error. Reported in
+  [#1369](https://github.com/horilla/horilla-hr/issues/1369).
+- Interface: select boxes have a clear button and work with required fields, mail
+  automation conditions keep their Boolean values when saved, and tooltips no longer
+  stay behind when their element is redrawn.
+- Helpdesk: the department selection loads employees and validates correctly.
+- Recruitment: the candidate rating buttons return to the right page.
+- Project, offboarding and performance: the permission checks no longer fail for a user
+  without an employee record, for example a signed-out visitor.
+- Tests: `python manage.py test` with no labels runs through, also with `--parallel`
+  (`tblib` is added for the parallel run, test tooling only)
+  ([#1355](https://github.com/horilla/horilla-hr/pull/1355), by **@adamsthws**).
+
+### Security
+
+Four reports from outside the team, all made privately, are fixed in this release.
+With thanks to **@wict0rious**, **@bryteh** and **@Vikram-Singh-Gill** for reporting
+them responsibly.
+
+- **Bank and payroll data readable through the generic export** — [GHSA-m5xf-rwqv-5q3x](https://github.com/horilla/horilla-hr/security/advisories/GHSA-m5xf-rwqv-5q3x)
+  (High). An employee could export bank account and salary details of colleagues through
+  the shared export endpoint. The endpoint now refuses these fields. Reported by
+  **@wict0rious**.
+- **Attendance validation outside a manager's own reports** — [GHSA-g3xq-vrg4-4mv7](https://github.com/horilla/horilla-hr/security/advisories/GHSA-g3xq-vrg4-4mv7).
+  A reporting manager could validate the attendance of employees who do not report to
+  them. Validation is now limited to the manager's own reports, and so are the bulk
+  validate and the overtime approval routes. Reported by **@bryteh**.
+- **Unsafe search field in the shared filter** — [GHSA-x2mh-79q8-pqh6](https://github.com/horilla/horilla-hr/security/advisories/GHSA-x2mh-79q8-pqh6)
+  (High). The search field sent by the browser was not checked, so an authenticated user
+  could search fields they should not be able to read. The field is now validated.
+  Reported by **@Vikram-Singh-Gill**.
+- **Uploaded files readable by any signed-in user** — [GHSA-hhhg-2wq9-r83g](https://github.com/horilla/horilla-hr/security/advisories/GHSA-hhhg-2wq9-r83g).
+  Any signed-in user could fetch any uploaded file by its path. Each file is now checked
+  against the record that owns it. Reported by **@bryteh**.
+
+### Upgrading
+
+- Run `python manage.py migrate` (new migrations in `base`, `payroll` and `recruitment`).
+- The only dependency change is `tblib`, which test runs use. Source installs do not need
+  to `pip install -r requirements.txt` again.
+
+`docker pull horilla/horilla-hr:2.4.0`
+
+## [2.3.1] — 2026-11-08
+
+Security release. It fixes one privately reported vulnerability (a stored cross-site
+scripting flaw in the send-mail dialogs) and carries the recruitment, onboarding,
+offboarding, asset and payroll work and the interface polish merged since 2.3.0.
+
+**Upgrading from 2.3.0:** run `python manage.py migrate` (new migrations in
+`offboarding`, `payroll` and `recruitment`), then read *Upgrading* below.
+
+### Added
+
+- Offboarding: comments on a resignation, notice period columns, a rejection reason when
+  a resignation is rejected, and edit and cancel buttons that follow the request status.
+  The Actions column is merged and the detail view is restyled.
+- Payroll: an Always Applied tab, with a per-employee tax treatment for the standard pay
+  items.
+- Recruitment: a stage actions menu on the pipeline card view, drag-and-drop and editing
+  of stages in the pipeline wizard, and a default probation period in the recruitment
+  general settings.
+- Onboarding: an Onboarding tab on the employee profile, and date inputs with validation
+  on the onboarding confirmation.
+- Asset: item tracking and conditional editing on asset allocation, and a description
+  field on assets.
+- Base: an interviews panel and an API for pending interviews.
+- Dashboards: the same period presets (Today, This Week, Last Week, This Month, Last
+  Month, This Year) on every dashboard that has a period picker
+  ([#1353](https://github.com/horilla/horilla-hr/pull/1353), by **@adamsthws**).
+- Russian (`ru`) translation
+  ([#1183](https://github.com/horilla/horilla-hr/pull/1183), by **@Its-My-Work**).
+
+### Changed
+
+- Recruitment: the stage type formerly called "hired" is now "shortlisted" across
+  various modules.
+- Recruitment: the candidate portal is switched off for closed or archived recruitments.
+  The application form and the resume application form for shortlisted candidates are
+  now separate, the "Manage Stage Order" action and the Stage section in configuration
+  are removed, and the candidate History and Note tabs match the employee ones.
+  Candidate lists, documents, the talent pool, question templates and the matching
+  resumes display were reworked.
+- Base: the export dialog has separate panes for selecting and rearranging columns.
+- Payroll: the standard pay items are hidden from the configuration lists, a contract's
+  components are grouped by how they apply with a Type column, and loading a country's
+  rules moved into the Actions menu of the Filing Status page.
+- Onboarding: the pipeline actions and filters, the probation period section and the
+  candidate detail view were reworked. The reject section and the Modified By column on
+  candidate profile tasks are removed.
+- Asset and employee lists, tabs and detail views were restyled.
+
+### Fixed
+
+- Leave: the employee picker works again and the buttons on the leave detail stay on one
+  row.
+- Payroll: a CTC Down payslip that sits below the CTC now explains why and names the
+  cause of any gap.
+- Dark mode: text areas keep the same background as the inputs beside them, and date and
+  time inputs show a light picker icon
+  ([#1359](https://github.com/horilla/horilla-hr/pull/1359), by **@adamsthws**).
+- Activity history: rich-text values are shown as plain text and long values wrap.
+- Interface: the delete confirmation dialog is fixed and loads much faster, the sidebar
+  no longer closes on synthetic clicks, stuck tooltips are cleared, collapsed columns
+  stay collapsed after a reload, and the Actions tooltip no longer overlaps its menu.
+- Recruitment: the hired filter returns the right candidates.
+- CI: the dependency install no longer fails when GitHub returns a temporary 504 while
+  downloading the spaCy model. It now retries and keeps the wheel in the CI cache.
+  `requirements.txt` is unchanged, so installs of the app are not affected.
+
+### Security
+
+One report from outside the team, reported privately, is fixed in this release. With
+thanks to **@Cbdlll** for reporting it responsibly.
+
+- **Stored cross-site scripting in the send-mail dialogs** — [GHSA-fp49-5rww-88pv](https://github.com/horilla/horilla-hr/security/advisories/GHSA-fp49-5rww-88pv)
+  (High). A candidate name entered on a public application form could run script in the
+  browser of a recruiter who opened the send-mail dialog for that candidate. The dialog
+  no longer prints the name into a script. The employee send-mail dialog used the same
+  pattern and is fixed too. Affects 1.2.0 through 2.3.0. Reported by **@Cbdlll**.
+
+### Upgrading
+
+- Run `python manage.py migrate` (new migrations in `offboarding`, `payroll` and
+  `recruitment`).
+- Dependencies are unchanged, so source installs do not need `pip install -r
+  requirements.txt` again.
+- Installations whose own settings replace the template context processors should add
+  `base.context_processors.get_default_probation_period`.
+- The recruitment stage type formerly called "hired" is now "shortlisted". Saved filters
+  or reports that refer to it may need updating.
+- API clients: no API version change (`API_VERSION` unchanged).
+
+```bash
+docker pull horilla/horilla-hr:2.3.1
+```
+
 ## [2.3.0] — 2026-11-03
 
 Security release. It fixes four privately reported vulnerabilities (the tax formula
@@ -940,7 +1160,9 @@ Secret — message delivery stops until it is set.
 docker pull horilla/horilla-hr:2.1.1
 ```
 
-[Unreleased]: https://github.com/horilla/horilla-hr/compare/2.3.0...HEAD
+[Unreleased]: https://github.com/horilla/horilla-hr/compare/2.4.0...HEAD
+[2.4.0]: https://github.com/horilla/horilla-hr/compare/2.3.1...2.4.0
+[2.3.1]: https://github.com/horilla/horilla-hr/compare/2.3.0...2.3.1
 [2.3.0]: https://github.com/horilla/horilla-hr/compare/2.2.0...2.3.0
 [2.2.0]: https://github.com/horilla/horilla-hr/compare/2.1.8...2.2.0
 [2.1.8]: https://github.com/horilla/horilla-hr/compare/2.1.7...2.1.8

@@ -119,6 +119,7 @@ from base.forms import (
     find_reset_user,
 )
 from base.import_template_data import import_template_frame, write_import_xlsx
+from base.media_access import user_can_access_media
 from base.methods import (
     check_chart_permission,
     check_manager,
@@ -859,17 +860,43 @@ def initialize_job_position_delete(request, obj_id):
     )
 
 
+LOGIN_FORM_STATE_KEY = "login_form_state"
+
+
+def _login_failed(request, username="", field_errors=None):
+    """
+    Redirect back to the login page after a failed attempt.
+
+    The username and any field-level errors ride across the redirect in the
+    session (popped by the next GET), so the page keeps what was typed and
+    says which field needs attention. The password is never stored.
+    """
+    request.session[LOGIN_FORM_STATE_KEY] = {
+        "username": (username or "")[:150],
+        "field_errors": field_errors or {},
+    }
+    return redirect("login")
+
+
 def login_user(request):
     """
     Handles user login and authentication.
     """
     if request.method == "POST":
-        username = request.POST.get("username")
-        password = request.POST.get("password")
+        username = (request.POST.get("username") or "").strip()
+        password = request.POST.get("password") or ""
         next_url = request.GET.get("next", "/")
         query_params = request.GET.dict()
         query_params.pop("next", None)
         params = urlencode(query_params)
+
+        field_errors = {}
+        if not username:
+            field_errors["username"] = _("Enter your username.")
+        if not password:
+            field_errors["password"] = _("Enter your password.")
+        if field_errors:
+            return _login_failed(request, username, field_errors)
 
         user = authenticate(request, username=username, password=password)
 
@@ -880,7 +907,11 @@ def login_user(request):
             # one. Blocked users are told to contact their administrator via
             # the same text rather than being confirmed as real accounts.
             messages.error(request, _("Invalid username or password."))
-            return redirect("login")
+            return _login_failed(
+                request,
+                username,
+                {"password": _("Check your username and password, then try again.")},
+            )
 
         employee = getattr(user, "employee_get", None)
         if employee is None:
@@ -888,7 +919,7 @@ def login_user(request):
                 request,
                 _("An employee related to this user's credentials does not exist."),
             )
-            return redirect("login")
+            return _login_failed(request, username)
         if not employee.is_active:
             messages.warning(
                 request,
@@ -896,7 +927,7 @@ def login_user(request):
                     "This user is archived. Please contact the manager for more information."
                 ),
             )
-            return redirect("login")
+            return _login_failed(request, username)
 
         login(request, user)
 
@@ -912,8 +943,15 @@ def login_user(request):
             next_url += f"?{params}"
         return redirect(next_url)
 
+    form_state = request.session.pop(LOGIN_FORM_STATE_KEY, None) or {}
     return render(
-        request, "login.html", {"initialize_database": initialize_database_condition()}
+        request,
+        "login.html",
+        {
+            "initialize_database": initialize_database_condition(),
+            "form_username": form_state.get("username", ""),
+            "field_errors": form_state.get("field_errors", {}),
+        },
     )
 
 
@@ -6331,6 +6369,12 @@ def save_time_format(request):
         # Taking the selected Time Format
         selected_format = request.POST.get("selected_format")
 
+        if selected_format not in settings.HORILLA_TIME_FORMATS:
+            messages.error(request, _("Invalid time format."))
+            return JsonResponse(
+                {"success": False, "error": "Invalid time format."}, status=400
+            )
+
         if not len(selected_format):
             messages.error(request, _("Please select a valid time format."))
         else:
@@ -8854,6 +8898,14 @@ def protected_media(request, path):
                 "You must be logged in or provide a valid token to access this file.",
             )
             return redirect("login")
+
+        # Signed in is not enough: the file must belong to something the
+        # requester may see (their own record, their report's, a record they
+        # take part in, or a view permission). 404 rather than 403 so a denied
+        # request does not confirm that the file exists. See GHSA / issue #3516.
+        requester = request.user if request.user.is_authenticated else jwt_user
+        if not user_can_access_media(requester, path):
+            raise Http404("File not found")
 
     # Determine the content type from the extension and decide whether the
     # browser may render it inline. User-uploaded content that browsers treat
