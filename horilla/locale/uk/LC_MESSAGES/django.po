@@ -35731,6 +35731,7 @@ msgstr "Шаблони повідомлень і потоки успішно с�
 
 #~ msgid "Mail not send to %(candidate_name)s"
 #~ msgstr "Пошта не надсилається на %(candidate_name)s"
+
 #: scg_overrides/onboarding_blocks.py (SCG addition: onboarding task blocks)
 msgid "Add Task Blocks"
 msgstr "Додати блоки задач"
